@@ -17,42 +17,44 @@ RUN npm run db:generate --workspace=packages/backend
 # Build backend
 RUN npm run build --workspace=packages/backend
 
-# Stage 2: Production
+# Stage 2: Production — keep the full monorepo structure so Node resolves modules correctly
 FROM node:20-alpine
 
-# Set working directory
 WORKDIR /app
 
-# Set environment variables
 ENV NODE_ENV=production
 
 # Create app user for security
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001
 
-# Copy built application from builder stage
-COPY --from=builder /app/packages/backend/dist ./dist
-COPY --from=builder /app/packages/backend/node_modules ./node_modules
-COPY --from=builder /app/node_modules ./root_node_modules
-COPY --from=builder /app/packages/backend/prisma ./prisma
+# Copy the root node_modules (where hoisted deps like express live)
+COPY --from=builder /app/node_modules ./node_modules
+
+# Copy backend node_modules (for any non-hoisted deps + prisma client)
+COPY --from=builder /app/packages/backend/node_modules ./packages/backend/node_modules
+
+# Copy built backend code
+COPY --from=builder /app/packages/backend/dist ./packages/backend/dist
+COPY --from=builder /app/packages/backend/prisma ./packages/backend/prisma
+COPY --from=builder /app/packages/backend/package.json ./packages/backend/package.json
+
+# Copy shared package
 COPY --from=builder /app/packages/shared ./packages/shared
 
-# Copy package.json files for reference
+# Copy root package.json (needed for workspace resolution)
 COPY --from=builder /app/package.json ./
-COPY --from=builder /app/packages/backend/package.json ./packages/backend/
 
 # Change ownership to nodejs user
 RUN chown -R nodejs:nodejs /app
 
-# Switch to nodejs user
 USER nodejs
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD node -e "require('http').get('http://localhost:3001/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
 
-# Expose port
 EXPOSE 3001
 
-# Start application
-CMD ["node", "dist/index.js"]
+# Run from the backend package directory
+CMD ["node", "packages/backend/dist/index.js"]
