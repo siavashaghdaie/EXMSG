@@ -1,0 +1,54 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: em-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-em_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-em_secret_2024}
+      POSTGRES_DB: ${DB_NAME:-exclusive_messenger}
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U em_user -d exclusive_messenger']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: em-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-em_redis_2024}
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD:-em_redis_2024}', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: em-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-em_minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-em_minio_secret_2024}
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - minio_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

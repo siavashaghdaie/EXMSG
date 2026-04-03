@@ -1,0 +1,36 @@
+{
+  "folders": [
+    { "path": ".", "name": "Root" },
+    { "path": "packages/backend", "name": "Backend" },
+    { "path": "packages/web", "name": "Web" },
+    { "path": "packages/mobile", "name": "Mobile" },
+    { "path": "packages/shared", "name": "Shared" }
+  ],
+  "settings": {
+    "typescript.tsdk": "node_modules/typescript/lib",
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": "explicit"
+    },
+    "files.exclude": {
+      "**/node_modules": true,
+      "**/dist": true,
+      "**/.git": true
+    },
+    "search.exclude": {
+      "**/node_modules": true,
+      "**/dist": true
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "esbenp.prettier-vscode",
+      "dbaeumer.vscode-eslint",
+      "bradlc.vscode-tailwindcss",
+      "prisma.prisma",
+      "ms-azuretools.vscode-docker",
+      "formulahendry.auto-rename-tag"
+    ]
+  }
+}

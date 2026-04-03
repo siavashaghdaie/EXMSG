@@ -1,0 +1,35 @@
+{
+  "name": "exclusive-messenger",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A private corporate messenger with AI-powered task management",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev --workspace=packages/backend",
+    "dev:web": "npm run dev --workspace=packages/web",
+    "dev:mobile": "npm run start --workspace=packages/mobile",
+    "build:backend": "npm run build --workspace=packages/backend",
+    "build:web": "npm run build --workspace=packages/web",
+    "build:shared": "npm run build --workspace=packages/shared",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:web\"",
+    "lint": "eslint packages/*/src --ext .ts,.tsx",
+    "format": "prettier --write \"packages/*/src/**/*.{ts,tsx,json}\"",
+    "db:migrate": "npm run db:migrate --workspace=packages/backend",
+    "db:seed": "npm run db:seed --workspace=packages/backend",
+    "docker:up": "docker-compose -f docker/docker-compose.yml up -d",
+    "docker:down": "docker-compose -f docker/docker-compose.yml down"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "eslint": "^8.56.0",
+    "prettier": "^3.2.4",
+    "typescript": "^5.3.3",
+    "@typescript-eslint/eslint-plugin": "^6.19.0",
+    "@typescript-eslint/parser": "^6.19.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
