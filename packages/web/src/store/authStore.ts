@@ -37,10 +37,12 @@ export const useAuthStore = create<AuthState>()(
             isLoading: false,
           });
 
-          // Connect socket after successful login
+          // Connect socket after successful login (fire-and-forget, don't block auth)
           const token = localStorage.getItem('accessToken');
           if (token) {
-            await socket.connect(token);
+            socket.connect(token).catch((err: unknown) => {
+              console.warn('[Socket] Connection failed, will retry:', err);
+            });
           }
         } catch (error: any) {
           const errorMessage = error.response?.data?.message || error.message || 'Login failed';
@@ -63,10 +65,12 @@ export const useAuthStore = create<AuthState>()(
             isLoading: false,
           });
 
-          // Connect socket after successful registration
+          // Connect socket after successful registration (fire-and-forget, don't block auth)
           const token = localStorage.getItem('accessToken');
           if (token) {
-            await socket.connect(token);
+            socket.connect(token).catch((err: unknown) => {
+              console.warn('[Socket] Connection failed, will retry:', err);
+            });
           }
         } catch (error: any) {
           const errorMessage =
@@ -125,8 +129,10 @@ export const useAuthStore = create<AuthState>()(
             isLoading: false,
           });
 
-          // Connect socket with valid token
-          await socket.connect(token);
+          // Connect socket with valid token (fire-and-forget)
+          socket.connect(token).catch((err: unknown) => {
+            console.warn('[Socket] Connection failed, will retry:', err);
+          });
         } catch (error: any) {
           // Token is invalid, clear it
           localStorage.removeItem('accessToken');

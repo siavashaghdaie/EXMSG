@@ -68,7 +68,11 @@ class SocketService {
         return;
       }
 
-      const socketURL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
+      // In production, connect to the same host (nginx proxies /socket.io/ to backend)
+      // In development, connect to localhost:3001
+      const socketURL = import.meta.env.VITE_SOCKET_URL || (
+        import.meta.env.PROD ? window.location.origin : 'http://localhost:3001'
+      );
 
       this.socket = io(socketURL, {
         auth: {
