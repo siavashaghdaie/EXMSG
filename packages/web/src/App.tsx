@@ -41,7 +41,7 @@ function App() {
       {/* Protected chat routes */}
       <Route
         path="/chat"
-        element={isAuthenticated ? <ChatLayout /> : <Navigate to="/login" replace />}
+        element={isAuthenticated && !isLoading ? <ChatLayout /> : <Navigate to="/login" replace />}
       >
         <Route index element={<ChatEmptyState />} />
         <Route path=":conversationId" element={<ChatView />} />

@@ -183,6 +183,12 @@ export const useAuthStore = create<AuthState>()(
         user: state.user,
         isAuthenticated: state.isAuthenticated,
       }),
+      // Safety: if persisted state is inconsistent, fix it on hydration
+      onRehydrateStorage: () => (state) => {
+        if (state && state.isAuthenticated && !state.user) {
+          state.isAuthenticated = false;
+        }
+      },
     }
   )
 );

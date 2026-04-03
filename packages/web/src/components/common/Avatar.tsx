@@ -25,7 +25,7 @@ const onlineIndicatorSizeClasses: Record<AvatarSize, string> = {
 };
 
 // Generate a consistent color based on the name
-const getColorFromName = (name: string): string => {
+const getColorFromName = (name: string | undefined): string => {
   const colors = [
     'bg-blue-500',
     'bg-green-500',
@@ -36,11 +36,13 @@ const getColorFromName = (name: string): string => {
     'bg-cyan-500',
     'bg-amber-500',
   ];
+  if (!name) return colors[0];
   const hash = name.charCodeAt(0) + name.length;
   return colors[hash % colors.length];
 };
 
-const getInitials = (name: string): string => {
+const getInitials = (name: string | undefined): string => {
+  if (!name) return '?';
   return name
     .split(' ')
     .map((part) => part[0])
