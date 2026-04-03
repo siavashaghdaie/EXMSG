@@ -8,6 +8,7 @@ import { connectDatabase } from './config/database';
 import { initializeSocketServer } from './services/socket';
 import { authRoutes } from './modules/auth/auth.routes';
 import { messagingRoutes } from './modules/messaging/messaging.routes';
+import { userRoutes } from './modules/user/user.routes';
 
 async function bootstrap() {
   const app = express();
@@ -27,6 +28,7 @@ async function bootstrap() {
   // API Routes
   app.use('/api/auth', authRoutes);
   app.use('/api', messagingRoutes);
+  app.use('/api/users', userRoutes);
 
   // Error handler
   app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
