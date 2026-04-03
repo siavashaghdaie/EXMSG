@@ -2,7 +2,9 @@
 # Stage 1: Builder
 FROM node:20-alpine AS builder
 
-# Set working directory
+# Install OpenSSL for Prisma
+RUN apk add --no-cache openssl
+
 WORKDIR /app
 
 # Copy entire monorepo
@@ -11,22 +13,25 @@ COPY . .
 # Install dependencies
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
-# Generate Prisma client
+# Generate Prisma client for linux-musl-openssl-3.0.x (Alpine 3.18+)
 RUN npm run db:generate --workspace=packages/backend
 
 # Build backend
 RUN npm run build --workspace=packages/backend
 
-# Stage 2: Production — keep the full monorepo structure so Node resolves modules correctly
-FROM node:20-alpine
+# Stage 2: Production — use node:20-slim (Debian) to avoid Alpine OpenSSL issues
+FROM node:20-slim
 
 WORKDIR /app
 
 ENV NODE_ENV=production
 
+# Install OpenSSL (Debian slim already has it, but ensure it's there)
+RUN apt-get update && apt-get install -y openssl wget && rm -rf /var/lib/apt/lists/*
+
 # Create app user for security
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
+RUN groupadd -g 1001 nodejs && \
+    useradd -u 1001 -g nodejs -s /bin/sh nodejs
 
 # Copy the root node_modules (where hoisted deps like express live)
 COPY --from=builder /app/node_modules ./node_modules
@@ -45,6 +50,9 @@ COPY --from=builder /app/packages/shared ./packages/shared
 # Copy root package.json (needed for workspace resolution)
 COPY --from=builder /app/package.json ./
 
+# Re-generate Prisma client for Debian (different platform than Alpine builder)
+RUN npx prisma generate --schema=packages/backend/prisma/schema.prisma
+
 # Change ownership to nodejs user
 RUN chown -R nodejs:nodejs /app
 
@@ -56,5 +64,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 EXPOSE 3001
 
-# Run from the backend package directory
 CMD ["node", "packages/backend/dist/index.js"]

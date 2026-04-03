@@ -1,15 +1,18 @@
 import Redis from 'ioredis';
 import { env } from './env';
 
-export const redis = new Redis({
-  host: env.REDIS_HOST,
-  port: env.REDIS_PORT,
-  password: env.REDIS_PASSWORD || undefined,
-  retryStrategy: (times) => {
-    const delay = Math.min(times * 50, 2000);
-    return delay;
-  },
-});
+// Support REDIS_URL (production) or individual host/port/password (development)
+const retryStrategy = (times: number) => Math.min(times * 50, 2000);
+
+export const redis = process.env.REDIS_URL
+  ? new Redis(process.env.REDIS_URL, { retryStrategy, maxRetriesPerRequest: 3 })
+  : new Redis({
+      host: env.REDIS_HOST,
+      port: env.REDIS_PORT,
+      password: env.REDIS_PASSWORD || undefined,
+      retryStrategy,
+      maxRetriesPerRequest: 3,
+    });
 
 redis.on('connect', () => {
   console.warn('✅ Redis connected successfully');
