@@ -9,7 +9,7 @@ WORKDIR /app
 COPY . .
 
 # Install dependencies
-RUN npm ci
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 # Build web application
 RUN npm run build --workspace=packages/web
