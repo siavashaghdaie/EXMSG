@@ -160,13 +160,16 @@ export const RegisterPage: React.FC = () => {
         formData.displayName,
         formData.password
       );
-
-      // Navigation happens after successful registration
-      setTimeout(() => {
+      // Navigate to chat after successful registration
+      navigate('/chat');
+    } catch (err: any) {
+      // If registration succeeded but socket failed, still navigate
+      const { isAuthenticated } = useAuthStore.getState();
+      if (isAuthenticated) {
         navigate('/chat');
-      }, 500);
-    } catch (err) {
-      console.error('Registration failed:', err);
+      } else {
+        console.error('Registration failed:', err);
+      }
     }
   };
 

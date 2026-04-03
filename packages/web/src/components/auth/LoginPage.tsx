@@ -92,15 +92,15 @@ export const LoginPage: React.FC = () => {
       }
 
       await login(formData.email, formData.password);
-
-      // Navigation happens after successful login
-      // The store should trigger this or you can add success handling
-      setTimeout(() => {
+      navigate('/chat');
+    } catch (err: any) {
+      // If login succeeded but socket failed, still navigate
+      const { isAuthenticated } = useAuthStore.getState();
+      if (isAuthenticated) {
         navigate('/chat');
-      }, 500);
-    } catch (err) {
-      // Error is handled by the store
-      console.error('Login failed:', err);
+      } else {
+        console.error('Login failed:', err);
+      }
     }
   };
 
