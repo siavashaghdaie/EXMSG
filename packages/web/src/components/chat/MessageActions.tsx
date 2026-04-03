@@ -1,27 +1,8 @@
-import React from 'react';
 import { Reply, Smile, Pencil, Trash2 } from 'lucide-react';
 import EmojiPicker from './EmojiPicker';
 
-interface Message {
-  id: string;
-  conversationId: string;
-  senderId: string;
-  senderName: string;
-  senderAvatar?: string;
-  content: string;
-  createdAt: Date;
-  editedAt?: Date;
-  readBy?: Record<string, Date>;
-  reactions?: Record<string, string[]>;
-  replyTo?: {
-    id: string;
-    senderName: string;
-    content: string;
-  };
-}
-
 interface MessageActionsProps {
-  message: Message;
+  message: { id: string };
   isOwnMessage: boolean;
   onReply: () => void;
   onEdit: () => void;
@@ -32,7 +13,7 @@ interface MessageActionsProps {
 }
 
 export default function MessageActions({
-  message,
+  message: _message,
   isOwnMessage,
   onReply,
   onEdit,

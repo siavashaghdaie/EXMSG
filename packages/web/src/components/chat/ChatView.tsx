@@ -4,39 +4,11 @@ import { format, isToday, isYesterday } from 'date-fns';
 import { ArrowDown, ChevronLeft } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
+import { MessageResponse, ConversationResponse } from '@/services/api';
 import MessageBubble from './MessageBubble';
 import MessageComposer from './MessageComposer';
 import TypingIndicator from './TypingIndicator';
 import Avatar from '@/components/common/Avatar';
-
-interface Message {
-  id: string;
-  conversationId: string;
-  senderId: string;
-  senderName: string;
-  senderAvatar?: string;
-  content: string;
-  createdAt: Date;
-  editedAt?: Date;
-  readBy?: Record<string, Date>;
-  reactions?: Record<string, string[]>;
-  replyTo?: {
-    id: string;
-    senderName: string;
-    content: string;
-  };
-}
-
-// Matches ConversationResponse from api.ts
-interface Conversation {
-  id: string;
-  name?: string;
-  participants: Array<{ id: string; email: string; username: string; avatar?: string }>;
-  lastMessage?: any;
-  unreadCount: number;
-  createdAt: string;
-  updatedAt: string;
-}
 
 export default function ChatView() {
   const { conversationId } = useParams<{ conversationId: string }>();
@@ -106,11 +78,11 @@ export default function ChatView() {
   }
 
   const conversationMessages = messages.get(conversationId) || [];
-  const conversation = activeConversation as Conversation | null;
+  const conversation = activeConversation as ConversationResponse | null;
 
   // Group messages by sender and time
-  const groupedMessages = conversationMessages.reduce(
-    (groups: any[], message: Message) => {
+  const groupedMessages = conversationMessages.reduce<Array<{ messages: MessageResponse[] }>>(
+    (groups, message) => {
       const lastGroup = groups[groups.length - 1];
       const isSameSender =
         lastGroup && lastGroup.messages[0].senderId === message.senderId;
@@ -138,8 +110,19 @@ export default function ChatView() {
   };
 
   // Render date separators between different days
+  // Helper to find sender info from conversation participants
+  const getSenderName = (senderId: string): string => {
+    const participant = conversation?.participants.find(p => p.id === senderId);
+    return participant?.username || 'Unknown';
+  };
+
+  const getSenderAvatar = (senderId: string): string | undefined => {
+    const participant = conversation?.participants.find(p => p.id === senderId);
+    return participant?.avatar;
+  };
+
   let lastDate: string | null = null;
-  const messagesToRender = groupedMessages.map((group, idx) => {
+  const messagesToRender = groupedMessages.map((group: { messages: MessageResponse[] }, idx: number) => {
     const firstMessage = group.messages[0];
     const currentDate = getDateSeparator(new Date(firstMessage.createdAt));
     const showDateSeparator = lastDate !== currentDate;
@@ -173,8 +156,8 @@ export default function ChatView() {
             {conversation && conversation.participants.length > 2 &&
               firstMessage.senderId !== user?.id && (
                 <Avatar
-                  name={firstMessage.senderName}
-                  src={firstMessage.senderAvatar}
+                  name={getSenderName(firstMessage.senderId)}
+                  src={getSenderAvatar(firstMessage.senderId)}
                   size="sm"
                 />
               )}
@@ -188,16 +171,16 @@ export default function ChatView() {
               {conversation && conversation.participants.length > 2 &&
                 firstMessage.senderId !== user?.id && (
                   <span className="text-xs text-slate-500 px-3 pt-1">
-                    {firstMessage.senderName}
+                    {getSenderName(firstMessage.senderId)}
                   </span>
                 )}
               <div className="flex flex-col gap-2">
-                {group.messages.map((msg: Message) => (
+                {group.messages.map((msg: MessageResponse) => (
                   <MessageBubble
                     key={msg.id}
                     message={msg}
                     isOwnMessage={msg.senderId === user?.id}
-                    showAvatar={conversation && conversation.participants.length > 2}
+                    showAvatar={conversation ? conversation.participants.length > 2 : false}
                   />
                 ))}
               </div>

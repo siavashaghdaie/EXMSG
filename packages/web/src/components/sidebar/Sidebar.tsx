@@ -12,7 +12,7 @@ interface SidebarProps {
   onNavigateChat?: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ onNavigateChat }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ onNavigateChat: _onNavigateChat }) => {
   const navigate = useNavigate();
   const { conversationId } = useParams<{ conversationId?: string }>();
   const [searchQuery, setSearchQuery] = useState('');
@@ -21,7 +21,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigateChat }) => {
 
   const {
     conversations,
-    activeConversation,
     fetchConversations,
     isLoadingConversations,
   } = useChatStore();

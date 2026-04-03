@@ -9,7 +9,7 @@ export const ChatLayout: React.FC = () => {
   const navigate = useNavigate();
   const { isAuthenticated, user, isLoading } = useAuthStore();
   const { fetchConversations } = useChatStore();
-  const [isInitialized, setIsInitialized] = useState(false);
+  const [, setIsInitialized] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [showSidebar, setShowSidebar] = useState(!isMobile);
 

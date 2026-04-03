@@ -58,7 +58,7 @@ interface UserProfile {
   username: string;
   avatar?: string;
   bio?: string;
-  createdAt: string;
+  createdAt?: string;
 }
 
 // API Client Class

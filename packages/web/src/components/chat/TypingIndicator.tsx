@@ -1,4 +1,4 @@
-import React from 'react';
+// TypingIndicator component
 
 interface TypingIndicatorProps {
   users: string[];

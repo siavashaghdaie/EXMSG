@@ -3,31 +3,14 @@ import { format } from 'date-fns';
 import { Check, CheckCheck } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
+import { MessageResponse } from '@/services/api';
 import MessageActions from './MessageActions';
 
-interface Message {
-  id: string;
-  conversationId: string;
-  senderId: string;
-  senderName: string;
-  senderAvatar?: string;
-  content: string;
-  createdAt: Date | string;
-  editedAt?: Date | string;
-  readBy?: Record<string, Date>;
-  reactions?: Record<string, string[]>;
-  replyTo?: {
-    id: string;
-    senderName: string;
-    content: string;
-  };
-}
-
 interface MessageBubbleProps {
-  message: Message;
+  message: MessageResponse;
   isOwnMessage: boolean;
   showAvatar?: boolean;
-  onReply?: (message: { id: string; senderName: string; content: string }) => void;
+  onReply?: (message: { id: string; content: string }) => void;
 }
 
 export default function MessageBubble({
@@ -58,7 +41,6 @@ export default function MessageBubble({
   const handleReply = () => {
     onReply?.({
       id: message.id,
-      senderName: message.senderName,
       content: message.content,
     });
   };
@@ -68,8 +50,8 @@ export default function MessageBubble({
     setShowEmojiPicker(false);
   };
 
-  // Check if message is fully read by all recipients
-  const isFullyRead = message.readBy && Object.keys(message.readBy).length > 0;
+  // Check if message is fully read (placeholder — backend can extend MessageResponse)
+  const isFullyRead = false;
 
   // Group reactions
   const reactionGroups = React.useMemo(() => {
@@ -90,24 +72,6 @@ export default function MessageBubble({
         setShowEmojiPicker(false);
       }}
     >
-      {/* Reply preview */}
-      {message.replyTo && (
-        <div className="mb-2 text-xs">
-          <div
-            className={`${
-              isOwnMessage
-                ? 'bg-blue-50 border-l-2 border-blue-300'
-                : 'bg-slate-100 border-l-2 border-slate-300'
-            } px-3 py-2 rounded`}
-          >
-            <p className="font-medium text-slate-700">
-              {message.replyTo.senderName}
-            </p>
-            <p className="text-slate-600 truncate">{message.replyTo.content}</p>
-          </div>
-        </div>
-      )}
-
       {/* Message content */}
       <div className="flex items-end gap-2">
         <div
