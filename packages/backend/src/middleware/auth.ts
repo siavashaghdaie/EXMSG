@@ -41,11 +41,11 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
 
 export function generateTokens(payload: AuthPayload) {
   const accessToken = jwt.sign(payload, env.JWT_SECRET, {
-    expiresIn: env.JWT_EXPIRES_IN,
+    expiresIn: 15 * 60, // 15 minutes in seconds
   });
 
   const refreshToken = jwt.sign(payload, env.JWT_REFRESH_SECRET, {
-    expiresIn: env.JWT_REFRESH_EXPIRES_IN,
+    expiresIn: 7 * 24 * 60 * 60, // 7 days in seconds
   });
 
   return { accessToken, refreshToken };
