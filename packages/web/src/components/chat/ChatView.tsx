@@ -27,14 +27,15 @@ interface Message {
   };
 }
 
+// Matches ConversationResponse from api.ts
 interface Conversation {
   id: string;
-  name: string;
-  avatar?: string;
-  type: 'direct' | 'group';
-  members?: Array<{ id: string; name: string; avatar?: string; online?: boolean }>;
-  lastMessage?: string;
-  unreadCount?: number;
+  name?: string;
+  participants: Array<{ id: string; email: string; username: string; avatar?: string }>;
+  lastMessage?: any;
+  unreadCount: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export default function ChatView() {
@@ -169,7 +170,7 @@ export default function ChatView() {
                 : 'flex-row'
             }`}
           >
-            {conversation?.type === 'group' &&
+            {conversation && conversation.participants.length > 2 &&
               firstMessage.senderId !== user?.id && (
                 <Avatar
                   name={firstMessage.senderName}
@@ -184,7 +185,7 @@ export default function ChatView() {
                   : 'items-start'
               } gap-1`}
             >
-              {conversation?.type === 'group' &&
+              {conversation && conversation.participants.length > 2 &&
                 firstMessage.senderId !== user?.id && (
                   <span className="text-xs text-slate-500 px-3 pt-1">
                     {firstMessage.senderName}
@@ -196,7 +197,7 @@ export default function ChatView() {
                     key={msg.id}
                     message={msg}
                     isOwnMessage={msg.senderId === user?.id}
-                    showAvatar={conversation?.type === 'group'}
+                    showAvatar={conversation && conversation.participants.length > 2}
                   />
                 ))}
               </div>
@@ -216,35 +217,29 @@ export default function ChatView() {
             <button className="lg:hidden p-2 hover:bg-slate-100 rounded-lg transition">
               <ChevronLeft size={20} className="text-slate-600" />
             </button>
-            {conversation && (
-              <>
-                <Avatar
-                  name={conversation.name}
-                  src={conversation.avatar}
-                  size="md"
-                />
-                <div className="flex-1">
-                  <h2 className="font-semibold text-slate-900">
-                    {conversation.name}
-                  </h2>
-                  <p className="text-xs text-slate-500">
-                    {conversation.type === 'group' && conversation.members ? (
-                      <>
-                        {conversation.members.filter((m) => m.online)?.length ||
-                          0}{' '}
-                        of {conversation.members.length} online
-                      </>
-                    ) : (
-                      <>
-                        {conversation.members?.[0]?.online
-                          ? 'Online'
-                          : 'Offline'}
-                      </>
-                    )}
-                  </p>
-                </div>
-              </>
-            )}
+            {conversation && (() => {
+              const isGroup = conversation.participants.length > 2;
+              const otherParticipants = conversation.participants.filter(p => p.id !== user?.id);
+              const displayName = conversation.name || otherParticipants.map(p => p.username).join(', ');
+              return (
+                <>
+                  <Avatar
+                    name={displayName}
+                    size="md"
+                  />
+                  <div className="flex-1">
+                    <h2 className="font-semibold text-slate-900">
+                      {displayName}
+                    </h2>
+                    <p className="text-xs text-slate-500">
+                      {isGroup
+                        ? `${conversation.participants.length} members`
+                        : 'Direct message'}
+                    </p>
+                  </div>
+                </>
+              );
+            })()}
           </div>
           <div className="flex items-center gap-2">
             <button className="p-2 hover:bg-slate-100 rounded-lg transition">

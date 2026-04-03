@@ -68,7 +68,7 @@ class SocketService {
         return;
       }
 
-      const socketURL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:3001';
+      const socketURL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001';
 
       this.socket = io(socketURL, {
         auth: {

@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { format } from 'date-fns';
-import { Check, CheckCheck, X } from 'lucide-react';
+import { Check, CheckCheck } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import MessageActions from './MessageActions';
-import EmojiPicker from './EmojiPicker';
 
 interface Message {
   id: string;
@@ -13,8 +12,8 @@ interface Message {
   senderName: string;
   senderAvatar?: string;
   content: string;
-  createdAt: Date;
-  editedAt?: Date;
+  createdAt: Date | string;
+  editedAt?: Date | string;
   readBy?: Record<string, Date>;
   reactions?: Record<string, string[]>;
   replyTo?: {
@@ -28,35 +27,36 @@ interface MessageBubbleProps {
   message: Message;
   isOwnMessage: boolean;
   showAvatar?: boolean;
+  onReply?: (message: { id: string; senderName: string; content: string }) => void;
 }
 
 export default function MessageBubble({
   message,
   isOwnMessage,
-  showAvatar,
+  onReply,
 }: MessageBubbleProps) {
   const [showActions, setShowActions] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState(message.content);
-  const { editMessage, deleteMessage, setReplyingTo } = useChatStore();
+  const { editMessage, deleteMessage, addReaction } = useChatStore();
   const { user } = useAuthStore();
 
   const handleEdit = () => {
     if (editedContent.trim()) {
-      editMessage(message.id, editedContent);
+      editMessage(message.conversationId, message.id, editedContent);
       setIsEditing(false);
     }
   };
 
   const handleDelete = () => {
     if (window.confirm('Delete this message?')) {
-      deleteMessage(message.id);
+      deleteMessage(message.conversationId, message.id);
     }
   };
 
   const handleReply = () => {
-    setReplyingTo({
+    onReply?.({
       id: message.id,
       senderName: message.senderName,
       content: message.content,
@@ -64,15 +64,12 @@ export default function MessageBubble({
   };
 
   const handleAddReaction = (emoji: string) => {
-    const { addReaction } = useChatStore();
-    addReaction(message.id, emoji);
+    addReaction(message.conversationId, message.id, emoji);
     setShowEmojiPicker(false);
   };
 
   // Check if message is fully read by all recipients
-  const isFullyRead =
-    message.readBy &&
-    Object.keys(message.readBy).length > 0;
+  const isFullyRead = message.readBy && Object.keys(message.readBy).length > 0;
 
   // Group reactions
   const reactionGroups = React.useMemo(() => {
@@ -113,7 +110,6 @@ export default function MessageBubble({
 
       {/* Message content */}
       <div className="flex items-end gap-2">
-        {/* Message bubble */}
         <div
           className={`flex-1 relative ${
             isOwnMessage ? 'flex justify-end' : 'flex justify-start'
@@ -127,15 +123,15 @@ export default function MessageBubble({
             }`}
           >
             {isEditing ? (
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2">
                 <textarea
                   autoFocus
                   value={editedContent}
                   onChange={(e) => setEditedContent(e.target.value)}
-                  className="flex-1 px-3 py-1 bg-slate-800 text-white rounded border border-slate-600 resize-none"
+                  className="w-full px-3 py-1 bg-slate-800 text-white rounded border border-slate-600 resize-none text-sm"
                   rows={2}
                 />
-                <div className="flex gap-1">
+                <div className="flex gap-1 justify-end">
                   <button
                     onClick={handleEdit}
                     className="px-2 py-1 bg-green-500 text-white rounded text-xs hover:bg-green-600"
@@ -168,7 +164,7 @@ export default function MessageBubble({
 
         {/* Timestamp & read receipt */}
         {isOwnMessage && (
-          <div className="flex flex-col items-center gap-1">
+          <div className="flex flex-col items-center gap-1 flex-shrink-0">
             <span className="text-xs text-slate-500">
               {format(new Date(message.createdAt), 'HH:mm')}
             </span>
@@ -181,7 +177,7 @@ export default function MessageBubble({
         )}
 
         {!isOwnMessage && (
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-slate-500 flex-shrink-0">
             {format(new Date(message.createdAt), 'HH:mm')}
           </span>
         )}
@@ -189,7 +185,7 @@ export default function MessageBubble({
 
       {/* Reactions */}
       {reactionGroups.length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-2 ml-0">
+        <div className="flex flex-wrap gap-1 mt-2">
           {reactionGroups.map((reaction, idx) => (
             <button
               key={`${reaction.emoji}-${idx}`}

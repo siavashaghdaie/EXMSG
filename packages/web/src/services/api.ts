@@ -67,7 +67,7 @@ class APIClient {
   private refreshPromise: Promise<string> | null = null;
 
   constructor() {
-    const baseURL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+    const baseURL = import.meta.env.VITE_API_URL || '/api';
 
     this.client = axios.create({
       baseURL,
@@ -149,7 +149,7 @@ class APIClient {
 
       try {
         const response = await axios.post<AuthResponse>(
-          `${process.env.REACT_APP_API_URL || 'http://localhost:3001/api'}/auth/refresh`,
+          `${import.meta.env.VITE_API_URL || '/api'}/auth/refresh`,
           { refreshToken },
           { timeout: 10000 }
         );
