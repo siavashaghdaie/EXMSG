@@ -4,6 +4,7 @@ import { Mail, Lock, MessageSquare } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { Button } from '../common/Button';
 import { Input } from '../common/Input';
+import { Toast } from '../common/Toast';
 
 interface FormErrors {
   email?: string;
@@ -12,7 +13,12 @@ interface FormErrors {
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
-  const { login, isLoading, error } = useAuthStore();
+  const { login, isLoading, error, clearError } = useAuthStore();
+
+  // Clear any stale error when page loads
+  useEffect(() => {
+    clearError();
+  }, [clearError]);
 
   const [formData, setFormData] = useState({
     email: '',
@@ -130,16 +136,12 @@ export const LoginPage: React.FC = () => {
         </div>
 
         {/* Login Card */}
-        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl p-8 space-y-6 border border-gray-200 dark:border-gray-800">
-          {/* Error Alert */}
-          {error && (
-            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-              <p className="text-red-800 dark:text-red-300 text-sm font-medium">
-                {error}
-              </p>
-            </div>
-          )}
+        {/* Error Toast Popup */}
+        {error && (
+          <Toast message={error} type="error" onClose={clearError} />
+        )}
 
+        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl p-8 space-y-6 border border-gray-200 dark:border-gray-800">
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Email Input */}
             <Input

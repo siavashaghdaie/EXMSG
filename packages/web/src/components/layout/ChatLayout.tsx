@@ -158,11 +158,24 @@ export const ChatLayout: React.FC = () => {
   // On mobile: show content only if not showing sidebar. On desktop: always show content
   const shouldShowContent = isMobile ? !showSidebar : true;
 
+  // Determine if a sub-page (settings, agents, tasks, etc.) is open — these should keep BottomNav visible
+  const isSubPageOpen = showSettings || showAgents || showTaskWall || showLinda || showAdminDashboard || showAnnouncements;
+  // On mobile, show BottomNav when: sidebar is visible OR a sub-page is open (not in a conversation)
+  const showBottomNav = isMobile && (shouldShowSidebar || isSubPageOpen);
+
+  // Determine the active BottomNav tab based on which sub-page is open
+  const getActiveBottomTab = (): string | undefined => {
+    if (showSettings) return 'settings';
+    if (showAgents) return 'agents';
+    if (showTaskWall) return 'tasks';
+    return undefined; // let BottomNav auto-detect from URL
+  };
+
   return (
     <div className="h-[100dvh] bg-gray-50 dark:bg-surface-950 flex overflow-hidden flex-col md:flex-row">
       {/* Sidebar/Conversation List - Full screen on mobile when visible */}
-      {shouldShowSidebar && (
-        <div className={isMobile ? 'w-full h-full' : ''}>
+      {shouldShowSidebar && !(isMobile && isSubPageOpen) && (
+        <div className={isMobile ? 'w-full' : ''} style={isMobile && showBottomNav ? { height: 'calc(100% - 56px)' } : isMobile ? { height: '100%' } : undefined}>
           <Sidebar
             isMobile={isMobile}
             onNavigateChat={() => {
@@ -222,9 +235,9 @@ export const ChatLayout: React.FC = () => {
         </div>
       )}
 
-      {/* Main content area - shown on desktop always, on mobile only when in chat */}
-      {shouldShowContent && (
-        <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Main content area - shown on desktop always, on mobile only when in chat/sub-page */}
+      {(shouldShowContent || (isMobile && isSubPageOpen)) && (
+        <div className={`flex-1 flex flex-col overflow-hidden ${showBottomNav ? 'pb-[56px]' : ''}`}>
           {/* Note: ChatView has its own back button in its header */}
 
           {/* Content outlet */}
@@ -279,11 +292,12 @@ export const ChatLayout: React.FC = () => {
         </div>
       )}
 
-      {/* Bottom Navigation - only show on mobile when sidebar is visible */}
-      {isMobile && shouldShowSidebar && (
+      {/* Bottom Navigation - show on mobile when sidebar is visible or sub-page is open */}
+      {showBottomNav && (
         <BottomNav
           visible={true}
           taskCount={taskCount}
+          activeTab={getActiveBottomTab()}
           onAgentsClick={() => {
             setShowAgents(true);
             setShowSettings(false);

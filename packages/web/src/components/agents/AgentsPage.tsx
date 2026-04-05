@@ -217,15 +217,15 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
                     className={`relative rounded-full transition-colors flex-shrink-0 ${
                       isEnabled ? 'bg-primary-600' : 'bg-gray-300 dark:bg-surface-600'
                     }`}
-                    style={{ width: 36, height: 20 }}
+                    style={{ width: 44, height: 24, minWidth: 44, boxSizing: 'border-box' }}
                   >
                     <div
-                      className={`absolute bg-white rounded-full shadow-sm transition-transform`}
+                      className="absolute bg-white rounded-full shadow-sm"
                       style={{
-                        width: 16,
-                        height: 16,
-                        top: 2,
-                        left: isEnabled ? 18 : 2,
+                        width: 18,
+                        height: 18,
+                        top: 3,
+                        left: isEnabled ? 23 : 3,
                         transition: 'left 0.2s ease',
                       }}
                     />

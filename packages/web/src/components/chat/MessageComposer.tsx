@@ -90,6 +90,9 @@ export default function MessageComposer({
       // Mark as sending so blur handler won't dismiss
       isSendingRef.current = true;
 
+      // Save ref to the textarea before any state changes
+      const textarea = textareaRef.current;
+
       sendMessage(conversationId, message.trim(), replyingTo?.messageId);
       setMessage('');
       setReplyingTo(null);
@@ -97,23 +100,30 @@ export default function MessageComposer({
       // Emit typing:stop
       socket.emitTypingStop(conversationId);
 
-      // Immediately re-focus before React re-render can blur
-      textareaRef.current?.focus({ preventScroll: true });
+      // Use a persistent focus keeper that re-focuses on every animation frame
+      // until the send cycle completes. This is more robust than fixed timeouts
+      // because it survives React re-render cycles and mobile viewport adjustments.
+      let focusKeeperId: number;
+      const keepFocus = () => {
+        if (textarea && document.activeElement !== textarea) {
+          textarea.focus({ preventScroll: true });
+        }
+        if (isSendingRef.current) {
+          focusKeeperId = requestAnimationFrame(keepFocus);
+        }
+      };
+      focusKeeperId = requestAnimationFrame(keepFocus);
 
-      // Multiple follow-up focus calls to survive re-renders and scroll animations
-      requestAnimationFrame(() => {
-        textareaRef.current?.focus({ preventScroll: true });
-      });
+      // Also do an immediate focus
+      textarea?.focus({ preventScroll: true });
+
+      // Release after 600ms (enough time for store update + scroll + re-render)
       setTimeout(() => {
-        textareaRef.current?.focus({ preventScroll: true });
-      }, 50);
-      setTimeout(() => {
-        textareaRef.current?.focus({ preventScroll: true });
-      }, 150);
-      setTimeout(() => {
-        textareaRef.current?.focus({ preventScroll: true });
         isSendingRef.current = false;
-      }, 400);
+        cancelAnimationFrame(focusKeeperId);
+        // One final focus to be safe
+        textarea?.focus({ preventScroll: true });
+      }, 600);
     }
   }, [message, conversationId, disabled, sendMessage, replyingTo?.messageId, setReplyingTo]);
 
@@ -284,7 +294,7 @@ export default function MessageComposer({
   }
 
   return (
-    <div className="border-t border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 px-4 py-2 md:py-4">
+    <div className="border-t border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 px-2 sm:px-4 py-2 md:py-4">
       {/* Hidden file inputs */}
       <input
         ref={fileInputRef}

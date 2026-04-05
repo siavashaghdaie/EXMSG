@@ -4,13 +4,14 @@ import { format, isToday, isYesterday } from 'date-fns';
 import { ArrowDown, ChevronLeft, Phone, Video } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
-import { MessageResponse, ConversationResponse } from '@/services/api';
+import { MessageResponse, ConversationResponse, api, UserStatusGroup } from '@/services/api';
 import MessageBubble from './MessageBubble';
 import MessageComposer from './MessageComposer';
 import TypingIndicator from './TypingIndicator';
 import BuzzButton from './BuzzButton';
 import BuzzOverlay from './BuzzOverlay';
 import Avatar from '@/components/common/Avatar';
+import StoryViewerModal from '@/components/common/StoryViewerModal';
 import CallModal from '@/components/call/CallModal';
 import PresenceIndicator from '@/components/common/PresenceIndicator';
 import TaskReminderBell from '@/components/tasks/TaskReminderBell';
@@ -40,12 +41,31 @@ export default function ChatView() {
 
   const activeBuzz = conversationId ? buzzActive.get(conversationId) : undefined;
 
+  // Contact stories for header story ring
+  const [contactStories, setContactStories] = useState<UserStatusGroup[]>([]);
+  const [showStoryViewer, setShowStoryViewer] = useState(false);
+  const [storyViewUserId, setStoryViewUserId] = useState<string>('');
+
+  useEffect(() => {
+    const loadContactStories = async () => {
+      try {
+        const result = await api.getContactStatuses();
+        setContactStories(result?.users || []);
+      } catch {
+        // silently fail
+      }
+    };
+    loadContactStories();
+  }, [conversationId]);
+
   // Scroll to bottom on new messages — use scrollTop instead of scrollIntoView
-  // to avoid stealing focus from the message input on mobile
+  // to avoid stealing focus from the message input on mobile.
+  // Use 'auto' (instant) scroll to prevent mobile browsers from dismissing
+  // the virtual keyboard during smooth scroll animations.
   const scrollToBottom = useCallback(() => {
     const container = messagesContainerRef.current;
     if (container) {
-      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+      container.scrollTo({ top: container.scrollHeight, behavior: 'auto' });
     }
   }, []);
 
@@ -230,12 +250,12 @@ export default function ChatView() {
   });
 
   return (
-    <div className={`flex h-full bg-white dark:bg-surface-900 ${activeBuzz ? 'animate-buzz-shake' : ''}`}>
-      <div className="flex flex-col h-full flex-1">
+    <div className={`flex h-full bg-white dark:bg-surface-900 overflow-hidden w-full max-w-full ${activeBuzz ? 'animate-buzz-shake' : ''}`}>
+      <div className="flex flex-col h-full flex-1 min-w-0 overflow-hidden">
       {/* Header */}
       <div className="border-b border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 sticky top-0 z-10">
-        <div className="px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1">
+        <div className="px-2 sm:px-4 py-3 flex items-center justify-between gap-1 overflow-hidden">
+          <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0 overflow-hidden">
             {isMobile && (
               <button
                 onClick={() => navigate('/chat')}
@@ -254,14 +274,53 @@ export default function ChatView() {
               const avatarSrc = !isGroup && otherParticipants.length === 1
                 ? otherParticipants[0]?.avatar
                 : undefined;
+              // Story ring for DM partner
+              const otherUserId = !isGroup && otherParticipants.length === 1
+                ? otherParticipants[0]?.id : undefined;
+              const otherUserStory = otherUserId
+                ? contactStories.find(cs => cs.userId === otherUserId) : undefined;
+              const hasStory = !!otherUserStory;
+              const hasUnviewedStory = otherUserStory?.hasUnviewed ?? false;
               return (
                 <>
-                  <Avatar
-                    name={displayName}
-                    username={otherParticipants[0]?.username || otherParticipants[0]?.email}
-                    src={avatarSrc}
-                    size="md"
-                  />
+                  <div
+                    className="relative flex-shrink-0"
+                    style={hasStory ? { width: 46, height: 46 } : undefined}
+                    onClick={hasStory ? (e) => {
+                      e.stopPropagation();
+                      setStoryViewUserId(otherUserId!);
+                      setShowStoryViewer(true);
+                    } : undefined}
+                  >
+                    {hasStory && (
+                      <svg
+                        className={`absolute inset-0 pointer-events-none ${hasUnviewedStory ? 'animate-spin' : ''}`}
+                        style={hasUnviewedStory ? { animationDuration: '12s' } : undefined}
+                        width="46"
+                        height="46"
+                        viewBox="0 0 46 46"
+                      >
+                        <circle
+                          cx="23"
+                          cy="23"
+                          r="21"
+                          fill="none"
+                          stroke={hasUnviewedStory ? '#f59e0b' : '#9ca3af'}
+                          strokeWidth="2.5"
+                          strokeDasharray="5 3"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                    )}
+                    <div style={hasStory ? { position: 'absolute', top: 3, left: 3 } : undefined}>
+                      <Avatar
+                        name={displayName}
+                        username={otherParticipants[0]?.username || otherParticipants[0]?.email}
+                        src={avatarSrc}
+                        size="md"
+                      />
+                    </div>
+                  </div>
                   <div className="flex-1">
                     <h2 className="font-semibold text-slate-900 dark:text-white">
                       {displayName}
@@ -278,7 +337,7 @@ export default function ChatView() {
               );
             })()}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-0.5 sm:gap-2 flex-shrink-0">
             <BuzzButton
               conversationId={conversationId}
               onBuzz={sendBuzz}
@@ -298,10 +357,10 @@ export default function ChatView() {
                   }
                 }
               }}
-              className="p-2 hover:bg-slate-100 rounded-lg transition"
+              className="p-1.5 sm:p-2 hover:bg-slate-100 rounded-lg transition"
               title="Voice call"
             >
-              <Phone size={20} className="text-slate-600" />
+              <Phone size={18} className="text-slate-600" />
             </button>
             <button
               onClick={() => {
@@ -317,10 +376,10 @@ export default function ChatView() {
                   }
                 }
               }}
-              className="p-2 hover:bg-slate-100 rounded-lg transition"
+              className="p-1.5 sm:p-2 hover:bg-slate-100 rounded-lg transition"
               title="Video call"
             >
-              <Video size={20} className="text-slate-600" />
+              <Video size={18} className="text-slate-600" />
             </button>
           </div>
         </div>
@@ -330,9 +389,9 @@ export default function ChatView() {
       <div
         ref={messagesContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto scrollbar-hide"
+        className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-hide"
       >
-        <div className="py-4">
+        <div className="py-4 px-2 sm:px-4 max-w-full overflow-hidden">
           {conversationMessages.length === 0 ? (
             <div className="flex items-center justify-center h-full text-slate-500">
               <p>No messages yet. Start the conversation!</p>
@@ -377,6 +436,20 @@ export default function ChatView() {
 
       {/* Call Modal */}
       <CallModal />
+
+      {/* Story Viewer Modal */}
+      {showStoryViewer && storyViewUserId && (
+        <StoryViewerModal
+          isOpen={showStoryViewer}
+          userId={storyViewUserId}
+          onClose={() => {
+            setShowStoryViewer(false);
+            setStoryViewUserId('');
+            // Refresh contact stories to update viewed state
+            api.getContactStatuses().then(r => setContactStories(r?.users || [])).catch(() => {});
+          }}
+        />
+      )}
       </div>
     </div>
   );

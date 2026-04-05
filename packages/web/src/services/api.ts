@@ -264,10 +264,9 @@ class APIClient {
   }
 
   // Auth API
-  async register(email: string, username: string, displayName: string, password: string): Promise<AuthResponse> {
+  async register(email: string, displayName: string, password: string): Promise<AuthResponse> {
     const response = await this.client.post<AuthResponse>('/auth/register', {
       email,
-      username,
       displayName,
       password,
     });
@@ -691,7 +690,17 @@ class APIClient {
 
   async getContactStatuses(): Promise<{ users: UserStatusGroup[] }> {
     const { data } = await this.client.get('/status/contacts');
-    return data;
+    // Map backend shape { user: {id,username,...}, hasUnviewedStatus } to frontend UserStatusGroup
+    const users = (data?.users || []).map((entry: any) => ({
+      userId: entry.user?.id || entry.userId,
+      username: entry.user?.username || entry.username,
+      displayName: entry.user?.displayName || entry.displayName,
+      avatarUrl: entry.user?.avatarUrl || entry.avatarUrl,
+      statuses: entry.statuses || [],
+      hasUnviewed: entry.hasUnviewedStatus ?? entry.hasUnviewed ?? false,
+      latestAt: entry.statuses?.[0]?.createdAt || '',
+    }));
+    return { users };
   }
 
   async viewStatus(statusId: string): Promise<void> {

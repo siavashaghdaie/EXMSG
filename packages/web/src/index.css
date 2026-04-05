@@ -96,13 +96,9 @@
   animation: slide-out-left 0.25s ease-in forwards;
 }
 
-/* Ensure touch targets are at least 44px */
-@media (max-width: 768px) {
-  button, a, [role="button"] {
-    min-height: 44px;
-    min-width: 44px;
-  }
-}
+/* Touch target sizing is handled per-component via padding/sizing classes.
+   A blanket min-height/min-width rule breaks small UI elements like toggles,
+   close buttons, and reaction chips. */
 
 /* Mobile-specific styles */
 @media (max-width: 768px) {

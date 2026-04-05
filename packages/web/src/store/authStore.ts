@@ -11,7 +11,7 @@ interface AuthState {
 
   // Actions
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, username: string, displayName: string, password: string) => Promise<void>;
+  register: (email: string, displayName: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
   refreshToken: () => Promise<void>;
@@ -45,7 +45,7 @@ export const useAuthStore = create<AuthState>()(
             });
           }
         } catch (error: any) {
-          const errorMessage = error.response?.data?.message || error.message || 'Login failed';
+          const errorMessage = error.response?.data?.error || error.response?.data?.message || error.message || 'Login failed';
           set({
             isAuthenticated: false,
             isLoading: false,
@@ -55,10 +55,10 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      register: async (email: string, username: string, displayName: string, password: string) => {
+      register: async (email: string, displayName: string, password: string) => {
         set({ isLoading: true, error: null });
         try {
-          const response = await api.register(email, username, displayName, password);
+          const response = await api.register(email, displayName, password);
           set({
             user: response.user,
             isAuthenticated: true,
@@ -74,7 +74,7 @@ export const useAuthStore = create<AuthState>()(
           }
         } catch (error: any) {
           const errorMessage =
-            error.response?.data?.message || error.message || 'Registration failed';
+            error.response?.data?.error || error.response?.data?.message || error.message || 'Registration failed';
           set({
             isAuthenticated: false,
             isLoading: false,

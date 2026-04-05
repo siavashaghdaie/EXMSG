@@ -1,13 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Mail, Lock, User, MessageSquare } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { Button } from '../common/Button';
 import { Input } from '../common/Input';
+import { Toast } from '../common/Toast';
 
 interface FormErrors {
   email?: string;
-  username?: string;
   displayName?: string;
   password?: string;
   confirmPassword?: string;
@@ -21,11 +21,15 @@ interface PasswordStrength {
 
 export const RegisterPage: React.FC = () => {
   const navigate = useNavigate();
-  const { register, isLoading, error } = useAuthStore();
+  const { register, isLoading, error, clearError } = useAuthStore();
+
+  // Clear any stale error when page loads
+  useEffect(() => {
+    clearError();
+  }, [clearError]);
 
   const [formData, setFormData] = useState({
     email: '',
-    username: '',
     displayName: '',
     password: '',
     confirmPassword: '',
@@ -35,7 +39,6 @@ export const RegisterPage: React.FC = () => {
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [touched, setTouched] = useState({
     email: false,
-    username: false,
     displayName: false,
     password: false,
     confirmPassword: false,
@@ -71,11 +74,6 @@ export const RegisterPage: React.FC = () => {
     return emailRegex.test(email);
   };
 
-  const validateUsername = (username: string): boolean => {
-    const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
-    return usernameRegex.test(username);
-  };
-
   const validateForm = (): boolean => {
     const errors: FormErrors = {};
 
@@ -84,13 +82,6 @@ export const RegisterPage: React.FC = () => {
       errors.email = 'Email is required';
     } else if (!validateEmail(formData.email)) {
       errors.email = 'Please enter a valid email address';
-    }
-
-    // Username validation
-    if (!formData.username.trim()) {
-      errors.username = 'Username is required';
-    } else if (!validateUsername(formData.username)) {
-      errors.username = 'Username must be 3-20 characters (letters, numbers, underscores)';
     }
 
     // Display name validation
@@ -156,7 +147,6 @@ export const RegisterPage: React.FC = () => {
     try {
       await register(
         formData.email,
-        formData.username,
         formData.displayName,
         formData.password
       );
@@ -199,16 +189,12 @@ export const RegisterPage: React.FC = () => {
         </div>
 
         {/* Registration Card */}
-        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl p-8 space-y-6 border border-gray-200 dark:border-gray-800">
-          {/* Error Alert */}
-          {error && (
-            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-              <p className="text-red-800 dark:text-red-300 text-sm font-medium">
-                {error}
-              </p>
-            </div>
-          )}
+        {/* Error Toast Popup */}
+        {error && (
+          <Toast message={error} type="error" onClose={clearError} />
+        )}
 
+        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl p-8 space-y-6 border border-gray-200 dark:border-gray-800">
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Email Input */}
             <Input
@@ -223,22 +209,6 @@ export const RegisterPage: React.FC = () => {
               icon={<Mail className="h-5 w-5" />}
               autoComplete="email"
               disabled={isLoading}
-            />
-
-            {/* Username Input */}
-            <Input
-              type="text"
-              name="username"
-              label="Username"
-              placeholder="username_123"
-              value={formData.username}
-              onChange={handleChange}
-              onBlur={handleBlur}
-              error={touched.username ? formErrors.username : undefined}
-              icon={<User className="h-5 w-5" />}
-              autoComplete="username"
-              disabled={isLoading}
-              helperText="3-20 characters, letters, numbers, underscores"
             />
 
             {/* Display Name Input */}

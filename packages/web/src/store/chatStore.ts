@@ -13,6 +13,7 @@ import {
   ReactionEvent,
   TypingEvent,
 } from '../services/socket';
+import { useAuthStore } from './authStore';
 
 interface TypingIndicator {
   userId: string;
@@ -437,7 +438,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
         senderName: data.senderName,
         timestamp: Date.now(),
       });
-      return { buzzActive };
+
+      // Also inject a buzz system message into the conversation
+      const messages = new Map(state.messages);
+      const conversationMessages = messages.get(data.conversationId) || [];
+      const buzzMessage = {
+        id: `buzz-${data.conversationId}-${Date.now()}`,
+        conversationId: data.conversationId,
+        senderId: data.senderId,
+        content: `⚡ ${data.senderName} sent a buzz!`,
+        type: 'buzz',
+        reactions: {},
+        createdAt: new Date().toISOString(),
+        sender: {
+          id: data.senderId,
+          username: data.senderName,
+          displayName: data.senderName,
+        },
+      };
+      messages.set(data.conversationId, [...conversationMessages, buzzMessage]);
+
+      return { buzzActive, messages };
     });
 
     // Auto-clear buzz after 3 seconds
@@ -452,6 +473,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   sendBuzz: (conversationId: string, targetUserId?: string) => {
     socket.sendBuzz(conversationId, targetUserId);
+
+    // Add a local buzz message for the sender too
+    set((state) => {
+      const messages = new Map(state.messages);
+      const conversationMessages = messages.get(conversationId) || [];
+      const user = useAuthStore.getState().user;
+      const buzzMessage = {
+        id: `buzz-${conversationId}-${Date.now()}`,
+        conversationId: conversationId,
+        senderId: user?.id || '',
+        content: `⚡ You sent a buzz!`,
+        type: 'buzz',
+        reactions: {},
+        createdAt: new Date().toISOString(),
+        sender: {
+          id: user?.id || '',
+          username: user?.username || 'You',
+          displayName: user?.displayName || user?.username || 'You',
+        },
+      };
+      messages.set(conversationId, [...conversationMessages, buzzMessage]);
+      return { messages };
+    });
   },
 
   // Pin Actions

@@ -7,17 +7,41 @@ import { RegisterInput, LoginInput } from './auth.validation';
 export class AuthController {
   async register(req: Request, res: Response): Promise<void> {
     try {
-      const { email, username, displayName, password } = req.body as RegisterInput;
+      const { email: rawEmail, username: rawUsername, displayName, password } = req.body as RegisterInput;
 
-      // Check if user already exists
+      // Normalize email to lowercase for case-insensitive handling
+      const email = rawEmail.toLowerCase().trim();
+
+      // Auto-generate username from email if not provided
+      let username = rawUsername?.toLowerCase().trim() || '';
+      if (!username) {
+        // Extract local part of email and sanitize to valid username chars
+        const emailPrefix = email.split('@')[0].replace(/[^a-z0-9_]/g, '_');
+        username = emailPrefix.slice(0, 30);
+        // Ensure minimum 3 characters
+        if (username.length < 3) {
+          username = username.padEnd(3, '_');
+        }
+      }
+
+      // Check if user already exists (case-insensitive)
       const existing = await prisma.user.findFirst({
-        where: { OR: [{ email }, { username }] },
+        where: {
+          OR: [
+            { email: { equals: email, mode: 'insensitive' } },
+            { username: { equals: username, mode: 'insensitive' } },
+          ],
+        },
       });
 
       if (existing) {
-        const field = existing.email === email ? 'email' : 'username';
-        res.status(409).json({ error: `User with this ${field} already exists` });
-        return;
+        if (existing.email.toLowerCase() === email) {
+          res.status(409).json({ error: 'An account with this email already exists' });
+        } else {
+          // Username collision — append random digits and retry
+          username = `${username.slice(0, 25)}_${Math.floor(Math.random() * 9999).toString().padStart(4, '0')}`;
+        }
+        if (existing.email.toLowerCase() === email) return;
       }
 
       // Hash password
@@ -54,10 +78,11 @@ export class AuthController {
 
   async login(req: Request, res: Response): Promise<void> {
     try {
-      const { email, password } = req.body as LoginInput;
+      const { email: rawEmail, password } = req.body as LoginInput;
+      const email = rawEmail.toLowerCase().trim();
 
-      const user = await prisma.user.findUnique({
-        where: { email },
+      const user = await prisma.user.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' } },
         select: {
           id: true,
           email: true,

@@ -351,6 +351,13 @@ export class MessagingController {
         return;
       }
 
+      // Enforce 10-minute edit window
+      const tenMinutes = 10 * 60 * 1000;
+      if (Date.now() - new Date(message.createdAt).getTime() > tenMinutes) {
+        res.status(403).json({ error: 'Messages can only be edited within 10 minutes of sending' });
+        return;
+      }
+
       const updated = await prisma.message.update({
         where: { id: messageId },
         data: { content, isEdited: true },

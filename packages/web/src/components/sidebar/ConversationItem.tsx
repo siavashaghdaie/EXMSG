@@ -12,6 +12,10 @@ interface ConversationItemProps {
   isActive: boolean;
   isOnline?: boolean;
   onNavigate?: () => void;
+  typingUsers?: string[];
+  hasStory?: boolean;
+  hasUnviewedStory?: boolean;
+  onStoryClick?: () => void;
 }
 
 const getConversationName = (
@@ -51,7 +55,7 @@ const getLastMessagePreview = (conversation: ConversationResponse): string => {
   if (!conversation.lastMessage) {
     return 'No messages yet';
   }
-  return conversation.lastMessage.content.slice(0, 50);
+  return (conversation.lastMessage.content || '').slice(0, 50) || 'Attachment';
 };
 
 const getLastMessageTime = (conversation: ConversationResponse): string => {
@@ -72,6 +76,10 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
   isActive,
   isOnline,
   onNavigate,
+  typingUsers,
+  hasStory,
+  hasUnviewedStory,
+  onStoryClick,
 }) => {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
@@ -121,25 +129,55 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
         setShowDelete(!showDelete);
       }}
     >
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={handleClick}
-        className={`w-full px-3 py-3 rounded-lg transition-all duration-200 ease-out flex items-start gap-3 hover:bg-gray-100 dark:hover:bg-surface-800 ${
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleClick(); }}
+        className={`w-full px-3 py-3 rounded-lg transition-all duration-200 ease-out flex items-start gap-3 hover:bg-gray-100 dark:hover:bg-surface-800 cursor-pointer ${
           isActive
             ? 'bg-primary-50 dark:bg-primary-900/20 shadow-sm'
             : ''
         } ${isDeleting ? 'opacity-50 pointer-events-none' : ''}`}
       >
-        {/* Avatar with online indicator */}
-        <Avatar
-          src={src}
-          name={name}
-          username={username}
-          size="md"
-          userId={otherParticipantId}
-          showPresence={true}
-          online={isOnline}
-          className="flex-shrink-0 mt-1"
-        />
+        {/* Avatar with online indicator and optional story ring */}
+        <div
+          className="relative flex-shrink-0 mt-1"
+          style={hasStory ? { width: 46, height: 46 } : undefined}
+          onClick={hasStory ? (e) => { e.stopPropagation(); onStoryClick?.(); } : undefined}
+        >
+          {hasStory && (
+            <svg
+              className={`absolute inset-0 pointer-events-none ${hasUnviewedStory ? 'animate-spin' : ''}`}
+              style={hasUnviewedStory ? { animationDuration: '12s' } : undefined}
+              width="46"
+              height="46"
+              viewBox="0 0 46 46"
+            >
+              <circle
+                cx="23"
+                cy="23"
+                r="21"
+                fill="none"
+                stroke={hasUnviewedStory ? '#f59e0b' : '#9ca3af'}
+                strokeWidth="2.5"
+                strokeDasharray="5 3"
+                strokeLinecap="round"
+              />
+            </svg>
+          )}
+          <div style={hasStory ? { position: 'absolute', top: 3, left: 3 } : undefined}>
+            <Avatar
+              src={src}
+              name={name}
+              username={username}
+              size="md"
+              userId={otherParticipantId}
+              showPresence={true}
+              online={isOnline}
+            />
+          </div>
+        </div>
 
         {/* Conversation info */}
         <div className="flex-1 min-w-0 text-left">
@@ -167,17 +205,28 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
             )}
           </div>
 
-          {/* Last message preview and unread badge */}
+          {/* Last message preview / typing indicator and unread badge */}
           <div className="flex items-center justify-between gap-2">
-            <p
-              className={`text-xs truncate ${
-                unreadCount > 0
-                  ? 'text-gray-700 dark:text-gray-300 font-medium'
-                  : 'text-gray-500 dark:text-gray-400'
-              }`}
-            >
-              {lastMessagePreview}
-            </p>
+            {typingUsers && typingUsers.length > 0 ? (
+              <p className="text-xs truncate text-green-600 dark:text-green-400 font-medium italic flex items-center gap-1">
+                <span className="flex gap-0.5">
+                  <span className="w-1 h-1 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1 h-1 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1 h-1 bg-green-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                </span>
+                {typingUsers.length === 1 ? `${typingUsers[0]} is typing` : `${typingUsers.length} people typing`}
+              </p>
+            ) : (
+              <p
+                className={`text-xs truncate ${
+                  unreadCount > 0
+                    ? 'text-gray-700 dark:text-gray-300 font-medium'
+                    : 'text-gray-500 dark:text-gray-400'
+                }`}
+              >
+                {lastMessagePreview}
+              </p>
+            )}
 
             {/* Unread badge */}
             {unreadCount > 0 && (
@@ -200,7 +249,7 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
         >
           <Trash2 size={14} />
         </button>
-      </button>
+      </div>
     </div>
   );
 };

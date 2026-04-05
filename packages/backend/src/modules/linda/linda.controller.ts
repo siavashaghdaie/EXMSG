@@ -142,7 +142,7 @@ export class LindaController {
       const systemPrompt = this.buildSystemPrompt(userName, workspaceContext);
 
       const response = await client.messages.create({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         max_tokens: 1024,
         system: systemPrompt,
         messages: messagesForApi,
@@ -168,13 +168,18 @@ export class LindaController {
         conversationId: lindaConvId,
       });
     } catch (error: any) {
-      console.error('Linda chat error:', error);
+      console.error('[Linda] Chat error status:', error?.status, 'message:', error?.message);
+      console.error('[Linda] Full error:', JSON.stringify(error?.error || error?.body || error, null, 2));
       if (error?.status === 401) {
         res.status(500).json({ error: 'Linda AI configuration error. Please check your API key.' });
         return;
       }
       if (error?.status === 429) {
         res.status(429).json({ error: 'Linda is a bit busy right now. Please try again in a moment.' });
+        return;
+      }
+      if (error?.status === 404 || error?.message?.includes('not_found_error')) {
+        res.status(500).json({ error: 'Linda AI model not available. Please contact admin.' });
         return;
       }
       res.status(500).json({ error: 'Linda is temporarily unavailable. Please try again.' });
@@ -270,7 +275,7 @@ export class LindaController {
         });
 
         const response = await client.messages.create({
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-4-6',
           max_tokens: 1024,
           system: systemPrompt,
           messages: messagesForApi,
@@ -301,7 +306,7 @@ export class LindaController {
         }));
 
         const response = await client.messages.create({
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-4-6',
           max_tokens: 1024,
           system: systemPrompt,
           messages: messagesForApi,

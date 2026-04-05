@@ -17,6 +17,7 @@ interface BottomNavProps {
   onChatsClick?: () => void;
   visible?: boolean;
   taskCount?: number;
+  activeTab?: string; // Override active tab detection (e.g. when sub-page is open)
 }
 
 export const BottomNav: React.FC<BottomNavProps> = ({
@@ -27,6 +28,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   onChatsClick,
   visible,
   taskCount,
+  activeTab: activeTabOverride,
 }) => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -85,7 +87,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
     return 'chats';
   };
 
-  const activeTab = getActiveTab();
+  const activeTab = activeTabOverride || getActiveTab();
 
   // Only show on mobile and when visible is not explicitly false
   if (!isMobile || visible === false) {
