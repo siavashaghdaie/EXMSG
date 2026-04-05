@@ -49,6 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     fetchConversations,
     isLoadingConversations,
     typingIndicators,
+    unreadCounts,
   } = useChatStore();
   const { user } = useAuthStore();
 
@@ -350,10 +351,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     ? contactStories.find(cs => cs.userId === otherUserId)
                     : undefined;
 
+                  // Use real-time unread count from store (overrides stale API value)
+                  const liveUnreadCount = unreadCounts.get(conversation.id) ?? conversation.unreadCount ?? 0;
+                  const conversationWithUnread = { ...conversation, unreadCount: liveUnreadCount };
+
                   return (
                     <ConversationItem
                       key={conversation.id}
-                      conversation={conversation}
+                      conversation={conversationWithUnread}
                       isActive={isConversationActive(conversation.id)}
                       isOnline={conversation.participants.length === 2 ? isOnline : undefined}
                       onNavigate={handleNavigateChat}

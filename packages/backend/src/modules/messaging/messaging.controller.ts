@@ -23,6 +23,7 @@ export class MessagingController {
                   username: true,
                   displayName: true,
                   avatarUrl: true,
+                  email: true,
                   isOnline: true,
                 },
               },
@@ -43,7 +44,24 @@ export class MessagingController {
         orderBy: { updatedAt: 'desc' },
       });
 
-      res.json({ conversations });
+      // Calculate unread counts for each conversation
+      const conversationsWithUnread = await Promise.all(
+        conversations.map(async (conv) => {
+          const membership = conv.members.find((m) => m.userId === userId);
+          const lastReadAt = membership?.lastReadAt || new Date(0);
+          const unreadCount = await prisma.message.count({
+            where: {
+              conversationId: conv.id,
+              createdAt: { gt: lastReadAt },
+              senderId: { not: userId },
+              isDeleted: false,
+            },
+          });
+          return { ...conv, unreadCount };
+        })
+      );
+
+      res.json({ conversations: conversationsWithUnread });
     } catch (error) {
       console.error('Get conversations error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -464,13 +482,16 @@ export class MessagingController {
       const userId = req.user!.userId;
       const { messageId } = req.body;
 
-      await prisma.readReceipt.upsert({
-        where: { messageId_userId: { messageId, userId } },
-        create: { messageId, userId },
-        update: { readAt: new Date() },
-      });
+      // Create read receipt for specific message if provided
+      if (messageId) {
+        await prisma.readReceipt.upsert({
+          where: { messageId_userId: { messageId, userId } },
+          create: { messageId, userId },
+          update: { readAt: new Date() },
+        });
+      }
 
-      // Update last read timestamp
+      // Always update last read timestamp on the conversation membership
       await prisma.conversationMember.update({
         where: { conversationId_userId: { conversationId, userId } },
         data: { lastReadAt: new Date() },
