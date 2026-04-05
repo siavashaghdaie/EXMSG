@@ -378,7 +378,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* New Chat button - bottom */}
-        <div className={`px-4 flex-shrink-0 border-t border-gray-200 dark:border-surface-700 ${isMobile ? 'py-1.5 pb-2' : 'py-2'}`} style={isMobile ? { transform: 'translateY(-15px)' } : undefined}>
+        <div className={`px-4 flex-shrink-0 border-t border-gray-200 dark:border-surface-700 ${isMobile ? 'py-2 pb-3' : 'py-2'}`}>
           <button
             onClick={() => setIsModalOpen(true)}
             className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 dark:bg-primary-500 text-white rounded-lg hover:bg-primary-700 dark:hover:bg-primary-600 transition-colors font-medium"

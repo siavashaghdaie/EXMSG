@@ -200,7 +200,7 @@ export default function MessageBubble({
           }`}
         >
           <div
-            className={`px-3 py-1.5 rounded-2xl relative max-w-[80vw] sm:max-w-sm ${
+            className={`px-3 py-1.5 rounded-2xl relative max-w-[75vw] sm:max-w-md ${
               isOwnMessage
                 ? 'bg-blue-500 text-white rounded-br-none'
                 : 'bg-slate-100 dark:bg-surface-700 text-slate-900 dark:text-white rounded-bl-none'
@@ -275,7 +275,7 @@ export default function MessageBubble({
               <>
                 {message.content && (
                   <>
-                    <p className="break-words text-sm leading-relaxed">
+                    <p className="break-words text-[13px] leading-snug">
                       {linkifyText(message.content).map((part, i) =>
                         typeof part === 'string'
                           ? part

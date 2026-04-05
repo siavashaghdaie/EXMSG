@@ -173,7 +173,7 @@ export const ChatLayout: React.FC = () => {
     <div className="h-[100dvh] bg-gray-50 dark:bg-surface-950 flex overflow-hidden flex-col md:flex-row">
       {/* Sidebar/Conversation List - Full screen on mobile when visible */}
       {shouldShowSidebar && !(isMobile && isSubPageOpen) && (
-        <div className={isMobile ? 'w-full' : ''} style={isMobile && showBottomNav ? { height: 'calc(100% - 56px)' } : isMobile ? { height: '100%' } : undefined}>
+        <div className={isMobile ? 'w-full' : ''} style={isMobile && showBottomNav ? { height: 'calc(100% - 90px)' } : isMobile ? { height: '100%' } : undefined}>
           <Sidebar
             isMobile={isMobile}
             onNavigateChat={() => {
@@ -226,7 +226,7 @@ export const ChatLayout: React.FC = () => {
 
       {/* Main content area - shown on desktop always, on mobile only when in chat/sub-page */}
       {(shouldShowContent || (isMobile && isSubPageOpen)) && (
-        <div className={`flex-1 flex flex-col overflow-hidden ${showBottomNav ? 'pb-[56px]' : ''}`}>
+        <div className={`flex-1 flex flex-col overflow-hidden ${showBottomNav ? 'pb-[90px]' : ''}`}>
           {/* Note: ChatView has its own back button in its header */}
 
           {/* Content outlet */}

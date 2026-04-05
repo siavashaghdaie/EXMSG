@@ -118,7 +118,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                   navigate(item.path);
                 }
               }}
-              className={`flex-1 flex flex-col items-center justify-center py-3 px-2 transition-colors min-h-[56px] relative ${
+              className={`flex-1 flex flex-col items-center justify-center py-2 px-2 transition-colors min-h-[48px] relative ${
                 isActive
                   ? 'text-primary-600 dark:text-primary-400'
                   : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'

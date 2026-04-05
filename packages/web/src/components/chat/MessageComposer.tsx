@@ -51,9 +51,9 @@ export default function MessageComposer({
   // Auto-grow textarea
   useEffect(() => {
     if (textareaRef.current) {
-      textareaRef.current.style.height = '40px'; // reset to single-line height
+      textareaRef.current.style.height = '24px'; // reset to single-line height
       const scrollHeight = textareaRef.current.scrollHeight;
-      if (scrollHeight > 40) {
+      if (scrollHeight > 24) {
         textareaRef.current.style.height = `${Math.min(scrollHeight, 144)}px`; // max 6 lines
       }
     }
@@ -294,7 +294,7 @@ export default function MessageComposer({
   }
 
   return (
-    <div className="border-t border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 px-2 sm:px-4 py-2 md:py-4">
+    <div className="border-t border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 px-2 sm:px-4 py-2 md:py-4" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}>
       {/* Hidden file inputs */}
       <input
         ref={fileInputRef}
@@ -363,7 +363,7 @@ export default function MessageComposer({
       {/* Input area */}
       {isMobile ? (
         <div
-          className={`flex items-center gap-2 px-3 py-2 bg-slate-50 dark:bg-surface-800 rounded-2xl transition ${
+          className={`flex items-center gap-1.5 px-2 py-1.5 bg-slate-50 dark:bg-surface-800 rounded-2xl transition ${
             isFocused ? 'ring-2 ring-blue-500 bg-white dark:bg-surface-700' : ''
           }`}
         >
@@ -371,10 +371,10 @@ export default function MessageComposer({
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={disabled || isUploading}
-            className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
             title="Attach file"
           >
-            <Paperclip size={20} />
+            <Paperclip size={18} />
           </button>
 
           {/* Center: Text input */}
@@ -387,9 +387,9 @@ export default function MessageComposer({
             onBlur={() => { if (!isSendingRef.current) setIsFocused(false); }}
             placeholder="Type a message..."
             disabled={disabled}
-            className="flex-1 resize-none bg-transparent text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 outline-none max-h-24 scrollbar-hide leading-10"
+            className="flex-1 resize-none bg-transparent text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 outline-none max-h-24 scrollbar-hide leading-normal py-0.5"
             rows={1}
-            style={{ height: '40px' }}
+            style={{ height: '24px', minHeight: '24px' }}
           />
 
           {/* Right: Send or Toggle button */}
@@ -398,14 +398,14 @@ export default function MessageComposer({
             <button
               onClick={() => attachedFile ? handleSendFile() : handleSendMessage()}
               disabled={disabled || isUploading}
-              className={`p-2 rounded-xl transition flex-shrink-0 min-w-[36px] min-h-[36px] flex items-center justify-center ${
+              className={`p-1.5 rounded-xl transition flex-shrink-0 min-w-[30px] min-h-[30px] flex items-center justify-center ${
                 disabled || isUploading
                   ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
                   : 'bg-blue-500 text-white hover:bg-blue-600 active:scale-95'
               }`}
               title={attachedFile ? 'Send file' : 'Send message'}
             >
-              <Send size={18} />
+              <Send size={16} />
             </button>
           ) : (
             // Show Mic/Camera toggle when message is empty
@@ -417,20 +417,20 @@ export default function MessageComposer({
               onTouchStart={handleMobileRightButtonMouseDown}
               onTouchEnd={handleMobileRightButtonMouseUp}
               disabled={disabled}
-              className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+              className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
               title={mobileToggleMode === 'mic' ? 'Click to toggle to camera, hold to record voice' : 'Click to toggle to mic, hold to select media'}
             >
               {mobileToggleMode === 'mic' ? (
-                <Mic size={20} />
+                <Mic size={18} />
               ) : (
-                <Camera size={20} />
+                <Camera size={18} />
               )}
             </button>
           )}
         </div>
       ) : (
         <div
-          className={`flex items-center gap-3 px-4 py-3 bg-slate-50 dark:bg-surface-800 rounded-2xl transition ${
+          className={`flex items-center gap-2 px-3 py-2 bg-slate-50 dark:bg-surface-800 rounded-2xl transition ${
             isFocused ? 'ring-2 ring-blue-500 bg-white dark:bg-surface-700' : ''
           }`}
         >
@@ -438,10 +438,10 @@ export default function MessageComposer({
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={disabled || isUploading}
-            className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
             title="Attach file"
           >
-            <Paperclip size={20} />
+            <Paperclip size={18} />
           </button>
 
           {/* Text input */}
@@ -454,19 +454,19 @@ export default function MessageComposer({
             onBlur={() => { if (!isSendingRef.current) setIsFocused(false); }}
             placeholder="Type a message..."
             disabled={disabled}
-            className="flex-1 resize-none bg-transparent text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 outline-none max-h-36 scrollbar-hide leading-10"
+            className="flex-1 resize-none bg-transparent text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 outline-none max-h-36 scrollbar-hide leading-normal py-0.5"
             rows={1}
-            style={{ height: '40px' }}
+            style={{ height: '24px', minHeight: '24px' }}
           />
 
           {/* Voice message button */}
           <button
             onClick={() => setIsRecordingVoice(true)}
             disabled={disabled}
-            className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+            className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-200 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
             title="Record voice message"
           >
-            <Mic size={20} />
+            <Mic size={18} />
           </button>
 
           {/* Emoji button */}
@@ -474,14 +474,14 @@ export default function MessageComposer({
             <button
               onClick={() => setShowEmojiPicker(!showEmojiPicker)}
               disabled={disabled}
-              className={`p-2 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed ${
+              className={`p-1.5 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed ${
                 showEmojiPicker
                   ? 'text-blue-500 bg-blue-50'
                   : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200'
               }`}
               title="Add emoji"
             >
-              <Smile size={20} />
+              <Smile size={18} />
             </button>
             {showEmojiPicker && (
               <EmojiPicker
@@ -495,14 +495,14 @@ export default function MessageComposer({
           <button
             onClick={() => attachedFile ? handleSendFile() : handleSendMessage()}
             disabled={isMessageEmpty || disabled || isUploading}
-            className={`p-2 rounded-xl transition flex-shrink-0 min-w-[36px] min-h-[36px] flex items-center justify-center ${
+            className={`p-1.5 rounded-xl transition flex-shrink-0 min-w-[30px] min-h-[30px] flex items-center justify-center ${
               isMessageEmpty || disabled || isUploading
                 ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
                 : 'bg-blue-500 text-white hover:bg-blue-600 active:scale-95'
             }`}
             title={attachedFile ? 'Send file' : 'Send message'}
           >
-            <Send size={20} />
+            <Send size={16} />
           </button>
         </div>
       )}
