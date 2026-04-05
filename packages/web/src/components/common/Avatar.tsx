@@ -1,4 +1,5 @@
 import React from 'react';
+import { usePresenceStore } from '@/store/presenceStore';
 
 type AvatarSize = 'sm' | 'md' | 'lg' | 'xl';
 
@@ -7,7 +8,10 @@ interface AvatarProps {
   name: string;
   size?: AvatarSize;
   online?: boolean;
+  userId?: string;
+  showPresence?: boolean;
   className?: string;
+  username?: string;
 }
 
 const sizeClasses: Record<AvatarSize, string> = {
@@ -41,14 +45,20 @@ const getColorFromName = (name: string | undefined): string => {
   return colors[hash % colors.length];
 };
 
-const getInitials = (name: string | undefined): string => {
-  if (!name) return '?';
-  return name
-    .split(' ')
-    .map((part) => part[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
+const getInitials = (name: string | undefined, username: string | undefined): string => {
+  if (name) {
+    return name
+      .split(' ')
+      .map((part) => part[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
+  }
+  if (username) {
+    return username.charAt(0).toUpperCase();
+  }
+  // Fallback to generic user icon representation
+  return 'U';
 };
 
 export const Avatar: React.FC<AvatarProps> = ({
@@ -56,17 +66,24 @@ export const Avatar: React.FC<AvatarProps> = ({
   name,
   size = 'md',
   online,
+  userId,
+  showPresence,
   className,
+  username,
 }) => {
   const sizeClass = sizeClasses[size];
   const onlineIndicatorSize = onlineIndicatorSizeClasses[size];
   const bgColor = getColorFromName(name);
-  const initials = getInitials(name);
+  const initials = getInitials(name, username);
+
+  // Use store for presence if userId and showPresence are provided, otherwise fall back to online prop
+  const isUserOnline = usePresenceStore((s) => userId ? s.onlineUsers.has(userId) : null);
+  const shouldShowOnline = showPresence && userId && isUserOnline !== null ? isUserOnline : online;
 
   return (
-    <div className={`relative inline-block ${className}`}>
+    <div className={`relative inline-flex flex-shrink-0 ${className}`}>
       <div
-        className={`${sizeClass} rounded-full flex items-center justify-center font-semibold overflow-hidden ${
+        className={`${sizeClass} aspect-square rounded-full flex items-center justify-center font-semibold overflow-hidden ${
           src ? 'bg-gray-200 dark:bg-gray-700' : bgColor
         }`}
       >
@@ -81,7 +98,7 @@ export const Avatar: React.FC<AvatarProps> = ({
         )}
       </div>
 
-      {online && (
+      {shouldShowOnline && (
         <div
           className={`${onlineIndicatorSize} absolute bottom-0 right-0 bg-green-500 rounded-full border-2 border-white dark:border-surface-900`}
         />

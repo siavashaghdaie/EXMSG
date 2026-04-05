@@ -32,17 +32,24 @@ interface ChatState {
   error: string | null;
   typingIndicators: Map<string, TypingIndicator[]>;
   unreadCounts: Map<string, number>;
+  buzzActive: Map<string, { senderId: string; senderName: string; timestamp: number }>;
+  replyingTo: { messageId: string; content: string; senderName: string } | null;
+  pinnedMessages: Map<string, MessageResponse[]>;
+  isLoadingPins: boolean;
 
   // Conversation Actions
   fetchConversations: (skip?: number, limit?: number) => Promise<void>;
   setActiveConversation: (conversation: ConversationResponse | null) => void;
   createConversation: (participantIds: string[], name?: string) => Promise<ConversationResponse>;
 
+  removeConversation: (conversationId: string) => Promise<void>;
+
   // Message Actions
   fetchMessages: (conversationId: string, cursor?: string) => Promise<void>;
-  sendMessage: (conversationId: string, content: string) => Promise<MessageResponse>;
+  sendMessage: (conversationId: string, content: string, replyToId?: string) => Promise<MessageResponse>;
   editMessage: (conversationId: string, messageId: string, content: string) => Promise<void>;
   deleteMessage: (conversationId: string, messageId: string) => Promise<void>;
+  setReplyingTo: (data: { messageId: string; content: string; senderName: string } | null) => void;
 
   // Reaction Actions
   addReaction: (
@@ -64,6 +71,13 @@ interface ChatState {
   handleReactionRemoved: (reaction: ReactionEvent) => void;
   handleTypingStart: (typing: TypingEvent) => void;
   handleTypingStop: (typing: TypingEvent) => void;
+  handleBuzzReceived: (data: { senderId: string; senderName: string; conversationId: string }) => void;
+  sendBuzz: (conversationId: string, targetUserId?: string) => void;
+
+  // Pin Actions
+  fetchPinnedMessages: (conversationId: string) => Promise<void>;
+  pinMessage: (conversationId: string, messageId: string) => Promise<void>;
+  unpinMessage: (conversationId: string, messageId: string) => Promise<void>;
 
   // Utility Actions
   clearError: () => void;
@@ -82,6 +96,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   error: null,
   typingIndicators: new Map(),
   unreadCounts: new Map(),
+  buzzActive: new Map(),
+  replyingTo: null,
+  pinnedMessages: new Map(),
+  isLoadingPins: false,
 
   // Conversation Actions
   fetchConversations: async (skip = 0, limit = 20) => {
@@ -96,6 +114,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         unreadCounts.set(conv.id, conv.unreadCount);
       });
       set({ unreadCounts });
+
+      // Join ALL conversation rooms so we receive real-time events
+      conversations.forEach((conv) => {
+        socket.joinConversation(conv.id);
+      });
     } catch (error: any) {
       const errorMessage =
         error.response?.data?.message || error.message || 'Failed to fetch conversations';
@@ -121,11 +144,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
         conversations: [conversation, ...state.conversations],
         isLoadingConversations: false,
       }));
+      // Join the new conversation room for real-time events
+      socket.joinConversation(conversation.id);
       return conversation;
     } catch (error: any) {
       const errorMessage =
         error.response?.data?.message || error.message || 'Failed to create conversation';
       set({ error: errorMessage, isLoadingConversations: false });
+      throw error;
+    }
+  },
+
+  removeConversation: async (conversationId: string) => {
+    set({ error: null });
+    try {
+      await api.deleteConversation(conversationId);
+      set((state) => ({
+        conversations: state.conversations.filter((c) => c.id !== conversationId),
+        activeConversation: state.activeConversation?.id === conversationId ? null : state.activeConversation,
+      }));
+    } catch (error: any) {
+      const errorMessage =
+        error.response?.data?.message || error.message || 'Failed to remove conversation';
+      set({ error: errorMessage });
       throw error;
     }
   },
@@ -139,9 +180,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       set((state) => {
         const existingMessages = state.messages.get(conversationId) || [];
-        const allMessages = cursor
-          ? [...newMessages, ...existingMessages] // Prepend older messages
-          : [...existingMessages, ...newMessages]; // Append new messages
+        let allMessages: MessageResponse[];
+        if (cursor) {
+          // Loading older messages — prepend, dedup by id
+          const existingIds = new Set(existingMessages.map(m => m.id));
+          const unique = newMessages.filter(m => !existingIds.has(m.id));
+          allMessages = [...unique, ...existingMessages];
+        } else {
+          // Initial load — replace with fresh data
+          allMessages = newMessages;
+        }
 
         const updated = new Map(state.messages);
         updated.set(conversationId, allMessages);
@@ -162,12 +210,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  sendMessage: async (conversationId: string, content: string) => {
+  sendMessage: async (conversationId: string, content: string, replyToId?: string) => {
     set({ isSending: true, error: null });
     try {
-      const message = await api.sendMessage(conversationId, content);
-      // Message will be added via socket event
-      set({ isSending: false });
+      const message = await api.sendMessage(conversationId, content, replyToId);
+      // Add message to store immediately from API response
+      set((state) => {
+        const messages = new Map(state.messages);
+        const conversationMessages = messages.get(conversationId) || [];
+        // Avoid duplicates (in case socket event also fires)
+        if (!conversationMessages.some((m) => m.id === message.id)) {
+          messages.set(conversationId, [...conversationMessages, message]);
+        }
+        return { messages, isSending: false };
+      });
       return message;
     } catch (error: any) {
       const errorMessage =
@@ -235,8 +291,39 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((state) => {
       const messages = new Map(state.messages);
       const conversationMessages = messages.get(message.conversationId) || [];
+      // Deduplicate — sender already added via API response
+      if (conversationMessages.some((m) => m.id === message.id)) {
+        return state;
+      }
       messages.set(message.conversationId, [...conversationMessages, message]);
-      return { messages };
+
+      // Update conversation list — move this conversation to top and update lastMessage
+      const conversations = [...state.conversations];
+      const convIndex = conversations.findIndex((c) => c.id === message.conversationId);
+      if (convIndex >= 0) {
+        const conv = { ...conversations[convIndex] };
+        conv.lastMessage = {
+          id: message.id,
+          content: message.content,
+          senderId: message.senderId,
+          conversationId: message.conversationId,
+          createdAt: message.createdAt,
+          reactions: {},
+        };
+        conv.updatedAt = message.createdAt;
+        conversations.splice(convIndex, 1);
+        conversations.unshift(conv);
+      }
+
+      // Increment unread count if not the active conversation
+      const unreadCounts = new Map(state.unreadCounts);
+      const activeConvId = state.activeConversation?.id;
+      if (message.conversationId !== activeConvId) {
+        const current = unreadCounts.get(message.conversationId) || 0;
+        unreadCounts.set(message.conversationId, current + 1);
+      }
+
+      return { messages, conversations, unreadCounts };
     });
   },
 
@@ -342,6 +429,97 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
   },
 
+  handleBuzzReceived: (data) => {
+    set((state) => {
+      const buzzActive = new Map(state.buzzActive);
+      buzzActive.set(data.conversationId, {
+        senderId: data.senderId,
+        senderName: data.senderName,
+        timestamp: Date.now(),
+      });
+      return { buzzActive };
+    });
+
+    // Auto-clear buzz after 3 seconds
+    setTimeout(() => {
+      set((state) => {
+        const buzzActive = new Map(state.buzzActive);
+        buzzActive.delete(data.conversationId);
+        return { buzzActive };
+      });
+    }, 3000);
+  },
+
+  sendBuzz: (conversationId: string, targetUserId?: string) => {
+    socket.sendBuzz(conversationId, targetUserId);
+  },
+
+  // Pin Actions
+  fetchPinnedMessages: async (conversationId: string) => {
+    set({ isLoadingPins: true, error: null });
+    try {
+      const pins = await api.getPinnedMessages(conversationId);
+      set((state) => {
+        const pinnedMessages = new Map(state.pinnedMessages);
+        pinnedMessages.set(conversationId, pins);
+        return { pinnedMessages, isLoadingPins: false };
+      });
+    } catch (error: any) {
+      const errorMessage =
+        error.response?.data?.message || error.message || 'Failed to fetch pinned messages';
+      set({ error: errorMessage, isLoadingPins: false });
+    }
+  },
+
+  pinMessage: async (conversationId: string, messageId: string) => {
+    set({ error: null });
+    try {
+      await api.pinMessage(conversationId, messageId);
+      // Update local pinned messages
+      set((state) => {
+        const messages = state.messages.get(conversationId) || [];
+        const message = messages.find((m) => m.id === messageId);
+        if (message) {
+          const pinnedMessages = new Map(state.pinnedMessages);
+          const existing = pinnedMessages.get(conversationId) || [];
+          if (!existing.some((m) => m.id === messageId)) {
+            pinnedMessages.set(conversationId, [message, ...existing]);
+          }
+          return { pinnedMessages };
+        }
+        return state;
+      });
+    } catch (error: any) {
+      const errorMessage =
+        error.response?.data?.message || error.message || 'Failed to pin message';
+      set({ error: errorMessage });
+      throw error;
+    }
+  },
+
+  unpinMessage: async (conversationId: string, messageId: string) => {
+    set({ error: null });
+    try {
+      await api.unpinMessage(conversationId, messageId);
+      // Update local pinned messages
+      set((state) => {
+        const pinnedMessages = new Map(state.pinnedMessages);
+        const existing = pinnedMessages.get(conversationId) || [];
+        pinnedMessages.set(conversationId, existing.filter((m) => m.id !== messageId));
+        return { pinnedMessages };
+      });
+    } catch (error: any) {
+      const errorMessage =
+        error.response?.data?.message || error.message || 'Failed to unpin message';
+      set({ error: errorMessage });
+      throw error;
+    }
+  },
+
+  setReplyingTo: (data) => {
+    set({ replyingTo: data });
+  },
+
   // Utility Actions
   clearError: () => {
     set({ error: null });
@@ -359,6 +537,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       error: null,
       typingIndicators: new Map(),
       unreadCounts: new Map(),
+      buzzActive: new Map(),
+      replyingTo: null,
+      pinnedMessages: new Map(),
+      isLoadingPins: false,
     });
   },
 
@@ -420,6 +602,12 @@ export function setupChatSocketListeners() {
   unsubscribe.push(
     socket.on<TypingEvent>('typing:stop', (typing) => {
       useChatStore.getState().handleTypingStop(typing);
+    })
+  );
+
+  unsubscribe.push(
+    socket.on<any>('buzz:received', (data) => {
+      useChatStore.getState().handleBuzzReceived(data);
     })
   );
 

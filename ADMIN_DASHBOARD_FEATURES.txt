@@ -1,0 +1,380 @@
+================================================================================
+ADMIN DASHBOARD - FEATURE REFERENCE
+================================================================================
+
+================================================================================
+DASHBOARD LAYOUT
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                                                                       │
+│  ← Admin Dashboard                              🔄 OMNISYS GLOBAL   │
+│  OmniLink Messenger Intelligence                                    │
+│                                                                       │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│  STAT CARDS (4 Cards - 1 Row on Desktop, 2x2 on Mobile)            │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+│  │  Total Users │ │ Msgs Today   │ │Conversations │ │Weekly Msgs   │
+│  │   45,321 ↗   │ │  2,104 ↗    │ │   12,450 ├──│ │  54,290 ↗   │
+│  │ 892 online   │ │ 301 avg/day  │ │ All types    │ │ Last 7 days  │
+│  └──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘
+│                                                                       │
+│  USERS SECTION                                                       │
+│  ┌─────────────────────────────────────────────────────────────────┐
+│  │ Users                          Total: 45,321                     │
+│  ├─────────────────────────────────────────────────────────────────┤
+│  │ [🔍 Search by name, email, or username...]                     │
+│  ├─────────────────────────────────────────────────────────────────┤
+│  │ [Avatar] John Doe           ╱──────────────╱ Online    │ [Status]
+│  │          john@example.com                               │
+│  ├─────────────────────────────────────────────────────────────────┤
+│  │ [Avatar] Jane Smith         ╱──────────────╱ Offline   │
+│  │          jane@example.com                               │
+│  ├─────────────────────────────────────────────────────────────────┤
+│  │ [Avatar] Bob Wilson         ╱──────────────╱ Online    │
+│  │          bob@example.com                                │
+│  │ ... (more users)                                        │
+│  ├─────────────────────────────────────────────────────────────────┤
+│  │ < Previous   Page 1 of 24   Next >                              │
+│  └─────────────────────────────────────────────────────────────────┘
+│                                                                       │
+│  GROUPS & CHANNELS SECTION                                           │
+│  ┌─────────────────────────────────────────────────────────────────┐
+│  │ Active Groups & Channels        Top 5 by recent activity         │
+│  ├─────────────────────────────────────────────────────────────────┤
+│  │ [#] General                125 members        2,450 messages    │
+│  ├─────────────────────────────────────────────────────────────────┤
+│  │ [#] Engineering            89 members        1,892 messages    │
+│  ├─────────────────────────────────────────────────────────────────┤
+│  │ [#] Design                 45 members        890 messages      │
+│  ├─────────────────────────────────────────────────────────────────┤
+│  │ [#] Marketing              32 members        562 messages      │
+│  ├─────────────────────────────────────────────────────────────────┤
+│  │ [#] Sales                  28 members        421 messages      │
+│  └─────────────────────────────────────────────────────────────────┘
+│                                                                       │
+│  QUICK STATS (3 Cards)                                               │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐                 │
+│  │ Last Updated │ │ Avg Activity │ │ Engagement   │                 │
+│  │  3:45:32 PM  │ │ 301 msgs/day │ │  1.97% online│                 │
+│  └──────────────┘ └──────────────┘ └──────────────┘                 │
+│                                                                       │
+└─────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+STAT CARDS DETAILS
+================================================================================
+
+Card 1: TOTAL USERS
+  ┌──────────────────────────┐
+  │  👥 Total Users          │
+  │                          │
+  │    45,321                │
+  │  892 online              │
+  │                          │
+  │  Status: Up              │
+  └──────────────────────────┘
+  Shows: Total user count with current online users
+
+Card 2: MESSAGES TODAY
+  ┌──────────────────────────┐
+  │  💬 Messages Today       │
+  │                          │
+  │    2,104                 │
+  │  301 avg/day             │
+  │                          │
+  │  Status: Up              │
+  └──────────────────────────┘
+  Shows: Today's message count with daily average
+
+Card 3: CONVERSATIONS
+  ┌──────────────────────────┐
+  │  # Conversations         │
+  │                          │
+  │    12,450                │
+  │  All types               │
+  │                          │
+  │  Status: Neutral         │
+  └──────────────────────────┘
+  Shows: Total conversation count
+
+Card 4: WEEKLY MESSAGES
+  ┌──────────────────────────┐
+  │  📊 Weekly Messages      │
+  │                          │
+  │    54,290                │
+  │  Last 7 days             │
+  │                          │
+  │  Status: Up              │
+  └──────────────────────────┘
+  Shows: Last 7 days message total
+
+================================================================================
+USER SEARCH & MANAGEMENT
+================================================================================
+
+Search Fields:
+  • Username      (e.g., "john_doe")
+  • Display Name  (e.g., "John Doe")
+  • Email         (e.g., "john@example.com")
+
+Search Features:
+  ✓ Case-insensitive search
+  ✓ Real-time results
+  ✓ Partial matching
+  ✓ Multiple field search
+  ✓ Special character support
+
+Pagination:
+  • 20 users per page
+  • Previous/Next buttons
+  • Page indicator (Page X of Y)
+  • Automatic update on page change
+
+User Display:
+  • Avatar thumbnail
+  • Display name or username
+  • Email address
+  • Online/offline badge
+  • Green badge = Online
+  • Gray badge = Offline
+
+================================================================================
+GROUPS & CHANNELS SECTION
+================================================================================
+
+Information Displayed per Group:
+  • Group icon (#) with gradient background
+  • Group name
+  • Member count
+  • Total message count
+  • Last activity time (implicit in order)
+
+Sorting:
+  • By most recently updated first
+  • Shows top 5 active groups
+
+Example:
+  [#] General
+      125 members | 2,450 messages
+
+  [#] Engineering
+      89 members | 1,892 messages
+
+================================================================================
+QUICK STATS FOOTER
+================================================================================
+
+Last Updated
+  • Shows current time
+  • Updates on refresh
+  • Format: HH:MM:SS AM/PM
+
+Average Daily Activity
+  • Messages per day
+  • Calculated from weekly data
+  • Formula: messagesThisWeek / 7
+
+Engagement Percentage
+  • Online users / Total users
+  • Percentage format
+  • Real-time calculation
+  • Example: "1.97% online"
+
+================================================================================
+RESPONSIVE DESIGN
+================================================================================
+
+DESKTOP (≥ 1024px)
+  • 4 stat cards in 1 row
+  • Full sidebar visible
+  • Maximum width content
+  • All features visible
+
+TABLET (768px - 1023px)
+  • 2 stat cards per row
+  • Sidebar visible
+  • Adjusted spacing
+  • Optimized layout
+
+MOBILE (< 768px)
+  • 1 stat card per row
+  • Sidebar hidden (toggle)
+  • Full-width content
+  • Touch-optimized buttons
+  • Stacked layout
+  • Horizontal scroll for large tables
+
+================================================================================
+COLOR SCHEME
+================================================================================
+
+LIGHT MODE
+  Background: White/Gray50
+  Text: Slate900
+  Borders: Slate200
+  Accents:
+    - Blue: #3B82F6 (Primary)
+    - Green: #10B981 (Online status)
+    - Amber: #F59E0B (Warnings)
+    - Violet: #8B5CF6 (Groups)
+    - Gray: #9CA3AF (Offline)
+
+DARK MODE
+  Background: Slate900
+  Text: White
+  Borders: Slate700
+  Accents: (Same but darkened)
+    - Blue: Slate-blue
+    - Green: Green-dark
+    - Amber: Amber-dark
+    - Violet: Violet-dark
+    - Gray: Slate-dark
+
+HOVER EFFECTS
+  Light Mode:
+    • Slight gray background tint
+    • Subtle shadow
+  Dark Mode:
+    • Slight lighter background
+    • Subtle shadow
+
+================================================================================
+ICONS USED
+================================================================================
+
+Icon Library: Lucide React
+
+Users Icon (👥)
+  • Total Users card
+  • User list header
+
+Messages Icon (💬)
+  • Messages Today card
+  • Message indicators
+
+Hash Icon (#)
+  • Conversations card
+  • Group/Channel indicators
+
+BarChart3 Icon (📊)
+  • Weekly Messages card
+  • Sidebar dashboard button
+
+Arrow Left (←)
+  • Back button in header
+
+Refresh (🔄)
+  • Manual refresh button
+  • Data reload trigger
+
+Search (🔍)
+  • Search input icon
+  • User search field
+
+Globe (🌍)
+  • Activity indicators
+  • Engagement display
+
+Clock (⏰)
+  • Last updated timestamp
+  • Time tracking
+
+TrendingUp (↗)
+  • Trend indicators
+  • Growth status
+
+Activity (⚡)
+  • Active section indicator
+  • Real-time activity marker
+
+================================================================================
+INTERACTIVE ELEMENTS
+================================================================================
+
+Back Button
+  • Location: Header left
+  • Function: Close dashboard
+  • Tooltip: "Go Back"
+
+Refresh Button
+  • Location: Header right
+  • Function: Reload all data
+  • Loading state: Spinner animation
+  • Disabled during loading
+
+Search Input
+  • Placeholder: "Search by name, email, or username..."
+  • Trigger: Typing
+  • Debounce: Yes
+  • Clear: By selection
+
+Pagination Buttons
+  • Previous: Disabled on page 1
+  • Next: Disabled on last page
+  • Page info: "Page X of Y"
+  • Click: Navigate pages
+
+Online/Offline Badges
+  • Green dot: User online
+  • Gray dot: User offline
+  • Position: Avatar corner
+  • Real-time: Updates as available
+
+================================================================================
+LOADING & ERROR STATES
+================================================================================
+
+Loading State
+  • Full-page spinner centered
+  • Text: "Loading dashboard..."
+  • Duration: While data fetches
+
+Search Loading
+  • Spinner in users section
+  • Overlay effect
+  • Text: Subtle loading indicator
+
+Empty State
+  • Users section: "No users found"
+  • Groups section: "No groups or channels yet"
+  • Message: Helpful guidance
+
+Error Handling
+  • Toast notifications (if implemented)
+  • Graceful degradation
+  • Retry options
+  • Error logging to console
+
+================================================================================
+KEYBOARD SHORTCUTS (Future Enhancement)
+================================================================================
+
+Proposed:
+  • R: Refresh dashboard
+  • / : Focus search
+  • ESC: Close/back
+  • Page Up/Down: Pagination
+  • Ctrl+K: Command palette (future)
+
+================================================================================
+ACCESSIBILITY FEATURES
+================================================================================
+
+Current:
+  ✓ Semantic HTML structure
+  ✓ ARIA labels on buttons
+  ✓ Keyboard navigation
+  ✓ Color contrast compliance
+  ✓ Dark mode support
+  ✓ Proper heading hierarchy
+
+Recommended Additions:
+  • ARIA live regions for updates
+  • Screen reader testing
+  • Keyboard-only navigation
+  • Focus visible indicators
+  • Skip navigation links
+
+================================================================================

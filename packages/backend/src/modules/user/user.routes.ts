@@ -1,11 +1,43 @@
 import { Router, Request, Response } from 'express';
+import multer from 'multer';
+import path from 'path';
 import { prisma } from '../../config/database';
 import { authenticate } from '../../middleware/auth';
+import { UserController } from './user.controller';
 
 const router = Router();
+const controller = new UserController();
+
+// Configure multer for avatar uploads
+const avatarStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, 'uploads/avatars/');
+  },
+  filename: (_req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  },
+});
+
+const avatarUpload = multer({
+  storage: avatarStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (_req, file, cb) => {
+    // Only allow image files
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only JPEG, PNG, and WebP images are allowed'));
+    }
+  },
+});
 
 // All user routes require authentication
 router.use(authenticate);
+
+// POST /api/users/avatar
+router.post('/avatar', avatarUpload.single('avatar'), controller.uploadAvatar.bind(controller));
 
 // GET /api/users/search?query=...&limit=20
 router.get('/search', async (req: Request, res: Response) => {

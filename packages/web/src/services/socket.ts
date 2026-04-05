@@ -156,6 +156,10 @@ class SocketService {
       this.socket.on('conversation:updated', (data: any) => {
         this.emit('conversation:updated', data);
       });
+
+      this.socket.on('buzz:received', (data: any) => {
+        this.emit('buzz:received', data);
+      });
     });
   }
 
@@ -210,6 +214,15 @@ class SocketService {
   emitTypingStop(conversationId: string): void {
     if (this.socket?.connected) {
       this.socket.emit('typing:stop', { conversationId });
+    }
+  }
+
+  /**
+   * Send a BUZZ to get someone's attention (Yahoo Messenger style)
+   */
+  sendBuzz(conversationId: string, targetUserId?: string): void {
+    if (this.socket?.connected) {
+      this.socket.emit('buzz:send', { conversationId, targetUserId });
     }
   }
 

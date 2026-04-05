@@ -48,6 +48,14 @@ model User {
   reactions        MessageReaction[]
   readReceipts     ReadReceipt[]
   refreshTokens    RefreshToken[]
+  tasksAssigned    Task[]               @relation("TasksAssigned")
+  tasksCreated     Task[]               @relation("TasksCreated")
+  lindaConversations LindaConversation[]
+  lindaRelated       LindaConversationRelatedUser[]
+  userStatuses     UserStatus[]
+  statusViews      StatusView[]         @relation("StatusViews")
+  statusLikes      StatusLike[]         @relation("StatusLikes")
+  announcements    Announcement[]
 
   @@map("users")
 }
@@ -185,6 +193,7 @@ enum MessageType {
   VIDEO
   SYSTEM
   POLL
+  STORY_REPLY
 }
 
 model MessageAttachment {
@@ -239,4 +248,150 @@ model PinnedMessage {
 
   @@unique([messageId, conversationId])
   @@map("pinned_messages")
+}
+
+// ============================================
+// TASK MODELS
+// ============================================
+
+model Task {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  status      String   @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, PENDING_REVIEW, COMPLETED, BLOCKED
+  priority    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
+  deadline    DateTime?
+  labels      String[] @default([])
+
+  assignedToId String
+  assignedTo   User     @relation("TasksAssigned", fields: [assignedToId], references: [id])
+
+  createdById  String
+  createdBy    User     @relation("TasksCreated", fields: [createdById], references: [id])
+
+  sourceMessageId String?
+
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([assignedToId])
+  @@index([createdById])
+  @@index([status])
+  @@map("tasks")
+}
+
+// ============================================
+// LINDA AI CONVERSATION MODELS
+// ============================================
+
+model LindaConversation {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  title     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user         User                          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages     LindaMessage[]
+  relatedUsers LindaConversationRelatedUser[]
+
+  @@index([userId])
+  @@map("linda_conversations")
+}
+
+model LindaMessage {
+  id             String   @id @default(uuid())
+  conversationId String   @map("conversation_id")
+  role           String   // 'user' or 'assistant'
+  content        String
+  hasAttachment  Boolean  @default(false) @map("has_attachment")
+  attachmentName String?  @map("attachment_name")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation LindaConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("linda_messages")
+}
+
+model LindaConversationRelatedUser {
+  id             String @id @default(uuid())
+  conversationId String @map("conversation_id")
+  userId         String @map("user_id")
+
+  conversation LindaConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@map("linda_conversation_related_users")
+}
+
+// ============================================
+// USER STATUS/STORIES MODELS
+// ============================================
+
+model UserStatus {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  type      String   // 'text', 'image', 'video'
+  content   String   // text content or file URL
+  bgColor   String?  @map("bg_color") // background color for text statuses
+  caption   String?
+  expiresAt DateTime @map("expires_at") // 24h from creation
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  views StatusView[]
+  likes StatusLike[]
+
+  @@index([userId, expiresAt])
+  @@map("user_statuses")
+}
+
+model StatusView {
+  id        String   @id @default(uuid())
+  statusId  String   @map("status_id")
+  viewerId  String   @map("viewer_id")
+  viewedAt  DateTime @default(now()) @map("viewed_at")
+
+  status UserStatus @relation(fields: [statusId], references: [id], onDelete: Cascade)
+  viewer User       @relation("StatusViews", fields: [viewerId], references: [id], onDelete: Cascade)
+
+  @@unique([statusId, viewerId])
+  @@map("status_views")
+}
+
+model StatusLike {
+  id        String   @id @default(uuid())
+  statusId  String   @map("status_id")
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  status UserStatus @relation(fields: [statusId], references: [id], onDelete: Cascade)
+  user   User       @relation("StatusLikes", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([statusId, userId])
+  @@map("status_likes")
+}
+
+// ============================================
+// ANNOUNCEMENTS MODEL
+// ============================================
+
+model Announcement {
+  id        String   @id @default(uuid())
+  authorId  String   @map("author_id")
+  title     String
+  content   String
+  priority  String   @default("NORMAL") // 'LOW', 'NORMAL', 'HIGH', 'URGENT'
+  pinned    Boolean  @default(false)
+  expiresAt DateTime? @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@map("announcements")
 }

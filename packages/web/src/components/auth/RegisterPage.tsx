@@ -191,7 +191,7 @@ export const RegisterPage: React.FC = () => {
             </div>
           </div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-            Join Exclusive Messenger
+            Join OmniLink
           </h1>
           <p className="text-gray-600 dark:text-gray-400">
             Create your account to get started

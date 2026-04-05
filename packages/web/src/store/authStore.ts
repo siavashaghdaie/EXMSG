@@ -189,10 +189,14 @@ export const useAuthStore = create<AuthState>()(
         user: state.user,
         isAuthenticated: state.isAuthenticated,
       }),
-      // Safety: if persisted state is inconsistent, fix it on hydration
+      // Safety: fix inconsistent persisted state on hydration
       onRehydrateStorage: () => (state) => {
         if (state && state.isAuthenticated && !state.user) {
           state.isAuthenticated = false;
+        }
+        // Fix nested user object from older getMe() bug: { user: { user: { id: ... } } }
+        if (state?.user && (state.user as any).user && !(state.user as any).id) {
+          (state as any).user = (state.user as any).user;
         }
       },
     }

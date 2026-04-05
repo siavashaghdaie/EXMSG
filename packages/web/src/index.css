@@ -5,6 +5,14 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 @layer base {
+  html, body, #root {
+    height: 100dvh;
+    height: 100vh; /* fallback */
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+  }
+
   * {
     @apply border-gray-200 dark:border-gray-700;
   }
@@ -29,4 +37,89 @@
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-gray-400 dark:bg-gray-500;
   }
+}
+
+/* BUZZ Animation - Yahoo Messenger style */
+@keyframes buzz-shake {
+  0%, 100% { transform: translate(0, 0); }
+  10% { transform: translate(-8px, -4px); }
+  20% { transform: translate(8px, 4px); }
+  30% { transform: translate(-6px, 2px); }
+  40% { transform: translate(6px, -2px); }
+  50% { transform: translate(-4px, 4px); }
+  60% { transform: translate(4px, -4px); }
+  70% { transform: translate(-2px, 2px); }
+  80% { transform: translate(2px, -2px); }
+  90% { transform: translate(-1px, 1px); }
+}
+
+@keyframes buzz-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.05); opacity: 0.9; }
+}
+
+@keyframes buzz-overlay-fade {
+  0% { opacity: 0; }
+  10% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.animate-buzz-shake {
+  animation: buzz-shake 0.5s ease-in-out 3;
+}
+
+.animate-buzz-pulse {
+  animation: buzz-pulse 0.5s ease-in-out infinite;
+}
+
+.animate-buzz-overlay {
+  animation: buzz-overlay-fade 3s ease-in-out forwards;
+}
+
+/* Slide-in sidebar animation */
+@keyframes slide-in-left {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes slide-out-left {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+
+.sidebar-slide-in {
+  animation: slide-in-left 0.25s ease-out forwards;
+}
+
+.sidebar-slide-out {
+  animation: slide-out-left 0.25s ease-in forwards;
+}
+
+/* Ensure touch targets are at least 44px */
+@media (max-width: 768px) {
+  button, a, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* Mobile-specific styles */
+@media (max-width: 768px) {
+  /* Ensure keyboard doesn't hide input */
+  input, textarea {
+    font-size: 16px; /* Prevents zoom on iOS */
+  }
+
+  /* Ensure full screen on mobile */
+  .h-screen {
+    height: 100vh;
+    height: 100dvh; /* Use dynamic viewport height */
+  }
+}
+
+/* Voice message waveform animation */
+@keyframes wave {
+  0% { height: 4px; }
+  100% { height: 20px; }
 }

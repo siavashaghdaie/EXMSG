@@ -3,6 +3,7 @@ import { Server, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env';
 import { cacheUtils } from '../config/redis';
+import { prisma } from '../config/database';
 import { AuthPayload } from '../middleware/auth';
 
 interface AuthenticatedSocket extends Socket {
@@ -41,13 +42,23 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
     }
   });
 
-  io.on('connection', (socket: AuthenticatedSocket) => {
+  io.on('connection', async (socket: AuthenticatedSocket) => {
     const userId = socket.userId!;
 
     console.warn(`User connected: ${socket.username} (${userId})`);
 
-    // Set user online
+    // Set user online in cache
     cacheUtils.setUserOnline(userId);
+
+    // Update database to mark user as online
+    try {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { isOnline: true, lastSeenAt: new Date() },
+      });
+    } catch (error) {
+      console.error('Failed to update user online status in database:', error);
+    }
 
     // Join user's personal room for direct notifications
     socket.join(`user:${userId}`);
@@ -58,12 +69,14 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
     // --- EVENT HANDLERS ---
 
     // Join a conversation room
-    socket.on('conversation:join', (conversationId: string) => {
+    socket.on('conversation:join', (data: string | { conversationId: string }) => {
+      const conversationId = typeof data === 'string' ? data : data.conversationId;
       socket.join(`conversation:${conversationId}`);
     });
 
     // Leave a conversation room
-    socket.on('conversation:leave', (conversationId: string) => {
+    socket.on('conversation:leave', (data: string | { conversationId: string }) => {
+      const conversationId = typeof data === 'string' ? data : data.conversationId;
       socket.leave(`conversation:${conversationId}`);
     });
 
@@ -89,17 +102,19 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
     });
 
     // Typing indicator
-    socket.on('typing:start', async (conversationId: string) => {
+    socket.on('typing:start', async (data: string | { conversationId: string }) => {
+      const conversationId = typeof data === 'string' ? data : data.conversationId;
       await cacheUtils.setTyping(userId, conversationId);
       socket
         .to(`conversation:${conversationId}`)
-        .emit('typing:update', { userId, username: socket.username, isTyping: true });
+        .emit('typing:start', { userId, username: socket.username, conversationId });
     });
 
-    socket.on('typing:stop', (conversationId: string) => {
+    socket.on('typing:stop', (data: string | { conversationId: string }) => {
+      const conversationId = typeof data === 'string' ? data : data.conversationId;
       socket
         .to(`conversation:${conversationId}`)
-        .emit('typing:update', { userId, username: socket.username, isTyping: false });
+        .emit('typing:stop', { userId, username: socket.username, conversationId });
     });
 
     // Read receipt
@@ -122,10 +137,100 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
         .emit('reaction:removed', { userId, ...data });
     });
 
+    // Buzz - Yahoo Messenger style attention grab
+    socket.on('buzz:send', (data: { conversationId: string; targetUserId?: string }) => {
+      const buzzData = {
+        senderId: userId,
+        senderName: socket.username,
+        conversationId: data.conversationId,
+        targetUserId: data.targetUserId,
+        timestamp: new Date().toISOString()
+      };
+      // Send to the conversation room (excluding sender)
+      socket.to(`conversation:${data.conversationId}`).emit('buzz:received', buzzData);
+      // Also send to the specific target user's personal room if specified
+      if (data.targetUserId) {
+        socket.to(`user:${data.targetUserId}`).emit('buzz:received', buzzData);
+      }
+    });
+
+    // --- WEBRTC CALL SIGNALING ---
+
+    // Initiate a call
+    socket.on('call:initiate', (data: { conversationId: string; targetUserId: string; callType: 'audio' | 'video'; offer?: any }) => {
+      const callData = {
+        callerId: userId,
+        callerName: socket.username,
+        conversationId: data.conversationId,
+        callType: data.callType,
+        offer: data.offer,
+        timestamp: new Date().toISOString(),
+      };
+      // Send to the target user's personal room
+      io.to(`user:${data.targetUserId}`).emit('call:incoming', callData);
+    });
+
+    // Accept a call
+    socket.on('call:accept', (data: { conversationId: string; targetUserId: string; answer?: any }) => {
+      io.to(`user:${data.targetUserId}`).emit('call:accepted', {
+        accepterId: userId,
+        accepterName: socket.username,
+        conversationId: data.conversationId,
+        answer: data.answer,
+      });
+    });
+
+    // Reject a call
+    socket.on('call:reject', (data: { conversationId: string; targetUserId: string; reason?: string }) => {
+      io.to(`user:${data.targetUserId}`).emit('call:rejected', {
+        rejecterId: userId,
+        conversationId: data.conversationId,
+        reason: data.reason || 'declined',
+      });
+    });
+
+    // End a call
+    socket.on('call:end', (data: { conversationId: string; targetUserId: string }) => {
+      io.to(`user:${data.targetUserId}`).emit('call:ended', {
+        enderId: userId,
+        conversationId: data.conversationId,
+      });
+    });
+
+    // ICE candidate exchange
+    socket.on('call:ice-candidate', (data: { targetUserId: string; candidate: any }) => {
+      io.to(`user:${data.targetUserId}`).emit('call:ice-candidate', {
+        senderId: userId,
+        candidate: data.candidate,
+      });
+    });
+
+    // WebRTC offer/answer exchange
+    socket.on('call:signal', (data: { targetUserId: string; signal: any }) => {
+      io.to(`user:${data.targetUserId}`).emit('call:signal', {
+        senderId: userId,
+        signal: data.signal,
+      });
+    });
+
     // Disconnect
     socket.on('disconnect', async () => {
       console.warn(`User disconnected: ${socket.username}`);
+
+      // Set user offline in cache
       await cacheUtils.setUserOffline(userId);
+
+      // Update database to mark user as offline
+      try {
+        await prisma.user.update({
+          where: { id: userId },
+          data: { isOnline: false, lastSeenAt: new Date() },
+        });
+      } catch (error) {
+        console.error('Failed to update user offline status in database:', error);
+      }
+
+      // Broadcast offline status
       socket.broadcast.emit('user:offline', { userId });
     });
   });

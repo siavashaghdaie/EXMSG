@@ -1,24 +1,36 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { format, isToday, isYesterday } from 'date-fns';
-import { ArrowDown, ChevronLeft } from 'lucide-react';
+import { ArrowDown, ChevronLeft, Phone, Video } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { MessageResponse, ConversationResponse } from '@/services/api';
 import MessageBubble from './MessageBubble';
 import MessageComposer from './MessageComposer';
 import TypingIndicator from './TypingIndicator';
+import BuzzButton from './BuzzButton';
+import BuzzOverlay from './BuzzOverlay';
 import Avatar from '@/components/common/Avatar';
+import CallModal from '@/components/call/CallModal';
+import PresenceIndicator from '@/components/common/PresenceIndicator';
+import TaskReminderBell from '@/components/tasks/TaskReminderBell';
+import { callService } from '@/services/callService';
 
 export default function ChatView() {
   const { conversationId } = useParams<{ conversationId: string }>();
+  const navigate = useNavigate();
   const { user } = useAuthStore();
   const {
     messages,
+    conversations,
     activeConversation,
+    setActiveConversation,
     fetchMessages,
     typingIndicators,
+    buzzActive,
+    sendBuzz,
   } = useChatStore();
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -26,22 +38,42 @@ export default function ChatView() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const scrollPositionRef = useRef<number>(0);
 
-  // Scroll to bottom on new messages
+  const activeBuzz = conversationId ? buzzActive.get(conversationId) : undefined;
+
+  // Scroll to bottom on new messages — use scrollTop instead of scrollIntoView
+  // to avoid stealing focus from the message input on mobile
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+    }
   }, []);
 
   useEffect(() => {
     scrollToBottom();
   }, [messages.get(conversationId || '')?.length, scrollToBottom]);
 
-  // Fetch messages when conversation changes
+  // Handle responsive behavior
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Set active conversation and fetch messages when conversation changes
   useEffect(() => {
     if (conversationId) {
       fetchMessages(conversationId);
-      // Join socket room would happen here
+      // Find conversation in list and set as active
+      const conv = conversations.find(c => c.id === conversationId);
+      if (conv) {
+        setActiveConversation(conv);
+      }
     }
-  }, [conversationId, fetchMessages]);
+  }, [conversationId, fetchMessages, conversations, setActiveConversation]);
 
   // Handle scroll detection
   const handleScroll = () => {
@@ -113,12 +145,17 @@ export default function ChatView() {
   // Helper to find sender info from conversation participants
   const getSenderName = (senderId: string): string => {
     const participant = conversation?.participants.find(p => p.id === senderId);
-    return participant?.username || 'Unknown';
+    return participant?.username || participant?.email?.split('@')[0] || 'Unknown';
   };
 
   const getSenderAvatar = (senderId: string): string | undefined => {
     const participant = conversation?.participants.find(p => p.id === senderId);
     return participant?.avatar;
+  };
+
+  const getSenderUsername = (senderId: string): string | undefined => {
+    const participant = conversation?.participants.find(p => p.id === senderId);
+    return participant?.username || participant?.email;
   };
 
   let lastDate: string | null = null;
@@ -157,6 +194,7 @@ export default function ChatView() {
               firstMessage.senderId !== user?.id && (
                 <Avatar
                   name={getSenderName(firstMessage.senderId)}
+                  username={getSenderUsername(firstMessage.senderId)}
                   src={getSenderAvatar(firstMessage.senderId)}
                   size="sm"
                 />
@@ -192,32 +230,48 @@ export default function ChatView() {
   });
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className={`flex h-full bg-white dark:bg-surface-900 ${activeBuzz ? 'animate-buzz-shake' : ''}`}>
+      <div className="flex flex-col h-full flex-1">
       {/* Header */}
-      <div className="border-b border-slate-200 bg-white sticky top-0 z-10">
+      <div className="border-b border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 sticky top-0 z-10">
         <div className="px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3 flex-1">
-            <button className="lg:hidden p-2 hover:bg-slate-100 rounded-lg transition">
-              <ChevronLeft size={20} className="text-slate-600" />
-            </button>
+            {isMobile && (
+              <button
+                onClick={() => navigate('/chat')}
+                className="p-2 hover:bg-slate-100 rounded-lg transition"
+                title="Back to chats"
+              >
+                <ChevronLeft size={20} className="text-slate-600" />
+              </button>
+            )}
             {conversation && (() => {
               const isGroup = conversation.participants.length > 2;
               const otherParticipants = conversation.participants.filter(p => p.id !== user?.id);
-              const displayName = conversation.name || otherParticipants.map(p => p.username).join(', ');
+              const getParticipantName = (p: typeof otherParticipants[0]) =>
+                p?.username || p?.email?.split('@')[0] || 'User';
+              const displayName = conversation.name || otherParticipants.map(getParticipantName).join(', ');
+              const avatarSrc = !isGroup && otherParticipants.length === 1
+                ? otherParticipants[0]?.avatar
+                : undefined;
               return (
                 <>
                   <Avatar
                     name={displayName}
+                    username={otherParticipants[0]?.username || otherParticipants[0]?.email}
+                    src={avatarSrc}
                     size="md"
                   />
                   <div className="flex-1">
-                    <h2 className="font-semibold text-slate-900">
+                    <h2 className="font-semibold text-slate-900 dark:text-white">
                       {displayName}
                     </h2>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
                       {isGroup
                         ? `${conversation.participants.length} members`
-                        : 'Direct message'}
+                        : otherParticipants.length > 0 && (
+                            <PresenceIndicator userId={otherParticipants[0]?.id} showText />
+                          )}
                     </p>
                   </div>
                 </>
@@ -225,20 +279,48 @@ export default function ChatView() {
             })()}
           </div>
           <div className="flex items-center gap-2">
-            <button className="p-2 hover:bg-slate-100 rounded-lg transition">
-              <svg
-                className="w-5 h-5 text-slate-600"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-                />
-              </svg>
+            <BuzzButton
+              conversationId={conversationId}
+              onBuzz={sendBuzz}
+            />
+            <TaskReminderBell />
+            <button
+              onClick={() => {
+                if (conversation) {
+                  const otherParticipants = conversation.participants.filter(p => p.id !== user?.id);
+                  if (otherParticipants.length > 0) {
+                    callService.initiateCall(
+                      conversationId!,
+                      otherParticipants[0].id,
+                      otherParticipants[0].username,
+                      'audio'
+                    );
+                  }
+                }
+              }}
+              className="p-2 hover:bg-slate-100 rounded-lg transition"
+              title="Voice call"
+            >
+              <Phone size={20} className="text-slate-600" />
+            </button>
+            <button
+              onClick={() => {
+                if (conversation) {
+                  const otherParticipants = conversation.participants.filter(p => p.id !== user?.id);
+                  if (otherParticipants.length > 0) {
+                    callService.initiateCall(
+                      conversationId!,
+                      otherParticipants[0].id,
+                      otherParticipants[0].username,
+                      'video'
+                    );
+                  }
+                }
+              }}
+              className="p-2 hover:bg-slate-100 rounded-lg transition"
+              title="Video call"
+            >
+              <Video size={20} className="text-slate-600" />
             </button>
           </div>
         </div>
@@ -284,6 +366,18 @@ export default function ChatView() {
         conversationId={conversationId}
         disabled={!conversationId}
       />
+
+      {/* BUZZ Overlay */}
+      {activeBuzz && (
+        <BuzzOverlay
+          senderName={activeBuzz.senderName}
+          onComplete={() => {}}
+        />
+      )}
+
+      {/* Call Modal */}
+      <CallModal />
+      </div>
     </div>
   );
 }

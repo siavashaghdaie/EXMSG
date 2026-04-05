@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
+import { setupPresenceSocketListeners } from '@/store/presenceStore';
 import { LoginPage } from '@/components/auth/LoginPage';
 import { RegisterPage } from '@/components/auth/RegisterPage';
 import ChatLayout from '@/components/layout/ChatLayout';
@@ -13,6 +14,14 @@ function App() {
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
+
+  // Initialize presence socket listeners
+  useEffect(() => {
+    if (isAuthenticated) {
+      const unsubscribe = setupPresenceSocketListeners();
+      return unsubscribe;
+    }
+  }, [isAuthenticated]);
 
   // Show loading spinner while checking auth
   if (isLoading) {
@@ -73,7 +82,7 @@ function ChatEmptyState() {
           </svg>
         </div>
         <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-2">
-          Exclusive Messenger
+          OMNILINK
         </h2>
         <p className="text-gray-500 dark:text-gray-400 max-w-sm">
           Select a conversation from the sidebar or start a new chat to begin messaging.

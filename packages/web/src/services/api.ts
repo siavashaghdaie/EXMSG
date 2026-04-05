@@ -13,14 +13,39 @@ interface AuthResponse {
   refreshToken: string;
 }
 
+interface MessageAttachment {
+  id: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  url: string;
+}
+
 interface MessageResponse {
   id: string;
   conversationId: string;
   senderId: string;
   content: string;
+  type?: string;
   reactions: Record<string, string[]>;
+  attachments?: MessageAttachment[];
   editedAt?: string;
+  readBy?: Record<string, string>;
+  deliveredAt?: string;
   createdAt: string;
+  sender?: {
+    id: string;
+    username: string;
+    displayName: string;
+    avatarUrl?: string;
+  };
+  replyTo?: {
+    id: string;
+    content: string;
+    sender?: {
+      displayName: string;
+    };
+  };
 }
 
 interface ConversationResponse {
@@ -56,9 +81,82 @@ interface UserProfile {
   id: string;
   email: string;
   username: string;
+  displayName?: string;
   avatar?: string;
+  avatarUrl?: string;
   bio?: string;
+  status?: string;
   createdAt?: string;
+}
+
+interface LindaConversationSummary {
+  id: string;
+  title: string;
+  isOwn: boolean;
+  ownerName: string;
+  ownerEmail?: string;
+  ownerAvatar?: string;
+  relatedUsers?: Array<{ id: string; name: string }>;
+  lastMessage?: { content: string; role: string; createdAt: string };
+  messageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface LindaMessageData {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  hasAttachment?: boolean;
+  attachmentName?: string;
+  createdAt: string;
+}
+
+export interface StatusItem {
+  id: string;
+  type: 'text' | 'image' | 'video';
+  content: string;
+  bgColor?: string;
+  caption?: string;
+  viewCount: number;
+  viewedByMe: boolean;
+  likeCount?: number;
+  likedByMe?: boolean;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface StatusLikeUser {
+  id: string;
+  username: string;
+  avatarUrl?: string;
+}
+
+export interface UserStatusGroup {
+  userId: string;
+  username: string;
+  displayName: string;
+  avatarUrl?: string;
+  statuses: StatusItem[];
+  hasUnviewed: boolean;
+  latestAt: string;
+}
+
+export interface AnnouncementItem {
+  id: string;
+  title: string;
+  content: string;
+  priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+  pinned: boolean;
+  expiresAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  author: {
+    id: string;
+    username: string;
+    displayName: string;
+    avatarUrl?: string;
+  };
 }
 
 // API Client Class
@@ -206,30 +304,78 @@ class APIClient {
   }
 
   async getMe(): Promise<UserProfile> {
-    const response = await this.client.get<UserProfile>('/auth/me');
-    return response.data;
+    const response = await this.client.get('/auth/me');
+    // Backend returns { user: { ... } }, unwrap it
+    return response.data.user || response.data;
+  }
+
+  // Helper to normalize backend conversation shape to frontend ConversationResponse
+  private normalizeConversation(conv: any): ConversationResponse {
+    // Backend returns "members" with nested user objects; frontend expects "participants"
+    const participants = (conv.members || conv.participants || []).map((m: any) => {
+      const user = m.user || m;
+      return {
+        id: user.id,
+        email: user.email || '',
+        username: user.username || user.displayName || 'Unknown',
+        avatar: user.avatarUrl || user.avatar,
+      };
+    });
+
+    // Backend returns messages array with latest first; frontend expects lastMessage
+    const lastMsg = conv.messages?.[0] || conv.lastMessage;
+    const lastMessage: MessageResponse | undefined = lastMsg ? {
+      id: lastMsg.id,
+      content: lastMsg.content,
+      senderId: lastMsg.sender?.id || lastMsg.senderId || '',
+      conversationId: conv.id,
+      createdAt: lastMsg.createdAt,
+      reactions: {},
+    } : undefined;
+
+    return {
+      id: conv.id,
+      name: conv.name || undefined,
+      participants,
+      lastMessage,
+      unreadCount: conv.unreadCount || 0,
+      createdAt: conv.createdAt,
+      updatedAt: conv.updatedAt,
+    };
   }
 
   // Messaging API
   async getConversations(skip: number = 0, limit: number = 20): Promise<ConversationResponse[]> {
-    const response = await this.client.get<ConversationResponse[]>('/conversations', {
+    const response = await this.client.get('/conversations', {
       params: { skip, limit },
     });
-    return response.data;
+    // Backend returns { conversations: [...] } — unwrap and normalize
+    const raw = response.data.conversations || response.data;
+    const conversations = Array.isArray(raw) ? raw : [];
+    return conversations.map((c: any) => this.normalizeConversation(c));
   }
 
   async createConversation(
     participantIds: string[],
     name?: string
   ): Promise<ConversationResponse> {
-    const response = await this.client.post<ConversationResponse>(
+    // Backend expects { type, memberIds, name, description }
+    const type = participantIds.length === 1 && !name ? 'DIRECT' : 'GROUP';
+    const response = await this.client.post(
       '/conversations',
       {
-        participantIds,
-        name,
+        type,
+        memberIds: participantIds,
+        name: name || undefined,
       }
     );
-    return response.data;
+    // Backend returns { conversation: {...} } — unwrap and normalize
+    const raw = response.data.conversation || response.data;
+    return this.normalizeConversation(raw);
+  }
+
+  async deleteConversation(conversationId: string): Promise<void> {
+    await this.client.delete(`/conversations/${conversationId}`);
   }
 
   async getMessages(
@@ -237,21 +383,91 @@ class APIClient {
     cursor?: string,
     limit: number = 50
   ): Promise<PaginatedMessages> {
-    const response = await this.client.get<PaginatedMessages>(
+    const response = await this.client.get(
       `/conversations/${conversationId}/messages`,
       {
         params: { cursor, limit },
       }
     );
-    return response.data;
+    // Backend returns { messages, nextCursor }; frontend expects { messages, cursor, hasMore }
+    const data = response.data;
+    const rawMessages = Array.isArray(data.messages) ? data.messages : [];
+    // Normalize backend message shape to frontend MessageResponse
+    const messages: MessageResponse[] = rawMessages.map((m: any) => ({
+      id: m.id,
+      conversationId: m.conversationId || conversationId,
+      senderId: m.sender?.id || m.senderId || '',
+      content: m.content,
+      type: m.type,
+      attachments: m.attachments,
+      reactions: m.reactions || {},
+      editedAt: m.editedAt,
+      createdAt: m.createdAt,
+      sender: m.sender,
+      replyTo: m.replyTo,
+    }));
+    return {
+      messages,
+      cursor: data.nextCursor || data.cursor,
+      hasMore: !!data.nextCursor || !!data.hasMore,
+    };
   }
 
-  async sendMessage(conversationId: string, content: string): Promise<MessageResponse> {
-    const response = await this.client.post<MessageResponse>(
+  async sendMessage(conversationId: string, content: string, replyToId?: string, storyReply?: { storyId: string; storyContent: string; storyType: string; storyBgColor?: string }): Promise<MessageResponse> {
+    const response = await this.client.post(
       `/conversations/${conversationId}/messages`,
-      { content }
+      { content, replyToId, ...(storyReply ? { type: 'STORY_REPLY', storyReply } : {}) }
     );
-    return response.data;
+    // Backend returns { message: {...} } — unwrap and normalize
+    const raw = response.data.message || response.data;
+    return {
+      id: raw.id,
+      conversationId: raw.conversationId || conversationId,
+      senderId: raw.sender?.id || raw.senderId || '',
+      content: raw.content,
+      type: raw.type,
+      attachments: raw.attachments,
+      reactions: {},
+      editedAt: raw.editedAt,
+      createdAt: raw.createdAt,
+      sender: raw.sender,
+      replyTo: raw.replyTo,
+    };
+  }
+
+  async uploadFile(conversationId: string, file: File, onProgress?: (progress: number) => void): Promise<MessageResponse> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await this.client.post(
+      `/conversations/${conversationId}/upload`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        onUploadProgress: (progressEvent) => {
+          if (progressEvent.total && onProgress) {
+            const progress = Math.round((progressEvent.loaded / progressEvent.total) * 100);
+            onProgress(progress);
+          }
+        },
+      }
+    );
+    // Backend returns { message: {...} } — unwrap and normalize
+    const raw = response.data.message || response.data;
+    return {
+      id: raw.id,
+      conversationId: raw.conversationId || conversationId,
+      senderId: raw.sender?.id || raw.senderId || '',
+      content: raw.content,
+      type: raw.type,
+      attachments: raw.attachments,
+      reactions: {},
+      editedAt: raw.editedAt,
+      createdAt: raw.createdAt,
+      sender: raw.sender,
+    };
   }
 
   async editMessage(_conversationId: string, messageId: string, content: string): Promise<MessageResponse> {
@@ -308,6 +524,218 @@ class APIClient {
     const response = await this.client.patch<UserProfile>('/users/profile', updates);
     return response.data;
   }
+
+  async uploadAvatar(file: File): Promise<{ avatarUrl: string }> {
+    const formData = new FormData();
+    formData.append('avatar', file);
+    const response = await this.client.post<{ avatarUrl: string }>('/users/avatar', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  }
+
+  // Message Pinning API
+  async pinMessage(conversationId: string, messageId: string): Promise<void> {
+    await this.client.post(`/conversations/${conversationId}/pins`, { messageId });
+  }
+
+  async unpinMessage(conversationId: string, messageId: string): Promise<void> {
+    await this.client.delete(`/conversations/${conversationId}/pins/${messageId}`);
+  }
+
+  async getPinnedMessages(conversationId: string): Promise<MessageResponse[]> {
+    const response = await this.client.get(`/conversations/${conversationId}/pins`);
+    const pins = response.data.pins || [];
+    return pins.map((pin: any) => {
+      const msg = pin.message || pin;
+      return {
+        id: msg.id,
+        conversationId: msg.conversationId || conversationId,
+        senderId: msg.sender?.id || msg.senderId || '',
+        content: msg.content,
+        reactions: msg.reactions || {},
+        createdAt: msg.createdAt,
+        sender: msg.sender,
+        replyTo: msg.replyTo,
+      };
+    });
+  }
+
+  // Message Search API
+  async searchMessages(query: string, conversationId?: string): Promise<MessageResponse[]> {
+    const response = await this.client.get('/messages/search', {
+      params: { query, conversationId, limit: 30 },
+    });
+    const rawMessages = response.data.messages || [];
+    return rawMessages.map((m: any) => ({
+      id: m.id,
+      conversationId: m.conversationId,
+      senderId: m.sender?.id || m.senderId || '',
+      content: m.content,
+      type: m.type,
+      attachments: m.attachments,
+      reactions: m.reactions || {},
+      createdAt: m.createdAt,
+      sender: m.sender,
+      replyTo: m.replyTo,
+    }));
+  }
+
+  // Message Forwarding API
+  async forwardMessage(messageId: string, targetConversationIds: string[]): Promise<void> {
+    await this.client.post(`/messages/${messageId}/forward`, { targetConversationIds });
+  }
+
+  // Linda AI Secretary API
+  async chatWithLinda(message: string, conversationId?: string): Promise<{ response: string; timestamp: string; conversationId: string }> {
+    const res = await this.client.post('/linda/chat', { message, conversationId }, { timeout: 60000 });
+    return res.data;
+  }
+
+  async chatWithLindaFile(file: File, message?: string, conversationId?: string): Promise<{ response: string; timestamp: string; conversationId: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (message) formData.append('message', message);
+    if (conversationId) formData.append('conversationId', conversationId);
+    const res = await this.client.post('/linda/chat/file', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
+    });
+    return res.data;
+  }
+
+  async getLindaGreeting(): Promise<{ greeting: string; suggestions: string[] }> {
+    const res = await this.client.get('/linda/greeting');
+    return res.data;
+  }
+
+  async getLindaConversations(): Promise<{ conversations: LindaConversationSummary[] }> {
+    const res = await this.client.get('/linda/conversations');
+    return res.data;
+  }
+
+  async getAllLindaConversations(): Promise<{ conversations: LindaConversationSummary[] }> {
+    const res = await this.client.get('/linda/conversations/all');
+    return res.data;
+  }
+
+  async getLindaConversationMessages(conversationId: string): Promise<{
+    conversation: { id: string; ownerName: string; isOwn: boolean };
+    messages: LindaMessageData[];
+  }> {
+    const res = await this.client.get(`/linda/conversations/${conversationId}/messages`);
+    return res.data;
+  }
+
+  async checkLindaManager(): Promise<{ isManager: boolean }> {
+    const res = await this.client.get('/linda/manager-check');
+    return res.data;
+  }
+
+  // Task Management API
+  async getTasks(status?: string): Promise<any[]> {
+    const res = await this.client.get('/tasks', { params: { status } });
+    return res.data.tasks || [];
+  }
+
+  async createTask(data: { title: string; description?: string; assignedToId?: string; deadline?: string; priority?: string; labels?: string[] }): Promise<any> {
+    const res = await this.client.post('/tasks', data);
+    return res.data.task;
+  }
+
+  async updateTask(taskId: string, data: any): Promise<any> {
+    const res = await this.client.patch(`/tasks/${taskId}`, data);
+    return res.data.task;
+  }
+
+  async deleteTask(taskId: string): Promise<void> {
+    await this.client.delete(`/tasks/${taskId}`);
+  }
+
+  // Admin API
+  async getAdminDashboard(): Promise<any> {
+    const res = await this.client.get('/admin/dashboard');
+    return res.data;
+  }
+
+  async getAdminStats(): Promise<any> {
+    const res = await this.client.get('/admin/stats');
+    return res.data;
+  }
+
+  async getAdminUsers(search?: string, page = 1, limit = 20): Promise<any> {
+    const res = await this.client.get('/admin/users', { params: { search, page, limit } });
+    return res.data;
+  }
+
+  // Status/Stories API
+  async createTextStatus(content: string, bgColor?: string): Promise<StatusItem> {
+    const { data } = await this.client.post('/status/text', { content, bgColor });
+    return data;
+  }
+
+  async createMediaStatus(file: File, caption?: string): Promise<StatusItem> {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (caption) formData.append('caption', caption);
+    const { data } = await this.client.post('/status/media', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  }
+
+  async getMyStatuses(): Promise<{ statuses: StatusItem[] }> {
+    const { data } = await this.client.get('/status/mine');
+    return data;
+  }
+
+  async getContactStatuses(): Promise<{ users: UserStatusGroup[] }> {
+    const { data } = await this.client.get('/status/contacts');
+    return data;
+  }
+
+  async viewStatus(statusId: string): Promise<void> {
+    await this.client.post(`/status/${statusId}/view`);
+  }
+
+  async deleteStatus(statusId: string): Promise<void> {
+    await this.client.delete(`/status/${statusId}`);
+  }
+
+  async likeStatus(statusId: string): Promise<{ liked: boolean }> {
+    const { data } = await this.client.post(`/status/${statusId}/like`);
+    return data;
+  }
+
+  async getStatusLikes(statusId: string): Promise<{ likes: StatusLikeUser[] }> {
+    const { data } = await this.client.get(`/status/${statusId}/likes`);
+    return data;
+  }
+
+  // Announcements API
+  async getAnnouncements(): Promise<{ announcements: AnnouncementItem[] }> {
+    const { data } = await this.client.get('/announcements');
+    return data;
+  }
+
+  async createAnnouncement(payload: { title: string; content: string; priority?: string; pinned?: boolean; expiresAt?: string }): Promise<AnnouncementItem> {
+    const { data } = await this.client.post('/announcements', payload);
+    return data;
+  }
+
+  async updateAnnouncement(id: string, payload: { title?: string; content?: string; priority?: string; pinned?: boolean }): Promise<AnnouncementItem> {
+    const { data } = await this.client.put(`/announcements/${id}`, payload);
+    return data;
+  }
+
+  async deleteAnnouncement(id: string): Promise<void> {
+    await this.client.delete(`/announcements/${id}`);
+  }
+
+  async canAnnounce(): Promise<{ canAnnounce: boolean }> {
+    const { data } = await this.client.get('/announcements/can-announce');
+    return data;
+  }
 }
 
 // Export singleton instance
@@ -320,4 +748,6 @@ export type {
   PaginatedMessages,
   SearchUsersResponse,
   UserProfile,
+  LindaConversationSummary,
+  LindaMessageData,
 };

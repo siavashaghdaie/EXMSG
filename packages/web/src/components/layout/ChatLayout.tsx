@@ -1,17 +1,62 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, Outlet } from 'react-router-dom';
+import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
 import { useChatStore, setupChatSocketListeners } from '@/store/chatStore';
+import { setupPresenceSocketListeners } from '@/store/presenceStore';
 import { socket } from '@/services/socket';
+import { api } from '@/services/api';
 import Sidebar from '@/components/sidebar/Sidebar';
+import SettingsPage from '@/components/settings/SettingsPage';
+import TaskWall from '@/components/tasks/TaskWall';
+import BottomNav from '@/components/layout/BottomNav';
+import LindaChat from '@/components/linda/LindaChat';
+import AdminDashboard from '@/components/admin/AdminDashboard';
+import AnnouncementBoard from '@/components/announcements/AnnouncementBoard';
+import AgentsPage from '@/components/agents/AgentsPage';
 
 export const ChatLayout: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { isAuthenticated, user, isLoading } = useAuthStore();
   const { fetchConversations } = useChatStore();
   const [, setIsInitialized] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  // On mobile: true = show sidebar/conversation list, false = show chat. On desktop: always show sidebar
   const [showSidebar, setShowSidebar] = useState(!isMobile);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showLinda, setShowLinda] = useState(false);
+  const [showTaskWall, setShowTaskWall] = useState(false);
+  const [showAdminDashboard, setShowAdminDashboard] = useState(false);
+  const [showAnnouncements, setShowAnnouncements] = useState(false);
+  const [showAgents, setShowAgents] = useState(false);
+  const [, setAnnouncementCount] = useState(0);
+  const [taskCount, setTaskCount] = useState(0);
+
+  // Reusable function to refresh task count
+  const refreshTaskCount = async () => {
+    try {
+      const tasks = await api.getTasks();
+      const incomplete = tasks?.filter((t: any) => !t.completed && t.assignedToId === user?.id) || [];
+      setTaskCount(incomplete.length);
+    } catch {}
+  };
+
+  // Load announcement and task counts for mobile badges + poll tasks
+  useEffect(() => {
+    if (!isAuthenticated || !user) return;
+    const loadCounts = async () => {
+      try {
+        const annResult = await api.getAnnouncements();
+        setAnnouncementCount((annResult?.announcements || []).length);
+      } catch {}
+      refreshTaskCount();
+    };
+    loadCounts();
+
+    // Poll task count every 15 seconds for real-time badge updates
+    const interval = setInterval(refreshTaskCount, 15000);
+    return () => clearInterval(interval);
+  }, [isAuthenticated, user]);
 
   // Check authentication on mount
   useEffect(() => {
@@ -29,15 +74,27 @@ export const ChatLayout: React.FC = () => {
 
     const initializeChat = async () => {
       try {
-        // Fetch conversations
-        await fetchConversations();
+        // Ensure socket is connected before setting up listeners
+        const token = localStorage.getItem('accessToken');
+        if (token && !socket.isConnected()) {
+          try {
+            await socket.connect(token);
+          } catch (err) {
+            console.warn('[ChatLayout] Socket connection failed, retrying...', err);
+          }
+        }
 
-        // Setup socket listeners
-        const unsubscribeListeners = setupChatSocketListeners();
+        // Setup socket listeners for chat and presence
+        const unsubscribeChatListeners = setupChatSocketListeners();
+        const unsubscribePresenceListeners = setupPresenceSocketListeners();
+
+        // Fetch conversations (this also joins all conversation rooms)
+        await fetchConversations();
 
         // Store cleanup function
         const cleanup = () => {
-          unsubscribeListeners();
+          unsubscribeChatListeners();
+          unsubscribePresenceListeners();
           socket.disconnect();
         };
 
@@ -62,7 +119,7 @@ export const ChatLayout: React.FC = () => {
     const handleResize = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
-      // Show sidebar by default on desktop
+      // On desktop, show sidebar by default
       if (!mobile) {
         setShowSidebar(true);
       }
@@ -71,6 +128,13 @@ export const ChatLayout: React.FC = () => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // On mobile, when navigating back to /chat (no conversation selected), show the sidebar
+  useEffect(() => {
+    if (isMobile && location.pathname === '/chat') {
+      setShowSidebar(true);
+    }
+  }, [location.pathname, isMobile]);
 
   // Redirect to login if not authenticated
   if (!isAuthenticated) {
@@ -89,57 +153,184 @@ export const ChatLayout: React.FC = () => {
     );
   }
 
+  // On mobile: show sidebar if showSidebar is true. On desktop: always show sidebar
+  const shouldShowSidebar = isMobile ? showSidebar : true;
+  // On mobile: show content only if not showing sidebar. On desktop: always show content
+  const shouldShowContent = isMobile ? !showSidebar : true;
+
   return (
-    <div className="h-screen bg-gray-50 dark:bg-surface-950 flex overflow-hidden">
-      {/* Sidebar - Hidden on mobile unless explicitly shown */}
-      {isMobile ? (
-        showSidebar && (
-          <div className="absolute inset-0 z-40 md:relative md:z-auto">
-            <Sidebar
-              onNavigateChat={() => {
-                setShowSidebar(false);
-              }}
-            />
-          </div>
-        )
-      ) : (
-        <Sidebar />
+    <div className="h-[100dvh] bg-gray-50 dark:bg-surface-950 flex overflow-hidden flex-col md:flex-row">
+      {/* Sidebar/Conversation List - Full screen on mobile when visible */}
+      {shouldShowSidebar && (
+        <div className={isMobile ? 'w-full h-full' : ''}>
+          <Sidebar
+            isMobile={isMobile}
+            onNavigateChat={() => {
+              setShowSettings(false);
+              setShowLinda(false);
+              setShowTaskWall(false);
+              setShowAdminDashboard(false);
+              setShowAnnouncements(false);
+              setShowAgents(false);
+              if (isMobile) setShowSidebar(false);
+            }}
+            onSettingsClick={() => {
+              setShowSettings(true);
+              setShowLinda(false);
+              setShowTaskWall(false);
+              setShowAdminDashboard(false);
+              setShowAnnouncements(false);
+              setShowAgents(false);
+              if (isMobile) setShowSidebar(false);
+            }}
+            onDashboardClick={() => {
+              setShowAdminDashboard(true);
+              setShowSettings(false);
+              setShowLinda(false);
+              setShowTaskWall(false);
+              setShowAnnouncements(false);
+              setShowAgents(false);
+              if (isMobile) setShowSidebar(false);
+            }}
+            onLindaClick={() => {
+              setShowLinda(true);
+              setShowSettings(false);
+              setShowTaskWall(false);
+              setShowAdminDashboard(false);
+              setShowAnnouncements(false);
+              setShowAgents(false);
+              if (isMobile) setShowSidebar(false);
+            }}
+            onAnnouncementsClick={() => {
+              setShowAnnouncements(true);
+              setShowSettings(false);
+              setShowLinda(false);
+              setShowTaskWall(false);
+              setShowAdminDashboard(false);
+              if (isMobile) setShowSidebar(false);
+            }}
+            onTasksClick={() => {
+              setShowTaskWall(true);
+              setShowSettings(false);
+              setShowLinda(false);
+              setShowAdminDashboard(false);
+              setShowAnnouncements(false);
+              setShowAgents(false);
+              if (isMobile) setShowSidebar(false);
+            }}
+          />
+        </div>
       )}
 
-      {/* Main content area */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Mobile header with sidebar toggle */}
-        {isMobile && (
-          <div className="h-14 bg-white dark:bg-surface-900 border-b border-gray-200 dark:border-surface-700 flex items-center px-4 gap-3">
-            <button
-              onClick={() => setShowSidebar(true)}
-              className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors"
-            >
-              <svg
-                className="w-6 h-6 text-gray-600 dark:text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 6h16M4 12h16M4 18h16"
-                />
-              </svg>
-            </button>
-            <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
-              Exclusive Messenger
-            </h1>
-          </div>
-        )}
+      {/* Main content area - shown on desktop always, on mobile only when in chat */}
+      {shouldShowContent && (
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Note: ChatView has its own back button in its header */}
 
-        {/* Content outlet */}
-        <div className="flex-1 overflow-hidden">
-          <Outlet />
+          {/* Content outlet */}
+          <div className="flex-1 overflow-hidden">
+            {showSettings ? (
+              <SettingsPage onBack={() => {
+                setShowSettings(false);
+                if (isMobile) {
+                  setShowSidebar(true);
+                }
+              }} />
+            ) : showAdminDashboard ? (
+              <AdminDashboard onBack={() => {
+                setShowAdminDashboard(false);
+                if (isMobile) {
+                  setShowSidebar(true);
+                }
+              }} />
+            ) : showLinda ? (
+              <LindaChat onClose={() => {
+                setShowLinda(false);
+                if (isMobile) {
+                  setShowSidebar(true);
+                }
+              }} />
+            ) : showTaskWall ? (
+              <TaskWall onClose={() => {
+                setShowTaskWall(false);
+                refreshTaskCount();
+                if (isMobile) {
+                  setShowSidebar(true);
+                }
+              }} />
+            ) : showAnnouncements ? (
+              <AnnouncementBoard onClose={() => {
+                setShowAnnouncements(false);
+                if (isMobile) {
+                  setShowSidebar(true);
+                }
+              }} />
+            ) : showAgents ? (
+              <AgentsPage onClose={() => {
+                setShowAgents(false);
+                if (isMobile) {
+                  setShowSidebar(true);
+                }
+              }} />
+            ) : (
+              <Outlet />
+            )}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Bottom Navigation - only show on mobile when sidebar is visible */}
+      {isMobile && shouldShowSidebar && (
+        <BottomNav
+          visible={true}
+          taskCount={taskCount}
+          onAgentsClick={() => {
+            setShowAgents(true);
+            setShowSettings(false);
+            setShowLinda(false);
+            setShowTaskWall(false);
+            setShowAdminDashboard(false);
+            setShowAnnouncements(false);
+            setShowSidebar(false);
+          }}
+          onTasksClick={() => {
+            setShowTaskWall(true);
+            setShowSettings(false);
+            setShowLinda(false);
+            setShowAdminDashboard(false);
+            setShowAnnouncements(false);
+            setShowAgents(false);
+            setShowSidebar(false);
+          }}
+          onSettingsClick={() => {
+            setShowSettings(true);
+            setShowLinda(false);
+            setShowTaskWall(false);
+            setShowAdminDashboard(false);
+            setShowAnnouncements(false);
+            setShowAgents(false);
+            setShowSidebar(false);
+          }}
+          onChatsClick={() => {
+            setShowSettings(false);
+            setShowLinda(false);
+            setShowTaskWall(false);
+            setShowAdminDashboard(false);
+            setShowAnnouncements(false);
+            setShowAgents(false);
+            setShowSidebar(true);
+          }}
+          onContactsClick={() => {
+            setShowSettings(false);
+            setShowLinda(false);
+            setShowTaskWall(false);
+            setShowAdminDashboard(false);
+            setShowAnnouncements(false);
+            setShowAgents(false);
+            navigate('/contacts');
+          }}
+        />
+      )}
     </div>
   );
 };

@@ -125,7 +125,7 @@ export const LoginPage: React.FC = () => {
             Welcome back
           </h1>
           <p className="text-gray-600 dark:text-gray-400">
-            Sign in to your Exclusive Messenger account
+            Sign in to your OmniLink account
           </p>
         </div>
 

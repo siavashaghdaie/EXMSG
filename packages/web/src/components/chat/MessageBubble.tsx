@@ -5,23 +5,27 @@ import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { MessageResponse } from '@/services/api';
 import MessageActions from './MessageActions';
+import FileCard from './FileCard';
+import LinkPreview from './LinkPreview';
+import VoiceMessagePlayer from './VoiceMessagePlayer';
+import ForwardModal from './ForwardModal';
+import { extractUrls, linkifyText } from '@/utils/urlDetector';
 
 interface MessageBubbleProps {
   message: MessageResponse;
   isOwnMessage: boolean;
   showAvatar?: boolean;
-  onReply?: (message: { id: string; content: string }) => void;
 }
 
 export default function MessageBubble({
   message,
   isOwnMessage,
-  onReply,
 }: MessageBubbleProps) {
   const [showActions, setShowActions] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState(message.content);
+  const [showForwardModal, setShowForwardModal] = useState(false);
   const { editMessage, deleteMessage, addReaction } = useChatStore();
   const { user } = useAuthStore();
 
@@ -39,9 +43,19 @@ export default function MessageBubble({
   };
 
   const handleReply = () => {
-    onReply?.({
-      id: message.id,
+    const { setReplyingTo } = useChatStore.getState();
+    setReplyingTo({
+      messageId: message.id,
       content: message.content,
+      senderName: message.sender?.displayName || 'Unknown',
+    });
+  };
+
+  const handlePin = () => {
+    const { pinMessage } = useChatStore.getState();
+    pinMessage(message.conversationId, message.id).catch((error) => {
+      console.error('Failed to pin message:', error);
+      alert('Failed to pin message');
     });
   };
 
@@ -50,8 +64,25 @@ export default function MessageBubble({
     setShowEmojiPicker(false);
   };
 
-  // Check if message is fully read (placeholder — backend can extend MessageResponse)
-  const isFullyRead = false;
+  // Determine the read receipt status
+  const getReadReceiptStatus = () => {
+    if (!isOwnMessage) return null;
+
+    // Blue double tick: message read/seen by other user
+    if (message.readBy && Object.keys(message.readBy).length > 0) {
+      return 'read';
+    }
+
+    // Gray double tick: message delivered/received by other user
+    if (message.deliveredAt) {
+      return 'delivered';
+    }
+
+    // Single gray tick: message sent to server
+    return 'sent';
+  };
+
+  const readReceiptStatus = getReadReceiptStatus();
 
   // Group reactions
   const reactionGroups = React.useMemo(() => {
@@ -80,12 +111,31 @@ export default function MessageBubble({
           }`}
         >
           <div
-            className={`max-w-xs px-4 py-2 rounded-2xl relative ${
+            className={`px-4 py-2 rounded-2xl relative max-w-[85vw] sm:max-w-sm ${
               isOwnMessage
                 ? 'bg-blue-500 text-white rounded-br-none'
                 : 'bg-slate-100 text-slate-900 rounded-bl-none'
             }`}
           >
+            {/* Reply context */}
+            {message.replyTo && (
+              <div className={`mb-2 pb-2 border-l-2 pl-2 ${
+                isOwnMessage
+                  ? 'border-blue-400 opacity-90'
+                  : 'border-slate-300 opacity-70'
+              }`}>
+                <p className={`font-medium text-[11px] ${
+                  isOwnMessage ? 'text-blue-100' : 'text-slate-600'
+                }`}>
+                  {message.replyTo.sender?.displayName || 'Unknown'}
+                </p>
+                <p className={`text-xs truncate ${
+                  isOwnMessage ? 'text-blue-50' : 'text-slate-600'
+                }`}>
+                  {message.replyTo.content}
+                </p>
+              </div>
+            )}
             {isEditing ? (
               <div className="flex flex-col gap-2">
                 <textarea
@@ -115,9 +165,30 @@ export default function MessageBubble({
               </div>
             ) : (
               <>
-                <p className="break-words text-sm leading-relaxed">
-                  {message.content}
-                </p>
+                {message.content && (
+                  <>
+                    <p className="break-words text-sm leading-relaxed">
+                      {linkifyText(message.content).map((part, i) =>
+                        typeof part === 'string'
+                          ? part
+                          : (
+                            <a
+                              key={i}
+                              href={part.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-400 dark:text-blue-300 underline hover:text-blue-300 dark:hover:text-blue-200 transition"
+                            >
+                              {part.url}
+                            </a>
+                          )
+                      )}
+                    </p>
+                    {extractUrls(message.content).length > 0 && (
+                      <LinkPreview url={extractUrls(message.content)[0]} />
+                    )}
+                  </>
+                )}
                 {message.editedAt && (
                   <span className="text-xs opacity-70 mt-1 block">edited</span>
                 )}
@@ -132,9 +203,14 @@ export default function MessageBubble({
             <span className="text-xs text-slate-500">
               {format(new Date(message.createdAt), 'HH:mm')}
             </span>
-            {isFullyRead ? (
+            {readReceiptStatus === 'read' ? (
+              /* Blue double tick: message read */
               <CheckCheck size={14} className="text-blue-500" />
+            ) : readReceiptStatus === 'delivered' ? (
+              /* Gray double tick: message delivered */
+              <CheckCheck size={14} className="text-slate-400" />
             ) : (
+              /* Single gray tick: message sent */
               <Check size={14} className="text-slate-400" />
             )}
           </div>
@@ -146,6 +222,33 @@ export default function MessageBubble({
           </span>
         )}
       </div>
+
+      {/* File attachments */}
+      {message.attachments && message.attachments.length > 0 && (
+        <div className="mt-2 flex flex-col gap-2">
+          {message.attachments.map((attachment) => {
+            // Check if it's an audio file (voice message)
+            if (attachment.mimeType.startsWith('audio/')) {
+              return (
+                <VoiceMessagePlayer
+                  key={attachment.id}
+                  url={attachment.url}
+                />
+              );
+            }
+            // Regular file card for other file types
+            return (
+              <FileCard
+                key={attachment.id}
+                fileName={attachment.fileName}
+                fileSize={attachment.fileSize}
+                mimeType={attachment.mimeType}
+                url={attachment.url}
+              />
+            );
+          })}
+        </div>
+      )}
 
       {/* Reactions */}
       {reactionGroups.length > 0 && (
@@ -182,6 +285,17 @@ export default function MessageBubble({
           onReact={() => setShowEmojiPicker(!showEmojiPicker)}
           showEmojiPicker={showEmojiPicker}
           onAddReaction={handleAddReaction}
+          onPin={handlePin}
+          onForward={() => setShowForwardModal(true)}
+        />
+      )}
+
+      {/* Forward modal */}
+      {showForwardModal && (
+        <ForwardModal
+          messageId={message.id}
+          messagePreview={message.content || ''}
+          onClose={() => setShowForwardModal(false)}
         />
       )}
     </div>
