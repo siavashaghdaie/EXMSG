@@ -129,15 +129,18 @@ export default function MessageBubble({
     };
   }, [showContextMenu]);
 
-  // Determine the read receipt status
+  // Determine the read receipt status (WhatsApp-style)
+  // Single tick = sent to server, double grey tick = delivered, double blue tick = read
   const getReadReceiptStatus = () => {
     if (!isOwnMessage) return null;
-    if (message.readBy && Object.keys(message.readBy).length > 0) {
-      return 'read';
+    // Check if any OTHER user has read the message
+    if (message.readBy) {
+      const readByOthers = Object.keys(message.readBy).filter(uid => uid !== user?.id);
+      if (readByOthers.length > 0) return 'read';
     }
-    if (message.deliveredAt) {
-      return 'delivered';
-    }
+    // Message exists on server = delivered (server stores it, recipient can fetch)
+    if (message.id) return 'delivered';
+    // Optimistic/pending message = sent
     return 'sent';
   };
 

@@ -73,6 +73,7 @@ interface ChatState {
   handleTypingStart: (typing: TypingEvent) => void;
   handleTypingStop: (typing: TypingEvent) => void;
   handleBuzzReceived: (data: { senderId: string; senderName: string; conversationId: string }) => void;
+  handleMessagesRead: (data: { conversationId: string; readByUserId: string; messageIds: string[] }) => void;
   sendBuzz: (conversationId: string, targetUserId?: string) => void;
 
   // Pin Actions
@@ -471,6 +472,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }, 3000);
   },
 
+  handleMessagesRead: (data) => {
+    set((state) => {
+      const messages = new Map(state.messages);
+      const conversationMessages = messages.get(data.conversationId);
+      if (!conversationMessages) return state;
+
+      const updatedMessages = conversationMessages.map((msg) => {
+        if (data.messageIds.includes(msg.id)) {
+          const readBy = { ...(msg.readBy || {}) };
+          readBy[data.readByUserId] = new Date().toISOString();
+          return { ...msg, readBy };
+        }
+        return msg;
+      });
+      messages.set(data.conversationId, updatedMessages);
+      return { messages };
+    });
+  },
+
   sendBuzz: (conversationId: string, targetUserId?: string) => {
     socket.sendBuzz(conversationId, targetUserId);
 
@@ -652,6 +672,12 @@ export function setupChatSocketListeners() {
   unsubscribe.push(
     socket.on<any>('buzz:received', (data) => {
       useChatStore.getState().handleBuzzReceived(data);
+    })
+  );
+
+  unsubscribe.push(
+    socket.on<any>('messagesRead', (data) => {
+      useChatStore.getState().handleMessagesRead(data);
     })
   );
 

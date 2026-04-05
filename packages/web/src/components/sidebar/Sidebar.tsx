@@ -324,7 +324,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </p>
             </div>
           ) : (
-            <div className="space-y-1">
+            <div className="space-y-0">
               {/* Conversations */}
               {filteredConversations.length === 0 && !searchQuery ? (
                 <div className="flex flex-col items-center justify-center h-32 text-center px-4">

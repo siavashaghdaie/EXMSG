@@ -1054,6 +1054,8 @@ export async function handleLindaAutoReply(conversationId: string, senderUserId:
       messagesForApi.push({ role: 'user', content: messageContent });
     }
 
+    console.log(`[Linda] Sending ${messagesForApi.length} messages to Claude API. Last user msg: "${messagesForApi[messagesForApi.length - 1]?.content?.slice(0, 80)}"`);
+
     // Build workspace context and system prompt
     const lindaController = new LindaController();
     const workspaceContext = await (lindaController as any).getWorkspaceContext(senderUserId);

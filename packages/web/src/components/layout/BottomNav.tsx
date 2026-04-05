@@ -127,7 +127,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
             >
               <span className="relative">
                 {item.icon}
-                {item.id === 'tasks' && taskCount && taskCount > 0 && (
+                {item.id === 'tasks' && typeof taskCount === 'number' && taskCount > 0 && (
                   <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-[16px] flex items-center justify-center bg-red-500 text-white text-[9px] font-bold rounded-full px-1 leading-none shadow-sm border-2 border-white dark:border-surface-900">
                     {taskCount > 9 ? '9+' : taskCount}
                   </span>

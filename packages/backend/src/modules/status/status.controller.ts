@@ -6,6 +6,8 @@ const db = prisma as any;
 
 // In-memory fallback for DB availability check
 let dbAvailable: boolean | null = null;
+// Cache whether StatusLike table is available (avoids repeated Prisma errors)
+let likesTableAvailable: boolean | null = null;
 
 async function isDbAvailable(): Promise<boolean> {
   if (dbAvailable !== null) return dbAvailable;
@@ -141,18 +143,27 @@ export class StatusController {
 
       // Try with likes, fallback without if table doesn't exist yet
       let statuses: any[];
-      let hasLikesTable = true;
-      try {
-        statuses = await db.userStatus.findMany({
-          where: { userId, expiresAt: { gt: now } },
-          include: {
-            views: { select: { viewerId: true } },
-            likes: { select: { userId: true } },
-          },
-          orderBy: { createdAt: 'desc' },
-        });
-      } catch {
-        hasLikesTable = false;
+      const hasLikesTable = likesTableAvailable !== false;
+      if (hasLikesTable) {
+        try {
+          statuses = await db.userStatus.findMany({
+            where: { userId, expiresAt: { gt: now } },
+            include: {
+              views: { select: { viewerId: true } },
+              likes: { select: { userId: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+          likesTableAvailable = true;
+        } catch {
+          likesTableAvailable = false;
+          statuses = await db.userStatus.findMany({
+            where: { userId, expiresAt: { gt: now } },
+            include: { views: { select: { viewerId: true } } },
+            orderBy: { createdAt: 'desc' },
+          });
+        }
+      } else {
         statuses = await db.userStatus.findMany({
           where: { userId, expiresAt: { gt: now } },
           include: { views: { select: { viewerId: true } } },
@@ -197,19 +208,31 @@ export class StatusController {
 
       // Get all active statuses from other users — try with likes, fallback without
       let statuses: any[];
-      let hasLikesTable = true;
-      try {
-        statuses = await db.userStatus.findMany({
-          where: { userId: { not: userId }, expiresAt: { gt: now } },
-          include: {
-            user: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
-            views: { where: { viewerId: userId }, select: { viewedAt: true } },
-            likes: { select: { userId: true } },
-          },
-          orderBy: { createdAt: 'desc' },
-        });
-      } catch {
-        hasLikesTable = false;
+      const hasLikesTable = likesTableAvailable !== false;
+      if (hasLikesTable) {
+        try {
+          statuses = await db.userStatus.findMany({
+            where: { userId: { not: userId }, expiresAt: { gt: now } },
+            include: {
+              user: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
+              views: { where: { viewerId: userId }, select: { viewedAt: true } },
+              likes: { select: { userId: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+          likesTableAvailable = true;
+        } catch {
+          likesTableAvailable = false;
+          statuses = await db.userStatus.findMany({
+            where: { userId: { not: userId }, expiresAt: { gt: now } },
+            include: {
+              user: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
+              views: { where: { viewerId: userId }, select: { viewedAt: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+        }
+      } else {
         statuses = await db.userStatus.findMany({
           where: { userId: { not: userId }, expiresAt: { gt: now } },
           include: {

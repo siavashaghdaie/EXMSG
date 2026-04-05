@@ -491,6 +491,40 @@ export class MessagingController {
         });
       }
 
+      // Also create read receipts for ALL unread messages from others in this conversation
+      // This enables WhatsApp-style blue ticks for senders
+      const unreadMessages = await prisma.message.findMany({
+        where: {
+          conversationId,
+          senderId: { not: userId },
+          isDeleted: false,
+          readReceipts: {
+            none: { userId },
+          },
+        },
+        select: { id: true },
+      });
+
+      if (unreadMessages.length > 0) {
+        await prisma.readReceipt.createMany({
+          data: unreadMessages.map((m) => ({
+            messageId: m.id,
+            userId,
+          })),
+          skipDuplicates: true,
+        });
+
+        // Emit read receipt event so sender sees blue ticks in real-time
+        const io = req.app.get('io');
+        if (io) {
+          io.to(`conversation:${conversationId}`).emit('messagesRead', {
+            conversationId,
+            readByUserId: userId,
+            messageIds: unreadMessages.map((m) => m.id),
+          });
+        }
+      }
+
       // Always update last read timestamp on the conversation membership
       await prisma.conversationMember.update({
         where: { conversationId_userId: { conversationId, userId } },

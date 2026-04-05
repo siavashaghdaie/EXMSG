@@ -394,19 +394,30 @@ class APIClient {
     const data = response.data;
     const rawMessages = Array.isArray(data.messages) ? data.messages : [];
     // Normalize backend message shape to frontend MessageResponse
-    const messages: MessageResponse[] = rawMessages.map((m: any) => ({
-      id: m.id,
-      conversationId: m.conversationId || conversationId,
-      senderId: m.sender?.id || m.senderId || '',
-      content: m.content,
-      type: m.type,
-      attachments: m.attachments,
-      reactions: m.reactions || {},
-      editedAt: m.editedAt,
-      createdAt: m.createdAt,
-      sender: m.sender,
-      replyTo: m.replyTo,
-    }));
+    const messages: MessageResponse[] = rawMessages.map((m: any) => {
+      // Convert readReceipts array to readBy map
+      const readBy: Record<string, string> = {};
+      if (Array.isArray(m.readReceipts)) {
+        m.readReceipts.forEach((r: any) => {
+          readBy[r.userId] = r.readAt;
+        });
+      }
+      return {
+        id: m.id,
+        conversationId: m.conversationId || conversationId,
+        senderId: m.sender?.id || m.senderId || '',
+        content: m.content,
+        type: m.type,
+        attachments: m.attachments,
+        reactions: m.reactions || {},
+        readBy: Object.keys(readBy).length > 0 ? readBy : undefined,
+        deliveredAt: m.deliveredAt,
+        editedAt: m.editedAt,
+        createdAt: m.createdAt,
+        sender: m.sender,
+        replyTo: m.replyTo,
+      };
+    });
     return {
       messages,
       cursor: data.nextCursor || data.cursor,

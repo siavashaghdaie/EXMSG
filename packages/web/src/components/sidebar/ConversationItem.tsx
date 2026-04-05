@@ -172,7 +172,7 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
           tabIndex={0}
           onClick={handleClick}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleClick(); }}
-          className={`w-full px-3 py-3 rounded-lg transition-all duration-200 ease-out flex items-start gap-3 hover:bg-gray-100 dark:hover:bg-surface-800 cursor-pointer ${
+          className={`w-full px-3 py-2 rounded-lg transition-all duration-200 ease-out flex items-center gap-3 hover:bg-gray-100 dark:hover:bg-surface-800 cursor-pointer ${
             isActive
               ? 'bg-primary-50 dark:bg-primary-900/20 shadow-sm'
               : ''
@@ -180,7 +180,7 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
         >
           {/* Avatar with online indicator and optional story ring */}
           <div
-            className="relative flex-shrink-0 mt-1"
+            className="relative flex-shrink-0"
             style={hasStory ? { width: 46, height: 46 } : undefined}
             onClick={hasStory ? (e) => { e.stopPropagation(); onStoryClick?.(); } : undefined}
           >
