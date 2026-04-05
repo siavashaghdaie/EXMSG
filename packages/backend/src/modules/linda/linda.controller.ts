@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import { prisma } from '../../config/database';
 import { env } from '../../config/env';
+import { emitToConversation } from '../../services/socket';
 
 // Type-safe accessors for new Prisma models (available after running `npx prisma generate`)
 const db = prisma as any;
@@ -18,6 +19,31 @@ function getAnthropicClient(): Anthropic | null {
     anthropicClient = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   }
   return anthropicClient;
+}
+
+// Linda bot user management
+let lindaBotUserId: string | null = null;
+const LINDA_EMAIL = 'linda@omnilink.system';
+
+async function getLindaBotUserId(): Promise<string> {
+  if (lindaBotUserId) return lindaBotUserId;
+  let lindaUser = await prisma.user.findFirst({ where: { email: LINDA_EMAIL }, select: { id: true } });
+  if (!lindaUser) {
+    const bcrypt = await import('bcryptjs');
+    const hash = await bcrypt.hash(`linda-bot-${Date.now()}-${Math.random()}`, 10);
+    lindaUser = await prisma.user.create({
+      data: {
+        email: LINDA_EMAIL, username: 'linda', displayName: 'Linda AI',
+        passwordHash: hash, bio: 'AI Coordinator', isOnline: true,
+        status: 'Always here to help!',
+      },
+      select: { id: true },
+    });
+    console.log('[Linda] Created bot user:', lindaUser.id);
+  }
+  await prisma.user.update({ where: { id: lindaUser.id }, data: { isOnline: true } }).catch(() => {});
+  lindaBotUserId = lindaUser.id;
+  return lindaBotUserId;
 }
 
 // In-memory fallback for conversation history (used when DB tables don't exist yet)
@@ -141,31 +167,48 @@ export class LindaController {
       const workspaceContext = await this.getWorkspaceContext(userId);
       const systemPrompt = this.buildSystemPrompt(userName, workspaceContext);
 
+      // Ensure conversation ends with user role (required by claude-sonnet-4-6)
+      while (messagesForApi.length > 0 && messagesForApi[messagesForApi.length - 1].role !== 'user') {
+        messagesForApi.pop();
+      }
+
+      if (messagesForApi.length === 0) {
+        messagesForApi.push({ role: 'user', content: message });
+      }
+
       const response = await client.messages.create({
         model: 'claude-sonnet-4-6',
-        max_tokens: 1024,
+        max_tokens: 512,
         system: systemPrompt,
         messages: messagesForApi,
       });
 
       const textBlock = response.content.find((block: { type: string }) => block.type === 'text') as { type: 'text'; text: string } | undefined;
-      const responseText = textBlock ? textBlock.text : 'I apologize, I could not generate a response. Please try again.';
+      const rawResponseText = textBlock ? textBlock.text : 'Sorry, I could not process that. Please try again.';
 
-      addToHistory(userId, 'assistant', responseText);
+      // Execute any action blocks (send messages, etc.)
+      const actions = await this.executeActions(rawResponseText, userId);
+
+      // Strip action blocks from the visible response
+      const cleanResponse = this.stripActionBlocks(rawResponseText);
+
+      // Save CLEAN response to history and DB (prevents poisoning)
+      addToHistory(userId, 'assistant', cleanResponse);
 
       if (useDb && lindaConvId) {
         try {
-          await db.lindaMessage.create({ data: { conversationId: lindaConvId, role: 'assistant', content: responseText } });
+          await db.lindaMessage.create({ data: { conversationId: lindaConvId, role: 'assistant', content: cleanResponse } });
           await db.lindaConversation.update({ where: { id: lindaConvId }, data: { updatedAt: new Date() } });
-          this.detectAndTagMentionedUsers(lindaConvId, responseText, userId).catch(() => {});
+          this.detectAndTagMentionedUsers(lindaConvId, cleanResponse, userId).catch(() => {});
         } catch { /* ignore */ }
       }
 
       res.json({
-        response: responseText,
+        response: cleanResponse,
         timestamp: new Date().toISOString(),
         sender: 'linda',
         conversationId: lindaConvId,
+        actions: actions.length > 0 ? actions : undefined,
       });
     } catch (error: any) {
       console.error('[Linda] Chat error status:', error?.status, 'message:', error?.message);
@@ -346,13 +389,9 @@ export class LindaController {
 
       const userId = req.user!.userId;
 
+      // Only show conversations owned by this user (privacy: no leaking other users' Linda activities)
       const conversations = await db.lindaConversation.findMany({
-        where: {
-          OR: [
-            { userId },
-            { relatedUsers: { some: { userId } } },
-          ],
-        },
+        where: { userId },
         include: {
           user: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
           messages: {
@@ -594,29 +633,150 @@ export class LindaController {
     }
   }
 
+  // Execute action blocks parsed from Linda's AI response
+  private async executeActions(responseText: string, requestingUserId: string): Promise<Array<{ type: string; target: string; status: string }>> {
+    const actions: Array<{ type: string; target: string; status: string }> = [];
+
+    // Parse [SEND_MESSAGE] blocks
+    const sendMsgRegex = /\[SEND_MESSAGE\]\s*to:\s*@?(\S+)\s*\nmessage:\s*([\s\S]*?)\[\/SEND_MESSAGE\]/gi;
+    let match;
+
+    while ((match = sendMsgRegex.exec(responseText)) !== null) {
+      const targetUsername = match[1].trim();
+      const messageContent = match[2].trim();
+
+      try {
+        const lindaId = await getLindaBotUserId();
+
+        // Find target user
+        const targetUser = await prisma.user.findFirst({
+          where: {
+            OR: [
+              { username: { equals: targetUsername, mode: 'insensitive' } },
+              { displayName: { equals: targetUsername, mode: 'insensitive' } },
+            ],
+          },
+          select: { id: true, username: true, displayName: true },
+        });
+
+        if (!targetUser) {
+          console.warn(`[Linda] Could not find user: ${targetUsername}`);
+          actions.push({ type: 'send_message', target: targetUsername, status: 'user_not_found' });
+          continue;
+        }
+
+        // Find or create DM conversation between Linda and target user
+        let conversation = await prisma.conversation.findFirst({
+          where: {
+            type: 'DIRECT',
+            AND: [
+              { members: { some: { userId: lindaId } } },
+              { members: { some: { userId: targetUser.id } } },
+            ],
+          },
+        });
+
+        if (!conversation) {
+          conversation = await prisma.conversation.create({
+            data: {
+              type: 'DIRECT',
+              members: {
+                create: [
+                  { userId: lindaId, role: 'OWNER' },
+                  { userId: targetUser.id, role: 'MEMBER' },
+                ],
+              },
+            },
+          });
+          console.log(`[Linda] Created DM conversation with ${targetUser.username}: ${conversation.id}`);
+        }
+
+        // Create the message from Linda
+        const newMessage = await prisma.message.create({
+          data: {
+            conversationId: conversation.id,
+            senderId: lindaId,
+            content: messageContent,
+            type: 'TEXT',
+          },
+          include: {
+            sender: {
+              select: { id: true, username: true, displayName: true, avatarUrl: true },
+            },
+          },
+        });
+
+        // Update conversation timestamp
+        await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { updatedAt: new Date() },
+        });
+
+        // Emit via socket so recipient sees it in real-time
+        emitToConversation(conversation.id, 'message:new', {
+          id: newMessage.id,
+          conversationId: conversation.id,
+          senderId: newMessage.sender.id,
+          content: newMessage.content,
+          type: newMessage.type,
+          reactions: {},
+          createdAt: newMessage.createdAt,
+          sender: newMessage.sender,
+        });
+
+        console.log(`[Linda] Sent message to @${targetUser.username} in conversation ${conversation.id}`);
+        actions.push({ type: 'send_message', target: `@${targetUser.username}`, status: 'sent' });
+      } catch (err) {
+        console.error(`[Linda] Failed to send message to ${targetUsername}:`, err);
+        actions.push({ type: 'send_message', target: targetUsername, status: 'error' });
+      }
+    }
+
+    return actions;
+  }
+
+  // Strip action blocks from response text before saving/displaying
+  private stripActionBlocks(text: string): string {
+    return text
+      .replace(/\[SEND_MESSAGE\][\s\S]*?\[\/SEND_MESSAGE\]/gi, '')
+      .replace(/\[ASSIGN_TASK\][\s\S]*?\[\/ASSIGN_TASK\]/gi, '')
+      .replace(/\[ANNOUNCE\][\s\S]*?\[\/ANNOUNCE\]/gi, '')
+      .trim();
+  }
+
   // Build system prompt
   private buildSystemPrompt(userName: string, workspaceContext: string): string {
-    return `You are Linda, an AI secretary and workspace coordinator for OmniLink Messenger — an enterprise communication platform. You work for ${userName}.
+    return `You are Linda, an AI coordinator for OmniLink Messenger. You work for ${userName}.
 
-Your capabilities:
-- You help users manage their workspace: draft messages, summarize conversations, track tasks, and coordinate with team members
-- You have access to the user's workspace context (conversations, team members, tasks)
-- You can analyze images and documents shared by users
-- You are professional yet friendly, concise, and proactive
-- You speak naturally like a competent executive assistant
-- When users mention other team members, always use their @username so they get notified
-- When asked to relay a message to someone, compose the message clearly and mention the person by name
-- Keep responses concise (2-4 sentences for simple queries, more for complex requests)
+RESPONSE STYLE:
+- Be extremely concise. 1-2 sentences max for simple actions.
+- After performing an action, just confirm briefly: "Done, sent your message to @user." or "Got it, I'll let @user know."
+- No unnecessary commentary, no quoting the message content back, no long explanations.
+- Sound natural and human — like a sharp executive assistant, not a chatbot.
+
+ACTION BLOCKS:
+When the user asks you to send a message to someone, include an action block in your response. The block will be parsed and executed automatically — it will NOT be shown to the user.
+
+Format for sending a message:
+[SEND_MESSAGE]
+to: @username
+message: Your natural, human-like message here
+[/SEND_MESSAGE]
+
+Rules for message content:
+- Write messages as if YOU (Linda) are writing naturally to the recipient
+- Sound human: "Hey! ${userName} wanted me to let you know he'd like to meet in his office when you get a chance."
+- NEVER use robotic formats like "Message from ${userName}: ..." or sign with "— Linda AI"
+- NEVER include the action block syntax in your visible reply to the user
+- You can use the recipient's first name or @username naturally
 
 Current workspace context:
 ${workspaceContext}
 
-Important guidelines:
-- Address the user by name when it feels natural
-- If you don't know something specific, be honest about it
-- Suggest actionable next steps when appropriate
-- Use markdown formatting sparingly (bold for emphasis, bullet points for lists)
-- Never make up data you don't have — say you'll check or that the feature is coming`;
+Guidelines:
+- Address ${userName} by name occasionally
+- If you don't know something, say so briefly
+- Never make up data`;
   }
 
   // Gather workspace context
@@ -830,4 +990,134 @@ For more advanced assistance (document analysis, intelligent drafting, complex q
 
 Try asking me things like "help", "how do tasks work", or "tell me about stories"!`;
   }
+}
+
+/**
+ * Hook for regular messaging: when a message is sent in a conversation where Linda is a member,
+ * this generates an AI response and sends it as a regular message from Linda.
+ */
+export async function handleLindaAutoReply(conversationId: string, senderUserId: string, messageContent: string): Promise<void> {
+  try {
+    const lindaId = await getLindaBotUserId();
+
+    // Don't reply to our own messages
+    if (senderUserId === lindaId) return;
+
+    // Check if Linda is a member of this conversation
+    const lindaMembership = await prisma.conversationMember.findUnique({
+      where: { conversationId_userId: { conversationId, userId: lindaId } },
+    });
+    if (!lindaMembership) return;
+
+    const sender = await prisma.user.findUnique({
+      where: { id: senderUserId },
+      select: { displayName: true, username: true },
+    });
+    const senderName = sender?.displayName || sender?.username || 'there';
+
+    const client = getAnthropicClient();
+    if (!client) {
+      // Basic fallback — just acknowledge
+      const fallback = `Hi ${senderName}! I'm Linda, your AI coordinator. My AI capabilities aren't fully configured yet — please ask your admin to set the API key.`;
+      await sendLindaMessageToConversation(lindaId, conversationId, fallback);
+      return;
+    }
+
+    // Build conversation history from regular messages in this conversation
+    const recentMessages = await prisma.message.findMany({
+      where: { conversationId, isDeleted: false },
+      orderBy: { createdAt: 'asc' },
+      take: 30,
+      include: { sender: { select: { id: true, displayName: true, username: true } } },
+    });
+
+    // Convert to Claude API format
+    const messagesForApi: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+    for (const msg of recentMessages) {
+      const role = msg.senderId === lindaId ? 'assistant' : 'user';
+      const content = msg.content || '';
+      if (!content.trim()) continue;
+
+      // Merge consecutive same-role messages
+      if (messagesForApi.length > 0 && messagesForApi[messagesForApi.length - 1].role === role) {
+        messagesForApi[messagesForApi.length - 1].content += '\n' + content;
+      } else {
+        messagesForApi.push({ role, content });
+      }
+    }
+
+    // Ensure conversation ends with user role
+    while (messagesForApi.length > 0 && messagesForApi[messagesForApi.length - 1].role !== 'user') {
+      messagesForApi.pop();
+    }
+    if (messagesForApi.length === 0) {
+      messagesForApi.push({ role: 'user', content: messageContent });
+    }
+
+    // Build workspace context and system prompt
+    const lindaController = new LindaController();
+    const workspaceContext = await (lindaController as any).getWorkspaceContext(senderUserId);
+    const systemPrompt = (lindaController as any).buildSystemPrompt(senderName, workspaceContext);
+
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 512,
+      system: systemPrompt,
+      messages: messagesForApi,
+    });
+
+    const textBlock = response.content.find((block: { type: string }) => block.type === 'text') as { type: 'text'; text: string } | undefined;
+    const rawResponse = textBlock ? textBlock.text : "Sorry, I couldn't process that. Try again?";
+
+    // Execute any action blocks (send messages to other users, etc.)
+    await (lindaController as any).executeActions(rawResponse, senderUserId);
+
+    // Strip action blocks from visible response
+    const cleanResponse = rawResponse
+      .replace(/\[SEND_MESSAGE\][\s\S]*?\[\/SEND_MESSAGE\]/gi, '')
+      .replace(/\[ASSIGN_TASK\][\s\S]*?\[\/ASSIGN_TASK\]/gi, '')
+      .replace(/\[ANNOUNCE\][\s\S]*?\[\/ANNOUNCE\]/gi, '')
+      .trim();
+
+    if (cleanResponse) {
+      await sendLindaMessageToConversation(lindaId, conversationId, cleanResponse);
+    }
+  } catch (error) {
+    console.error('[Linda] Auto-reply error:', error);
+  }
+}
+
+/** Send a regular message from Linda into a conversation */
+async function sendLindaMessageToConversation(lindaId: string, conversationId: string, content: string): Promise<void> {
+  const newMessage = await prisma.message.create({
+    data: {
+      conversationId,
+      senderId: lindaId,
+      content,
+      type: 'TEXT',
+    },
+    include: {
+      sender: {
+        select: { id: true, username: true, displayName: true, avatarUrl: true },
+      },
+    },
+  });
+
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { updatedAt: new Date() },
+  });
+
+  emitToConversation(conversationId, 'message:new', {
+    id: newMessage.id,
+    conversationId,
+    senderId: newMessage.sender.id,
+    content: newMessage.content,
+    type: newMessage.type,
+    reactions: {},
+    createdAt: newMessage.createdAt,
+    sender: newMessage.sender,
+  });
+
+  console.log(`[Linda] Replied in conversation ${conversationId}`);
 }

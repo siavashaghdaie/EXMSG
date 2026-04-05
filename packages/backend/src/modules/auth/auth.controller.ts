@@ -4,6 +4,44 @@ import { prisma } from '../../config/database';
 import { generateTokens, verifyRefreshToken } from '../../middleware/auth';
 import { RegisterInput, LoginInput } from './auth.validation';
 
+const LINDA_EMAIL = 'linda@omnilink.system';
+
+/** Ensure a DM conversation exists between a user and Linda */
+async function ensureLindaDM(userId: string): Promise<void> {
+  try {
+    const lindaUser = await prisma.user.findFirst({ where: { email: LINDA_EMAIL }, select: { id: true } });
+    if (!lindaUser || lindaUser.id === userId) return;
+
+    // Check if DM already exists
+    const existing = await prisma.conversation.findFirst({
+      where: {
+        type: 'DIRECT',
+        AND: [
+          { members: { some: { userId } } },
+          { members: { some: { userId: lindaUser.id } } },
+        ],
+      },
+    });
+
+    if (!existing) {
+      await prisma.conversation.create({
+        data: {
+          type: 'DIRECT',
+          members: {
+            create: [
+              { userId: lindaUser.id, role: 'OWNER' },
+              { userId, role: 'MEMBER' },
+            ],
+          },
+        },
+      });
+      console.log(`[Linda] Created DM with user ${userId}`);
+    }
+  } catch (err) {
+    console.error('[Linda] Failed to ensure DM:', err);
+  }
+}
+
 export class AuthController {
   async register(req: Request, res: Response): Promise<void> {
     try {
@@ -69,6 +107,9 @@ export class AuthController {
         },
       });
 
+      // Ensure DM with Linda exists for new user
+      ensureLindaDM(user.id).catch(() => {});
+
       res.status(201).json({ user, ...tokens });
     } catch (error) {
       console.error('Register error:', error);
@@ -120,6 +161,10 @@ export class AuthController {
       });
 
       const { passwordHash: _, ...userWithoutPassword } = user;
+
+      // Ensure DM with Linda exists (fire-and-forget)
+      ensureLindaDM(user.id).catch(() => {});
+
       res.json({ user: userWithoutPassword, ...tokens });
     } catch (error) {
       console.error('Login error:', error);

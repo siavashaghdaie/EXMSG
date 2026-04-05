@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '../../config/database';
 import { emitToConversation } from '../../services/socket';
+import { handleLindaAutoReply } from '../linda/linda.controller';
 
 export class MessagingController {
   // GET /api/conversations
@@ -330,6 +331,11 @@ export class MessagingController {
         reactions: {},
         createdAt: message.createdAt,
         sender: message.sender,
+      });
+
+      // Check if Linda is in this conversation and should auto-reply
+      handleLindaAutoReply(conversationId, userId, content).catch((err) => {
+        console.error('[Linda] Auto-reply hook error:', err);
       });
     } catch (error) {
       console.error('Send message error:', error);

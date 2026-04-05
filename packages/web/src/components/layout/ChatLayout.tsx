@@ -9,7 +9,6 @@ import Sidebar from '@/components/sidebar/Sidebar';
 import SettingsPage from '@/components/settings/SettingsPage';
 import TaskWall from '@/components/tasks/TaskWall';
 import BottomNav from '@/components/layout/BottomNav';
-import LindaChat from '@/components/linda/LindaChat';
 import AdminDashboard from '@/components/admin/AdminDashboard';
 import AnnouncementBoard from '@/components/announcements/AnnouncementBoard';
 import AgentsPage from '@/components/agents/AgentsPage';
@@ -24,7 +23,6 @@ export const ChatLayout: React.FC = () => {
   // On mobile: true = show sidebar/conversation list, false = show chat. On desktop: always show sidebar
   const [showSidebar, setShowSidebar] = useState(!isMobile);
   const [showSettings, setShowSettings] = useState(false);
-  const [showLinda, setShowLinda] = useState(false);
   const [showTaskWall, setShowTaskWall] = useState(false);
   const [showAdminDashboard, setShowAdminDashboard] = useState(false);
   const [showAnnouncements, setShowAnnouncements] = useState(false);
@@ -159,7 +157,7 @@ export const ChatLayout: React.FC = () => {
   const shouldShowContent = isMobile ? !showSidebar : true;
 
   // Determine if a sub-page (settings, agents, tasks, etc.) is open — these should keep BottomNav visible
-  const isSubPageOpen = showSettings || showAgents || showTaskWall || showLinda || showAdminDashboard || showAnnouncements;
+  const isSubPageOpen = showSettings || showAgents || showTaskWall || showAdminDashboard || showAnnouncements;
   // On mobile, show BottomNav when: sidebar is visible OR a sub-page is open (not in a conversation)
   const showBottomNav = isMobile && (shouldShowSidebar || isSubPageOpen);
 
@@ -180,7 +178,7 @@ export const ChatLayout: React.FC = () => {
             isMobile={isMobile}
             onNavigateChat={() => {
               setShowSettings(false);
-              setShowLinda(false);
+
               setShowTaskWall(false);
               setShowAdminDashboard(false);
               setShowAnnouncements(false);
@@ -189,7 +187,7 @@ export const ChatLayout: React.FC = () => {
             }}
             onSettingsClick={() => {
               setShowSettings(true);
-              setShowLinda(false);
+
               setShowTaskWall(false);
               setShowAdminDashboard(false);
               setShowAnnouncements(false);
@@ -199,17 +197,8 @@ export const ChatLayout: React.FC = () => {
             onDashboardClick={() => {
               setShowAdminDashboard(true);
               setShowSettings(false);
-              setShowLinda(false);
+
               setShowTaskWall(false);
-              setShowAnnouncements(false);
-              setShowAgents(false);
-              if (isMobile) setShowSidebar(false);
-            }}
-            onLindaClick={() => {
-              setShowLinda(true);
-              setShowSettings(false);
-              setShowTaskWall(false);
-              setShowAdminDashboard(false);
               setShowAnnouncements(false);
               setShowAgents(false);
               if (isMobile) setShowSidebar(false);
@@ -217,7 +206,7 @@ export const ChatLayout: React.FC = () => {
             onAnnouncementsClick={() => {
               setShowAnnouncements(true);
               setShowSettings(false);
-              setShowLinda(false);
+
               setShowTaskWall(false);
               setShowAdminDashboard(false);
               if (isMobile) setShowSidebar(false);
@@ -225,7 +214,7 @@ export const ChatLayout: React.FC = () => {
             onTasksClick={() => {
               setShowTaskWall(true);
               setShowSettings(false);
-              setShowLinda(false);
+
               setShowAdminDashboard(false);
               setShowAnnouncements(false);
               setShowAgents(false);
@@ -252,13 +241,6 @@ export const ChatLayout: React.FC = () => {
             ) : showAdminDashboard ? (
               <AdminDashboard onBack={() => {
                 setShowAdminDashboard(false);
-                if (isMobile) {
-                  setShowSidebar(true);
-                }
-              }} />
-            ) : showLinda ? (
-              <LindaChat onClose={() => {
-                setShowLinda(false);
                 if (isMobile) {
                   setShowSidebar(true);
                 }
@@ -301,7 +283,6 @@ export const ChatLayout: React.FC = () => {
           onAgentsClick={() => {
             setShowAgents(true);
             setShowSettings(false);
-            setShowLinda(false);
             setShowTaskWall(false);
             setShowAdminDashboard(false);
             setShowAnnouncements(false);
@@ -310,7 +291,6 @@ export const ChatLayout: React.FC = () => {
           onTasksClick={() => {
             setShowTaskWall(true);
             setShowSettings(false);
-            setShowLinda(false);
             setShowAdminDashboard(false);
             setShowAnnouncements(false);
             setShowAgents(false);
@@ -318,7 +298,6 @@ export const ChatLayout: React.FC = () => {
           }}
           onSettingsClick={() => {
             setShowSettings(true);
-            setShowLinda(false);
             setShowTaskWall(false);
             setShowAdminDashboard(false);
             setShowAnnouncements(false);
@@ -327,7 +306,6 @@ export const ChatLayout: React.FC = () => {
           }}
           onChatsClick={() => {
             setShowSettings(false);
-            setShowLinda(false);
             setShowTaskWall(false);
             setShowAdminDashboard(false);
             setShowAnnouncements(false);
@@ -336,7 +314,6 @@ export const ChatLayout: React.FC = () => {
           }}
           onContactsClick={() => {
             setShowSettings(false);
-            setShowLinda(false);
             setShowTaskWall(false);
             setShowAdminDashboard(false);
             setShowAnnouncements(false);

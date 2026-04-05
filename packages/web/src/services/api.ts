@@ -55,6 +55,7 @@ interface ConversationResponse {
     id: string;
     email: string;
     username: string;
+    displayName?: string;
     avatar?: string;
   }>;
   lastMessage?: MessageResponse;
@@ -317,6 +318,7 @@ class APIClient {
         id: user.id,
         email: user.email || '',
         username: user.username || user.displayName || 'Unknown',
+        displayName: user.displayName || undefined,
         avatar: user.avatarUrl || user.avatar,
       };
     });
@@ -586,7 +588,7 @@ class APIClient {
   }
 
   // Linda AI Secretary API
-  async chatWithLinda(message: string, conversationId?: string): Promise<{ response: string; timestamp: string; conversationId: string }> {
+  async chatWithLinda(message: string, conversationId?: string): Promise<{ response: string; timestamp: string; conversationId: string; actions?: Array<{ type: string; target: string; status: string }> }> {
     const res = await this.client.post('/linda/chat', { message, conversationId }, { timeout: 60000 });
     return res.data;
   }

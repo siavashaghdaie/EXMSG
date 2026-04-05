@@ -233,7 +233,7 @@ export default function LindaChat({ onClose }: LindaChatProps) {
     requestAnimationFrame(() => inputRef.current?.focus());
 
     try {
-      let data: { response: string; timestamp: string; conversationId: string };
+      let data: { response: string; timestamp: string; conversationId: string; actions?: Array<{ type: string; target: string; status: string }> };
       if (file) {
         data = await api.chatWithLindaFile(file, text, activeConversationId || undefined);
       } else {
@@ -244,9 +244,16 @@ export default function LindaChat({ onClose }: LindaChatProps) {
         setActiveConversationId(data.conversationId);
       }
 
+      // Safety strip any residual action blocks from display
+      const cleanContent = data.response
+        .replace(/\[SEND_MESSAGE\][\s\S]*?\[\/SEND_MESSAGE\]/gi, '')
+        .replace(/\[ASSIGN_TASK\][\s\S]*?\[\/ASSIGN_TASK\]/gi, '')
+        .replace(/\[ANNOUNCE\][\s\S]*?\[\/ANNOUNCE\]/gi, '')
+        .trim();
+
       const lindaMsg: LindaMessage = {
         id: `linda-${Date.now()}`,
-        content: data.response,
+        content: cleanContent,
         sender: 'linda',
         timestamp: new Date(data.timestamp),
       };

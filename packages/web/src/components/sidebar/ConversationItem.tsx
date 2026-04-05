@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Sparkles } from 'lucide-react';
 import { ConversationResponse } from '@/services/api';
 import Avatar from '@/components/common/Avatar';
 import { useAuthStore } from '@/store/authStore';
@@ -22,28 +22,28 @@ const getConversationName = (
   conversation: ConversationResponse,
   currentUserId: string
 ): string => {
-  // For DMs, show the other user's name
+  // For DMs, show the other user's name (prefer displayName)
   if (conversation.participants.length === 2) {
     const otherParticipant = conversation.participants.find((p) => p.id !== currentUserId);
-    return otherParticipant?.username || otherParticipant?.email?.split('@')[0] || 'Unknown User';
+    return otherParticipant?.displayName || otherParticipant?.username || otherParticipant?.email?.split('@')[0] || 'Unknown User';
   }
   // For groups/channels, use the conversation name or participant names
-  return conversation.name || conversation.participants.map((p) => p.username || p.email?.split('@')[0] || 'User').join(', ');
+  return conversation.name || conversation.participants.map((p) => p.displayName || p.username || p.email?.split('@')[0] || 'User').join(', ');
 };
 
 const getConversationAvatar = (conversation: ConversationResponse, currentUserId: string) => {
   // For DMs, use the other user's avatar
   if (conversation.participants.length === 2) {
     const otherParticipant = conversation.participants.find((p) => p.id !== currentUserId);
-    const displayName = otherParticipant?.username || otherParticipant?.email?.split('@')[0] || 'Unknown User';
+    const name = otherParticipant?.displayName || otherParticipant?.username || otherParticipant?.email?.split('@')[0] || 'Unknown User';
     return {
       src: otherParticipant?.avatar,
-      name: displayName,
+      name,
       username: otherParticipant?.username || otherParticipant?.email,
     };
   }
   // For groups, use the conversation name or first participant
-  const name = conversation.name || conversation.participants[0]?.username || conversation.participants[0]?.email?.split('@')[0] || 'Group';
+  const name = conversation.name || conversation.participants[0]?.displayName || conversation.participants[0]?.username || conversation.participants[0]?.email?.split('@')[0] || 'Group';
   return {
     src: undefined,
     name,
@@ -94,6 +94,11 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
   const lastMessagePreview = getLastMessagePreview(conversation);
   const lastMessageTime = getLastMessageTime(conversation);
   const unreadCount = conversation.unreadCount || 0;
+
+  // Detect if this is a conversation with Linda AI
+  const isLindaConversation = conversation.participants.some(
+    (p) => p.id !== user.id && (p.username === 'linda' || (p.email && p.email === 'linda@omnilink.system'))
+  );
 
   const handleClick = () => {
     if (showDelete) {
@@ -183,15 +188,23 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
         <div className="flex-1 min-w-0 text-left">
           {/* Name and time row */}
           <div className="flex items-center justify-between gap-2 mb-1">
-            <h3
-              className={`font-medium text-sm truncate ${
-                isActive
-                  ? 'text-gray-900 dark:text-white'
-                  : 'text-gray-700 dark:text-gray-200'
-              }`}
-            >
-              {conversationName}
-            </h3>
+            <div className="flex items-center gap-1.5">
+              <h3
+                className={`font-medium text-sm truncate ${
+                  isActive
+                    ? 'text-gray-900 dark:text-white'
+                    : 'text-gray-700 dark:text-gray-200'
+                }`}
+              >
+                {conversationName}
+              </h3>
+              {isLindaConversation && (
+                <div className="flex items-center gap-0.5 px-1.5 py-0.5 bg-violet-100 dark:bg-violet-900/30 rounded-full flex-shrink-0">
+                  <Sparkles size={10} className="text-violet-600 dark:text-violet-400" />
+                  <span className="text-[10px] font-medium text-violet-600 dark:text-violet-400">AI</span>
+                </div>
+              )}
+            </div>
             {lastMessageTime && (
               <span
                 className={`text-xs flex-shrink-0 ${

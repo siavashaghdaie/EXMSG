@@ -7,7 +7,6 @@ import { usePresenceStore } from '@/store/presenceStore';
 import { api, UserStatusGroup } from '@/services/api';
 import Avatar from '@/components/common/Avatar';
 import ConversationItem from '@/components/sidebar/ConversationItem';
-import LindaConversationItem from '@/components/sidebar/LindaConversationItem';
 import NewConversationModal from '@/components/sidebar/NewConversationModal';
 import StoryViewerModal from '@/components/common/StoryViewerModal';
 
@@ -17,7 +16,6 @@ interface SidebarProps {
   onSettingsClick?: () => void;
   onDashboardClick?: () => void;
   onClose?: () => void;
-  onLindaClick?: () => void;
   onAnnouncementsClick?: () => void;
   onTasksClick?: () => void;
 }
@@ -28,7 +26,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSettingsClick,
   onDashboardClick,
   onClose,
-  onLindaClick,
   onAnnouncementsClick,
   onTasksClick
 }) => {
@@ -144,7 +141,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       conv.name ||
       conv.participants
         .filter((p) => p.id !== user?.id)
-        .map((p) => p.username)
+        .map((p) => p.displayName || p.username)
         .join(', ');
 
     return convName.toLowerCase().includes(query);
@@ -327,21 +324,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           ) : (
             <div className="space-y-1">
-              {/* Linda AI - Always shown unless searching */}
-              {!searchQuery && (
-                <LindaConversationItem
-                  isActive={conversationId === 'linda'}
-                  onClick={() => {
-                    if (onLindaClick) {
-                      onLindaClick();
-                    } else if (isMobile && onClose) {
-                      onClose();
-                    }
-                  }}
-                />
-              )}
-
-              {/* Regular conversations */}
+              {/* Conversations */}
               {filteredConversations.length === 0 && !searchQuery ? (
                 <div className="flex flex-col items-center justify-center h-32 text-center px-4">
                   <p className="text-sm text-gray-500 dark:text-gray-400">
