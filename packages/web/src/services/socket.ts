@@ -160,6 +160,10 @@ class SocketService {
       this.socket.on('buzz:received', (data: any) => {
         this.emit('buzz:received', data);
       });
+
+      this.socket.on('messagesRead', (data: any) => {
+        this.emit('messagesRead', data);
+      });
     });
   }
 

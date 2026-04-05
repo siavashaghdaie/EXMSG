@@ -173,7 +173,7 @@ export const ChatLayout: React.FC = () => {
     <div className="h-[100dvh] bg-gray-50 dark:bg-surface-950 flex overflow-hidden flex-col md:flex-row">
       {/* Sidebar/Conversation List - Full screen on mobile when visible */}
       {shouldShowSidebar && !(isMobile && isSubPageOpen) && (
-        <div className={isMobile ? 'w-full' : ''} style={isMobile && showBottomNav ? { height: 'calc(100% - 90px)' } : isMobile ? { height: '100%' } : undefined}>
+        <div className={isMobile ? 'w-full' : ''} style={isMobile && showBottomNav ? { height: 'calc(100% - 59px)' } : isMobile ? { height: '100%' } : undefined}>
           <Sidebar
             isMobile={isMobile}
             onNavigateChat={() => {

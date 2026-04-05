@@ -148,12 +148,12 @@ export class LindaController {
 
       if (useDb && lindaConvId) {
         try {
-          const dbMessages = await db.lindaMessage.findMany({
+          const dbMessagesDesc = await db.lindaMessage.findMany({
             where: { conversationId: lindaConvId },
-            orderBy: { createdAt: 'asc' },
+            orderBy: { createdAt: 'desc' },
             take: 30,
           });
-          messagesForApi = dbMessages.map((msg: any) => ({
+          messagesForApi = dbMessagesDesc.reverse().map((msg: any) => ({
             role: msg.role as 'user' | 'assistant',
             content: msg.content,
           }));
@@ -1023,13 +1023,15 @@ export async function handleLindaAutoReply(conversationId: string, senderUserId:
       return;
     }
 
-    // Build conversation history from regular messages in this conversation
-    const recentMessages = await prisma.message.findMany({
+    // Build conversation history from the MOST RECENT messages in this conversation
+    // Fetch in desc order to get latest, then reverse so they're chronological for Claude
+    const recentMessagesDesc = await prisma.message.findMany({
       where: { conversationId, isDeleted: false },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'desc' },
       take: 30,
       include: { sender: { select: { id: true, displayName: true, username: true } } },
     });
+    const recentMessages = recentMessagesDesc.reverse();
 
     // Convert to Claude API format
     const messagesForApi: Array<{ role: 'user' | 'assistant'; content: string }> = [];
@@ -1089,8 +1091,48 @@ export async function handleLindaAutoReply(conversationId: string, senderUserId:
   }
 }
 
+/** Mark all messages in a conversation as read by Linda (so sender sees blue ticks) */
+async function markMessagesAsReadByLinda(lindaId: string, conversationId: string): Promise<void> {
+  try {
+    const unreadMessages = await prisma.message.findMany({
+      where: {
+        conversationId,
+        senderId: { not: lindaId },
+        isDeleted: false,
+        readReceipts: { none: { userId: lindaId } },
+      },
+      select: { id: true },
+    });
+
+    if (unreadMessages.length > 0) {
+      await prisma.readReceipt.createMany({
+        data: unreadMessages.map((m) => ({ messageId: m.id, userId: lindaId })),
+        skipDuplicates: true,
+      });
+
+      // Emit so sender's UI updates ticks to blue in real-time
+      emitToConversation(conversationId, 'messagesRead', {
+        conversationId,
+        readByUserId: lindaId,
+        messageIds: unreadMessages.map((m) => m.id),
+      });
+    }
+
+    // Update Linda's lastReadAt
+    await prisma.conversationMember.update({
+      where: { conversationId_userId: { conversationId, userId: lindaId } },
+      data: { lastReadAt: new Date() },
+    }).catch(() => {});
+  } catch (err) {
+    console.error('[Linda] Failed to mark messages as read:', err);
+  }
+}
+
 /** Send a regular message from Linda into a conversation */
 async function sendLindaMessageToConversation(lindaId: string, conversationId: string, content: string): Promise<void> {
+  // Linda "reads" all messages before replying
+  await markMessagesAsReadByLinda(lindaId, conversationId);
+
   const newMessage = await prisma.message.create({
     data: {
       conversationId,

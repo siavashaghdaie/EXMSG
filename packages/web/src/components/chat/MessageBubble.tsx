@@ -156,15 +156,16 @@ export default function MessageBubble({
     }));
   }, [message.reactions, user?.id]);
 
-  // Tick component inline
+  // Tick component inline (WhatsApp-style: single grey=sent, double grey=delivered, double bright=read)
   const TickIcon = () => {
     if (!isOwnMessage || !readReceiptStatus) return null;
     if (readReceiptStatus === 'read') {
-      return <CheckCheck size={14} className="text-blue-400 inline ml-1 flex-shrink-0" />;
+      // Bright green for read — maximum contrast against blue bubble
+      return <CheckCheck size={16} className="inline ml-1 flex-shrink-0" style={{ color: '#00FF88' }} />;
     } else if (readReceiptStatus === 'delivered') {
-      return <CheckCheck size={14} className="text-white/60 inline ml-1 flex-shrink-0" />;
+      return <CheckCheck size={14} className="text-white/50 inline ml-1 flex-shrink-0" />;
     }
-    return <Check size={14} className="text-white/60 inline ml-1 flex-shrink-0" />;
+    return <Check size={14} className="text-white/50 inline ml-1 flex-shrink-0" />;
   };
 
   // Tick for received messages (no tick, just timestamp)
