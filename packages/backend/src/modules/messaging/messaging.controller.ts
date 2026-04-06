@@ -260,7 +260,16 @@ export class MessagingController {
         orderBy: { createdAt: 'desc' },
         take: parseInt(limit as string),
         ...(cursor ? { cursor: { id: cursor as string }, skip: 1 } : {}),
-        include: {
+        select: {
+          id: true,
+          conversationId: true,
+          senderId: true,
+          content: true,
+          type: true,
+          metadata: true,
+          isEdited: true,
+          createdAt: true,
+          updatedAt: true,
           sender: {
             select: { id: true, username: true, displayName: true, avatarUrl: true },
           },
@@ -296,7 +305,7 @@ export class MessagingController {
     try {
       const { conversationId } = req.params;
       const userId = req.user!.userId;
-      const { content, type = 'TEXT', replyToId } = req.body;
+      const { content, type = 'TEXT', replyToId, storyReply } = req.body;
 
       // Verify membership
       const membership = await prisma.conversationMember.findUnique({
@@ -315,6 +324,7 @@ export class MessagingController {
           content,
           type,
           replyToId,
+          metadata: storyReply ? JSON.stringify(storyReply) : null,
         },
         include: {
           sender: {
@@ -346,6 +356,7 @@ export class MessagingController {
         senderId: message.sender.id,
         content: message.content,
         type: message.type,
+        metadata: message.metadata,
         reactions: {},
         createdAt: message.createdAt,
         sender: message.sender,

@@ -10,6 +10,7 @@ interface Agent {
   category: 'productivity' | 'communication' | 'analysis' | 'security';
   color: string;
   popular?: boolean;
+  mandatory?: boolean;
 }
 
 interface AgentsPageProps {
@@ -26,7 +27,7 @@ const AVAILABLE_AGENTS: Agent[] = [
     icon: <Bot size={20} />,
     category: 'productivity',
     color: 'from-violet-500 to-blue-500',
-    popular: true,
+    mandatory: true,
   },
   {
     id: 'analyst',
@@ -112,6 +113,8 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
   });
 
   const toggleAgent = (agentId: string) => {
+    const agent = AVAILABLE_AGENTS.find(a => a.id === agentId);
+    if (agent?.mandatory) return; // Can't toggle mandatory agents
     setEnabledAgents((prev) => {
       const next = new Set(prev);
       if (next.has(agentId)) {
@@ -210,7 +213,12 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <h3 className="font-semibold text-sm text-gray-900 dark:text-white truncate">{agent.name}</h3>
-                    {agent.popular && (
+                    {agent.mandatory && (
+                      <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded text-[9px] font-medium flex-shrink-0">
+                        <Shield size={7} className="fill-current" /> Mandatory
+                      </span>
+                    )}
+                    {agent.popular && !agent.mandatory && (
                       <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded text-[9px] font-medium flex-shrink-0">
                         <Star size={7} className="fill-current" /> Popular
                       </span>
@@ -237,27 +245,40 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
                     </button>
                   )}
                   {/* Toggle switch */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleAgent(agent.id);
-                    }}
-                    className={`relative rounded-full transition-colors flex-shrink-0 ${
-                      isEnabled ? 'bg-primary-600' : 'bg-gray-300 dark:bg-surface-600'
-                    }`}
-                    style={{ width: 44, height: 24, minWidth: 44, boxSizing: 'border-box' }}
-                  >
+                  {agent.mandatory ? (
                     <div
-                      className="absolute bg-white rounded-full shadow-sm"
-                      style={{
-                        width: 18,
-                        height: 18,
-                        top: 3,
-                        left: isEnabled ? 23 : 3,
-                        transition: 'left 0.2s ease',
+                      className="relative rounded-full bg-primary-600 opacity-70 cursor-not-allowed flex-shrink-0"
+                      style={{ width: 44, height: 24, minWidth: 44, boxSizing: 'border-box' }}
+                      title="Linda is mandatory and cannot be disabled"
+                    >
+                      <div
+                        className="absolute bg-white rounded-full shadow-sm"
+                        style={{ width: 18, height: 18, top: 3, left: 23 }}
+                      />
+                    </div>
+                  ) : (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleAgent(agent.id);
                       }}
-                    />
-                  </button>
+                      className={`relative rounded-full transition-colors flex-shrink-0 ${
+                        isEnabled ? 'bg-primary-600' : 'bg-gray-300 dark:bg-surface-600'
+                      }`}
+                      style={{ width: 44, height: 24, minWidth: 44, boxSizing: 'border-box' }}
+                    >
+                      <div
+                        className="absolute bg-white rounded-full shadow-sm"
+                        style={{
+                          width: 18,
+                          height: 18,
+                          top: 3,
+                          left: isEnabled ? 23 : 3,
+                          transition: 'left 0.2s ease',
+                        }}
+                      />
+                    </button>
+                  )}
                   <ChevronRight
                     size={14}
                     className={`text-gray-400 transition-transform flex-shrink-0 ${isExpanded ? 'rotate-90' : ''}`}

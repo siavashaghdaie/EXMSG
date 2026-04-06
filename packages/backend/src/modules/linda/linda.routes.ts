@@ -38,6 +38,10 @@ router.get('/linda/conversations/:id/messages', authenticate, controller.getConv
 // Activities
 router.get('/linda/activities', authenticate, controller.getActivities.bind(controller));
 
+// Memories
+router.get('/linda/memories', authenticate, controller.getMemories.bind(controller));
+router.delete('/linda/memories/:memoryId', authenticate, controller.deleteMemory.bind(controller));
+
 // Manager check
 router.get('/linda/manager-check', authenticate, controller.checkManager.bind(controller));
 

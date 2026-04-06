@@ -27,6 +27,7 @@ interface MessageResponse {
   senderId: string;
   content: string;
   type?: string;
+  metadata?: string;
   reactions: Record<string, string[]>;
   attachments?: MessageAttachment[];
   editedAt?: string;
@@ -123,6 +124,14 @@ export interface LindaActivity {
   createdAt: string;
 }
 
+export interface LindaMemory {
+  id: string;
+  category: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface StatusItem {
   id: string;
   type: 'text' | 'image' | 'video';
@@ -170,6 +179,10 @@ export interface AnnouncementItem {
     notedAt?: string | null;
     user: { id: string; username: string; displayName: string; avatarUrl?: string };
   }>;
+  likeCount?: number;
+  dislikeCount?: number;
+  userReaction?: 'like' | 'dislike' | null;
+  commentCount?: number;
   author: {
     id: string;
     username: string;
@@ -214,7 +227,8 @@ class APIClient {
       async (error: AxiosError) => {
         const originalRequest = error.config as any;
 
-        if (error.response?.status === 401 && !originalRequest._retry) {
+        const isAuthEndpoint = originalRequest?.url?.includes('/auth/login') || originalRequest?.url?.includes('/auth/register') || originalRequest?.url?.includes('/auth/refresh');
+        if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
           originalRequest._retry = true;
 
           try {
@@ -426,6 +440,7 @@ class APIClient {
         senderId: m.sender?.id || m.senderId || '',
         content: m.content,
         type: m.type,
+        metadata: m.metadata,
         attachments: m.attachments,
         reactions: m.reactions || {},
         readBy: Object.keys(readBy).length > 0 ? readBy : undefined,
@@ -456,6 +471,7 @@ class APIClient {
       senderId: raw.sender?.id || raw.senderId || '',
       content: raw.content,
       type: raw.type,
+      metadata: raw.metadata,
       attachments: raw.attachments,
       reactions: {},
       editedAt: raw.editedAt,
@@ -667,6 +683,15 @@ class APIClient {
     return res.data;
   }
 
+  async getLindaMemories(): Promise<{ memories: LindaMemory[] }> {
+    const res = await this.client.get('/linda/memories');
+    return res.data;
+  }
+
+  async deleteLindaMemory(memoryId: string): Promise<void> {
+    await this.client.delete(`/linda/memories/${memoryId}`);
+  }
+
   // Task Management API
   async getTasks(status?: string): Promise<any[]> {
     const res = await this.client.get('/tasks', { params: { status } });
@@ -795,6 +820,25 @@ class APIClient {
   async getUnnotedAnnouncementCount(): Promise<{ count: number }> {
     const { data } = await this.client.get('/announcements/unread-count');
     return data;
+  }
+
+  async reactToAnnouncement(id: string, type: 'like' | 'dislike'): Promise<any> {
+    const res = await this.client.post(`/announcements/${id}/react`, { type });
+    return res.data;
+  }
+
+  async getAnnouncementComments(id: string): Promise<{ comments: any[] }> {
+    const res = await this.client.get(`/announcements/${id}/comments`);
+    return res.data;
+  }
+
+  async addAnnouncementComment(id: string, content: string): Promise<any> {
+    const res = await this.client.post(`/announcements/${id}/comments`, { content });
+    return res.data;
+  }
+
+  async deleteAnnouncementComment(announcementId: string, commentId: string): Promise<void> {
+    await this.client.delete(`/announcements/${announcementId}/comments/${commentId}`);
   }
 }
 

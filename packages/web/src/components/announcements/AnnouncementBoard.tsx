@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import Avatar from '@/components/common/Avatar';
-import { Plus, X, Pin, MoreVertical, Loader2, Megaphone, Check, Clock, Eye, Users, CheckCircle2 } from 'lucide-react';
+import { Plus, X, Pin, MoreVertical, Loader2, Megaphone, Check, Clock, Eye, Users, CheckCircle2, ThumbsUp, ThumbsDown, MessageCircle, Share2 } from 'lucide-react';
 import { api, AnnouncementItem } from '@/services/api';
 
 interface AnnouncementBoardProps {
@@ -34,6 +34,10 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [viewingReadsId, setViewingReadsId] = useState<string | null>(null);
+  const [expandedComments, setExpandedComments] = useState<string | null>(null);
+  const [comments, setComments] = useState<any[]>([]);
+  const [newComment, setNewComment] = useState('');
+  const [loadingComments, setLoadingComments] = useState(false);
 
   // Default expiration: 7 days from now
   const getDefaultExpiry = () => {
@@ -51,33 +55,34 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
   });
 
   // Load announcements and check permissions
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        setLoading(true);
-        // Load independently so one failure doesn't block the other
-        const [announcementsResult, canAnnounceResult] = await Promise.allSettled([
-          api.getAnnouncements(),
-          api.canAnnounce(),
-        ]);
-        if (announcementsResult.status === 'fulfilled') {
-          setAnnouncements(announcementsResult.value.announcements || []);
-        } else {
-          console.error('Failed to load announcements:', announcementsResult.reason);
-          setAnnouncements([]);
-        }
-        if (canAnnounceResult.status === 'fulfilled') {
-          setCanAnnounce(canAnnounceResult.value.canAnnounce);
-        } else {
-          console.error('Failed to check announce permission:', canAnnounceResult.reason);
-          setCanAnnounce(false);
-        }
-      } catch (error) {
-        console.error('Failed to load announcements data:', error);
-      } finally {
-        setLoading(false);
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      // Load independently so one failure doesn't block the other
+      const [announcementsResult, canAnnounceResult] = await Promise.allSettled([
+        api.getAnnouncements(),
+        api.canAnnounce(),
+      ]);
+      if (announcementsResult.status === 'fulfilled') {
+        setAnnouncements(announcementsResult.value.announcements || []);
+      } else {
+        console.error('Failed to load announcements:', announcementsResult.reason);
+        setAnnouncements([]);
       }
-    };
+      if (canAnnounceResult.status === 'fulfilled') {
+        setCanAnnounce(canAnnounceResult.value.canAnnounce);
+      } else {
+        console.error('Failed to check announce permission:', canAnnounceResult.reason);
+        setCanAnnounce(false);
+      }
+    } catch (error) {
+      console.error('Failed to load announcements data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     loadData();
   }, []);
 
@@ -86,6 +91,16 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  useEffect(() => {
+    if (expandedComments) {
+      setLoadingComments(true);
+      api.getAnnouncementComments(expandedComments).then((data) => {
+        setComments(data.comments || []);
+        setLoadingComments(false);
+      }).catch(() => setLoadingComments(false));
+    }
+  }, [expandedComments]);
 
   const resetForm = () => {
     setFormData({
@@ -372,6 +387,106 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
                       <span>{noted ? 'Noted' : 'Mark as Noted'}</span>
                     </button>
                   </div>
+
+                  {/* Interaction Bar */}
+                  <div className="flex items-center gap-3 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700">
+                    {/* Like */}
+                    <button
+                      onClick={async () => {
+                        await api.reactToAnnouncement(announcement.id, 'like');
+                        loadData();
+                      }}
+                      className={`flex items-center gap-1 text-xs transition ${
+                        announcement.userReaction === 'like' ? 'text-blue-500' : 'text-slate-500 hover:text-blue-500'
+                      }`}
+                    >
+                      <ThumbsUp size={14} className={announcement.userReaction === 'like' ? 'fill-current' : ''} />
+                      {announcement.likeCount || 0}
+                    </button>
+                    {/* Dislike */}
+                    <button
+                      onClick={async () => {
+                        await api.reactToAnnouncement(announcement.id, 'dislike');
+                        loadData();
+                      }}
+                      className={`flex items-center gap-1 text-xs transition ${
+                        announcement.userReaction === 'dislike' ? 'text-red-500' : 'text-slate-500 hover:text-red-500'
+                      }`}
+                    >
+                      <ThumbsDown size={14} className={announcement.userReaction === 'dislike' ? 'fill-current' : ''} />
+                      {announcement.dislikeCount || 0}
+                    </button>
+                    {/* Comment toggle */}
+                    <button
+                      onClick={() => setExpandedComments(expandedComments === announcement.id ? null : announcement.id)}
+                      className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition"
+                    >
+                      <MessageCircle size={14} />
+                      {announcement.commentCount || 0}
+                    </button>
+                    {/* Share */}
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(`${window.location.origin}/announcements/${announcement.id}`);
+                      }}
+                      className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition ml-auto"
+                    >
+                      <Share2 size={14} />
+                      Share
+                    </button>
+                  </div>
+
+                  {/* Comments Section */}
+                  {expandedComments === announcement.id && (
+                    <div className="mt-3 space-y-2">
+                      {/* Comment list */}
+                      <div className="max-h-48 overflow-y-auto space-y-2">
+                        {loadingComments ? (
+                          <div className="flex items-center justify-center py-4">
+                            <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+                          </div>
+                        ) : comments.length === 0 ? (
+                          <p className="text-xs text-slate-500 dark:text-slate-400 py-2">No comments yet. Be the first!</p>
+                        ) : (
+                          comments.map((comment) => (
+                            <div key={comment.id} className="flex gap-2 text-xs">
+                              <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
+                                <span className="text-[9px] font-bold">{(comment.user?.displayName || '?')[0].toUpperCase()}</span>
+                              </div>
+                              <div className="flex-1">
+                                <span className="font-semibold text-slate-700 dark:text-slate-300">{comment.user?.displayName}</span>
+                                <span className="text-slate-600 dark:text-slate-400 ml-1">{comment.content}</span>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      {/* Add comment input */}
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={newComment}
+                          onChange={(e) => setNewComment(e.target.value)}
+                          placeholder="Write a comment..."
+                          className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          onKeyDown={async (e) => {
+                            if (e.key === 'Enter' && newComment.trim()) {
+                              try {
+                                await api.addAnnouncementComment(announcement.id, newComment.trim());
+                                setNewComment('');
+                                // Reload comments
+                                const data = await api.getAnnouncementComments(announcement.id);
+                                setComments(data.comments);
+                                loadData();
+                              } catch (error) {
+                                console.error('Failed to add comment:', error);
+                              }
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   {/* Author row with "Who noted" for announcement author */}
                   <div className="flex items-center justify-between pt-3 border-t border-slate-300 dark:border-slate-600">

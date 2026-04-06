@@ -211,6 +211,40 @@ export default function MessageBubble({
             }`}
             style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}
           >
+            {/* Story reply thumbnail */}
+            {message.type === 'STORY_REPLY' && message.metadata && (() => {
+              try {
+                const story = JSON.parse(message.metadata);
+                return (
+                  <div className="mb-2 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-600">
+                    <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100 dark:bg-slate-700 text-[10px] text-slate-500 dark:text-slate-400">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>
+                      Replied to story
+                    </div>
+                    {story.storyType === 'text' ? (
+                      <div
+                        className="px-3 py-2 text-xs text-white font-medium leading-snug"
+                        style={{ backgroundColor: story.storyBgColor || '#6366f1', minHeight: 48 }}
+                      >
+                        {story.storyContent?.substring(0, 100)}{story.storyContent?.length > 100 ? '...' : ''}
+                      </div>
+                    ) : (
+                      <div className="relative" style={{ maxHeight: 120 }}>
+                        <img
+                          src={story.storyContent}
+                          alt="Story"
+                          className="w-full h-full object-cover"
+                          style={{ maxHeight: 120 }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              } catch {
+                return null;
+              }
+            })()}
+
             {/* Reply context */}
             {message.replyTo && (
               <div className={`mb-1.5 pb-1.5 border-l-2 pl-2 ${

@@ -11,6 +11,10 @@ router.get('/announcements/can-announce', authenticate, controller.canAnnounce.b
 router.get('/announcements/unread-count', authenticate, controller.getUnnotedCount.bind(controller));
 router.get('/announcements', authenticate, controller.getAll.bind(controller));
 router.post('/announcements', authenticate, controller.create.bind(controller));
+router.post('/announcements/:id/react', authenticate, controller.reactToAnnouncement.bind(controller));
+router.get('/announcements/:id/comments', authenticate, controller.getComments.bind(controller));
+router.post('/announcements/:id/comments', authenticate, controller.addComment.bind(controller));
+router.delete('/announcements/:id/comments/:commentId', authenticate, controller.deleteComment.bind(controller));
 router.put('/announcements/:id', authenticate, controller.update.bind(controller));
 router.delete('/announcements/:id', authenticate, controller.delete.bind(controller));
 router.post('/announcements/:id/note', authenticate, controller.noteAnnouncement.bind(controller));

@@ -72,6 +72,56 @@ async function logLindaActivity(data: {
   }
 }
 
+// Extract and save memories from conversation (fire-and-forget, never blocks)
+async function extractAndSaveMemories(userId: string, userMessage: string, assistantResponse: string) {
+  try {
+    const client = getAnthropicClient();
+    if (!client) return;
+
+    const extractionPrompt = `Analyze this conversation exchange and extract any important facts, preferences, or information that should be remembered long-term about the user. Only extract genuinely important information - not routine greetings or small talk.
+
+User said: "${userMessage}"
+Assistant responded: "${assistantResponse}"
+
+If there are memories worth saving, respond with a JSON array of objects with "category" and "content" fields. Categories: "preference", "fact", "project", "relationship", "general".
+If nothing worth remembering, respond with an empty array: []
+
+Examples of worth remembering:
+- User prefers communication in Spanish
+- User is working on Project Alpha with deadline March 15
+- User's team lead is Sarah
+- User doesn't like morning meetings
+
+Respond ONLY with the JSON array, nothing else.`;
+
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 256,
+      messages: [{ role: 'user', content: extractionPrompt }],
+    });
+
+    const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
+    const memories = JSON.parse(text.trim());
+
+    if (Array.isArray(memories) && memories.length > 0) {
+      for (const mem of memories) {
+        if (mem.content && mem.category) {
+          await db.lindaMemory.create({
+            data: {
+              userId,
+              category: mem.category,
+              content: mem.content,
+            },
+          });
+        }
+      }
+      console.log(`[Linda] Saved ${memories.length} memories for user ${userId}`);
+    }
+  } catch (err) {
+    console.warn('[Linda] Memory extraction failed:', (err as any)?.message);
+  }
+}
+
 // In-memory fallback for conversation history (used when DB tables don't exist yet)
 const userConversations = new Map<string, Array<{ role: 'user' | 'assistant'; content: string }>>();
 const MAX_HISTORY = 20;
@@ -191,7 +241,23 @@ export class LindaController {
       }
 
       const workspaceContext = await this.getWorkspaceContext(userId);
-      const systemPrompt = this.buildSystemPrompt(userName, workspaceContext);
+
+      // Retrieve user memories
+      let memoriesText = '';
+      try {
+        const memories = await db.lindaMemory.findMany({
+          where: { userId },
+          orderBy: { updatedAt: 'desc' },
+          take: 20,
+        });
+        if (memories.length > 0) {
+          memoriesText = memories.map((m: any) => `- [${m.category}] ${m.content}`).join('\n');
+        }
+      } catch (err) {
+        console.warn('[Linda] Could not fetch memories:', (err as any)?.message);
+      }
+
+      const systemPrompt = this.buildSystemPrompt(userName, workspaceContext, memoriesText);
 
       // Ensure conversation ends with user role (required by claude-sonnet-4-6)
       while (messagesForApi.length > 0 && messagesForApi[messagesForApi.length - 1].role !== 'user') {
@@ -228,6 +294,9 @@ export class LindaController {
           this.detectAndTagMentionedUsers(lindaConvId, cleanResponse, userId).catch(() => {});
         } catch { /* ignore */ }
       }
+
+      // Fire-and-forget memory extraction
+      extractAndSaveMemories(userId, message, cleanResponse).catch(() => {});
 
       res.json({
         response: cleanResponse,
@@ -618,6 +687,37 @@ export class LindaController {
     } catch (err) {
       console.warn('[Linda] Could not fetch activities:', (err as any)?.message);
       res.json({ activities: [] });
+    }
+  }
+
+  // GET /api/linda/memories
+  async getMemories(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.userId;
+      const memories = await db.lindaMemory.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      });
+      res.json({ memories });
+    } catch (err) {
+      console.warn('[Linda] Could not fetch memories:', (err as any)?.message);
+      res.json({ memories: [] });
+    }
+  }
+
+  // DELETE /api/linda/memories/:memoryId
+  async deleteMemory(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.userId;
+      const { memoryId } = req.params;
+      await db.lindaMemory.deleteMany({
+        where: { id: memoryId, userId },
+      });
+      res.json({ success: true });
+    } catch (err) {
+      console.warn('[Linda] Could not delete memory:', (err as any)?.message);
+      res.status(500).json({ error: 'Failed to delete memory' });
     }
   }
 
@@ -1042,7 +1142,7 @@ export class LindaController {
   }
 
   // Build system prompt
-  private buildSystemPrompt(userName: string, workspaceContext: string): string {
+  private buildSystemPrompt(userName: string, workspaceContext: string, memories: string = ''): string {
     return `You are Linda, an AI coordinator for OmniLink Messenger. You work for ${userName}.
 
 RESPONSE STYLE:
@@ -1109,6 +1209,8 @@ ANNOUNCEMENTS:
 
 Current workspace context:
 ${workspaceContext}
+
+${memories ? `\n== Your Memory (things you remember about ${userName}) ==\n${memories}\n` : ''}
 
 Guidelines:
 - Address ${userName} by name occasionally

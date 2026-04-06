@@ -64,6 +64,32 @@ const StoryViewerModal: React.FC<StoryViewerModalProps> = ({ isOpen, userId, onC
       if (result.liked) {
         setShowLikeHeart(true);
         setTimeout(() => setShowLikeHeart(false), 1000);
+
+        // Send heart reaction as story reply in DM
+        try {
+          const conversations = await api.getConversations();
+          let dmConversationId: string | null = null;
+          for (const conv of conversations) {
+            const participants = conv.participants || [];
+            if (participants.length === 2) {
+              const other = participants.find((p) => p.id !== user?.id);
+              if (other?.id === userId) {
+                dmConversationId = conv.id;
+                break;
+              }
+            }
+          }
+          if (dmConversationId) {
+            await api.sendMessage(dmConversationId, '❤️', undefined, {
+              storyId: story.id,
+              storyContent: story.content,
+              storyType: story.type,
+              storyBgColor: story.bgColor,
+            });
+          }
+        } catch (err) {
+          console.error('Error sending story like to DM:', err);
+        }
       }
       loadLikes(story.id);
     } catch (error) {

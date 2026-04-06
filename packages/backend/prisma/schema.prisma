@@ -58,8 +58,11 @@ model User {
   statusLikes      StatusLike[]         @relation("StatusLikes")
   announcements    Announcement[]
   announcementReads AnnouncementRead[]
+  announcementReactions AnnouncementReaction[]
+  announcementComments  AnnouncementComment[]
   lindaActivitiesOrdered LindaActivity[] @relation("LindaActivitiesOrdered")
   lindaActivitiesTarget  LindaActivity[] @relation("LindaActivitiesTarget")
+  lindaMemories      LindaMemory[]
 
   @@map("users")
 }
@@ -173,6 +176,7 @@ model Message {
   isEdited       Boolean     @default(false) @map("is_edited")
   isDeleted      Boolean     @default(false) @map("is_deleted")
   scheduledAt    DateTime?   @map("scheduled_at")
+  metadata       String?     // JSON for extra data like story reply info
   createdAt      DateTime    @default(now()) @map("created_at")
   updatedAt      DateTime    @updatedAt @map("updated_at")
 
@@ -400,8 +404,10 @@ model Announcement {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  reads  AnnouncementRead[]
+  author    User                      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  reads     AnnouncementRead[]
+  reactions AnnouncementReaction[]
+  comments  AnnouncementComment[]
 
   @@index([createdAt])
   @@map("announcements")
@@ -421,6 +427,35 @@ model AnnouncementRead {
   @@unique([announcementId, userId])
   @@index([userId])
   @@map("announcement_reads")
+}
+
+model AnnouncementReaction {
+  id             String   @id @default(uuid())
+  announcementId String   @map("announcement_id")
+  userId         String   @map("user_id")
+  type           String   // 'like' or 'dislike'
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
+  @@index([announcementId])
+  @@map("announcement_reactions")
+}
+
+model AnnouncementComment {
+  id             String   @id @default(uuid())
+  announcementId String   @map("announcement_id")
+  userId         String   @map("user_id")
+  content        String
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([announcementId, createdAt])
+  @@map("announcement_comments")
 }
 
 // ============================================
@@ -443,4 +478,18 @@ model LindaActivity {
   @@index([orderedById, createdAt])
   @@index([targetUserId])
   @@map("linda_activities")
+}
+
+model LindaMemory {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  category  String   @default("general")   // 'preference', 'fact', 'project', 'relationship', 'general'
+  content   String                          // The memory text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, category])
+  @@map("linda_memories")
 }

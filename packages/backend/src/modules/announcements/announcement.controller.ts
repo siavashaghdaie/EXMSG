@@ -211,6 +211,8 @@ export class AnnouncementController {
         author: {
           select: { id: true, username: true, displayName: true, avatarUrl: true },
         },
+        reactions: true,
+        _count: { select: { comments: true } },
       };
 
       if (hasReads) {
@@ -258,6 +260,10 @@ export class AnnouncementController {
               notedAt: r.notedAt,
               user: r.user,
             })) || []) : [],
+            likeCount: (a.reactions || []).filter((r: any) => r.type === 'like').length,
+            dislikeCount: (a.reactions || []).filter((r: any) => r.type === 'dislike').length,
+            userReaction: (a.reactions || []).find((r: any) => r.userId === userId)?.type || null,
+            commentCount: a._count?.comments || 0,
           };
         }),
       });
@@ -503,6 +509,110 @@ export class AnnouncementController {
     } catch (error) {
       console.error('Error checking announcement permission:', error);
       res.json({ canAnnounce: true }); // Default to true on error for usability
+    }
+  }
+
+  // POST /api/announcements/:id/react
+  async reactToAnnouncement(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const userId = req.user!.userId;
+      const { type } = req.body; // 'like' or 'dislike'
+
+      if (!['like', 'dislike'].includes(type)) {
+        res.status(400).json({ error: 'Invalid reaction type' });
+        return;
+      }
+
+      // Check if user already reacted
+      const existing = await db.announcementReaction.findUnique({
+        where: { announcementId_userId: { announcementId: id, userId } },
+      });
+
+      if (existing) {
+        if (existing.type === type) {
+          // Same reaction = remove it (toggle off)
+          await db.announcementReaction.delete({ where: { id: existing.id } });
+          res.json({ reaction: null });
+          return;
+        } else {
+          // Different reaction = update
+          const updated = await db.announcementReaction.update({
+            where: { id: existing.id },
+            data: { type },
+          });
+          res.json({ reaction: updated });
+          return;
+        }
+      }
+
+      // New reaction
+      const reaction = await db.announcementReaction.create({
+        data: { announcementId: id, userId, type },
+      });
+      res.json({ reaction });
+    } catch (err) {
+      console.error('React to announcement error:', err);
+      res.status(500).json({ error: 'Failed to react' });
+    }
+  }
+
+  // GET /api/announcements/:id/comments
+  async getComments(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const comments = await db.announcementComment.findMany({
+        where: { announcementId: id },
+        include: {
+          user: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: 100,
+      });
+      res.json({ comments });
+    } catch (err) {
+      console.error('Get comments error:', err);
+      res.json({ comments: [] });
+    }
+  }
+
+  // POST /api/announcements/:id/comments
+  async addComment(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const userId = req.user!.userId;
+      const { content } = req.body;
+
+      if (!content?.trim()) {
+        res.status(400).json({ error: 'Comment cannot be empty' });
+        return;
+      }
+
+      const comment = await db.announcementComment.create({
+        data: { announcementId: id, userId, content: content.trim() },
+        include: {
+          user: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
+        },
+      });
+      res.json({ comment });
+    } catch (err) {
+      console.error('Add comment error:', err);
+      res.status(500).json({ error: 'Failed to add comment' });
+    }
+  }
+
+  // DELETE /api/announcements/:id/comments/:commentId
+  async deleteComment(req: Request, res: Response): Promise<void> {
+    try {
+      const { id, commentId } = req.params;
+      const userId = req.user!.userId;
+      await db.announcementComment.deleteMany({
+        where: { id: commentId, announcementId: id, userId },
+      });
+      res.json({ success: true });
+    } catch (err) {
+      console.error('Delete comment error:', err);
+      res.status(500).json({ error: 'Failed to delete comment' });
     }
   }
 }
