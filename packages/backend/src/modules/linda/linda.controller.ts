@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { prisma } from '../../config/database';
 import { env } from '../../config/env';
 import { emitToConversation } from '../../services/socket';
+import { processFile, buildClaudeContentForFile, isMultimodalContent } from './fileProcessor';
 
 // Type-safe accessors for new Prisma models (available after running `npx prisma generate`)
 const db = prisma as any;
@@ -268,9 +269,14 @@ export class LindaController {
         messagesForApi.push({ role: 'user', content: message });
       }
 
+      // Determine max_tokens: increase for file generation requests
+      const isFileGenRequest = /\b(create|make|generate|write|draft|build|prepare|produce)\b.*\b(file|document|report|script|code|csv|json|list|template|spreadsheet|letter|memo|plan|proposal)\b/i.test(message)
+        || /\b(file|document|report|csv|json|txt|md|py|js|ts|html|sql)\b.*\b(for me|for download|to download|and send)\b/i.test(message);
+      const chatMaxTokens = isFileGenRequest ? 4096 : 1024;
+
       const response = await client.messages.create({
         model: 'claude-sonnet-4-6',
-        max_tokens: 512,
+        max_tokens: chatMaxTokens,
         system: systemPrompt,
         messages: messagesForApi,
       });
@@ -298,12 +304,23 @@ export class LindaController {
       // Fire-and-forget memory extraction
       extractAndSaveMemories(userId, message, cleanResponse).catch(() => {});
 
+      // Extract generated files from actions
+      const generatedFiles = actions
+        .filter((a: any) => a.type === 'create_file' && a.status === 'created' && a.url)
+        .map((a: any) => ({
+          fileName: a.target,
+          fileSize: a.fileSize,
+          mimeType: a.mimeType,
+          url: a.url,
+        }));
+
       res.json({
         response: cleanResponse,
         timestamp: new Date().toISOString(),
         sender: 'linda',
         conversationId: lindaConvId,
         actions: actions.length > 0 ? actions : undefined,
+        generatedFiles: generatedFiles.length > 0 ? generatedFiles : undefined,
       });
     } catch (error: any) {
       console.error('[Linda] Chat error status:', error?.status, 'message:', error?.message);
@@ -376,8 +393,8 @@ export class LindaController {
       }
 
       const workspaceContext = await this.getWorkspaceContext(userId);
-      const fileInfo = `[User shared a file: "${file.originalname}" (${file.mimetype}, ${(file.size / 1024).toFixed(1)} KB)]`;
-      const userContent = message ? `${fileInfo}\n\nUser's message: ${message}` : fileInfo;
+      const fileDesc = `[User shared a file: "${file.originalname}" (${file.mimetype}, ${(file.size / 1024).toFixed(1)} KB)]`;
+      const userContent = message ? `${fileDesc}\n\nUser's message: ${message}` : fileDesc;
 
       // Save user message
       addToHistory(userId, 'user', userContent);
@@ -387,72 +404,38 @@ export class LindaController {
         } catch { /* ignore */ }
       }
 
-      const isImage = file.mimetype.startsWith('image/');
+      // Process the file using the universal file processor
+      const processed = await processFile(file.path, file.originalname, file.mimetype, file.size);
+      const claudeContent = buildClaudeContentForFile(processed, message || '');
+      const isMultimodal = isMultimodalContent(processed);
       let responseText: string;
 
-      if (isImage) {
-        const fs = await import('fs');
-        const imageData = fs.readFileSync(file.path);
-        const base64 = imageData.toString('base64');
-        const mediaType = file.mimetype as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+      const history = getUserHistory(userId);
+      const systemPrompt = this.buildSystemPrompt(userName, workspaceContext);
 
-        const history = getUserHistory(userId);
-        const systemPrompt = this.buildSystemPrompt(userName, workspaceContext);
+      const messagesForApi: any[] = history.slice(0, -1).map((msg: any) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
 
-        const messagesForApi: any[] = history.slice(0, -1).map((msg: any) => ({
-          role: msg.role,
-          content: msg.content,
-        }));
+      // Add the final user message with file content
+      messagesForApi.push({
+        role: 'user' as const,
+        content: claudeContent,
+      });
 
-        messagesForApi.push({
-          role: 'user' as const,
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-            { type: 'text', text: message || 'The user shared this image. Please describe what you see and ask if they need help with it.' },
-          ],
-        });
+      const response = await client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2048,
+        system: systemPrompt,
+        messages: messagesForApi,
+      });
 
-        const response = await client.messages.create({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 1024,
-          system: systemPrompt,
-          messages: messagesForApi,
-        });
+      const textBlock = response.content.find((block: { type: string }) => block.type === 'text') as { type: 'text'; text: string } | undefined;
+      responseText = textBlock ? textBlock.text : 'I received your file but could not generate a response.';
 
-        const textBlock = response.content.find((block: { type: string }) => block.type === 'text') as { type: 'text'; text: string } | undefined;
-        responseText = textBlock ? textBlock.text : 'I received the image but could not analyze it.';
-        fs.unlinkSync(file.path);
-      } else {
-        // For non-image files
-        let contentForClaude = userContent;
-        const textTypes = ['text/', 'application/json', 'application/xml', 'text/csv'];
-        if (textTypes.some(t => file.mimetype.includes(t)) || file.originalname.endsWith('.txt') || file.originalname.endsWith('.csv')) {
-          try {
-            const fs = await import('fs');
-            const content = fs.readFileSync(file.path, 'utf-8').slice(0, 4000);
-            contentForClaude = `${fileInfo}\n\nFile contents (first 4000 chars):\n${content}\n\nUser's message: ${message || 'Please analyze this file.'}`;
-            fs.unlinkSync(file.path);
-          } catch { /* fall through */ }
-        }
-
-        const history = getUserHistory(userId);
-        const systemPrompt = this.buildSystemPrompt(userName, workspaceContext);
-
-        const messagesForApi = history.map((msg: any, idx: number) => ({
-          role: msg.role as 'user' | 'assistant',
-          content: idx === history.length - 1 && msg.role === 'user' ? contentForClaude : msg.content,
-        }));
-
-        const response = await client.messages.create({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 1024,
-          system: systemPrompt,
-          messages: messagesForApi,
-        });
-
-        const textBlock = response.content.find((block: { type: string }) => block.type === 'text') as { type: 'text'; text: string } | undefined;
-        responseText = textBlock ? textBlock.text : 'I received your file but could not generate a response.';
-      }
+      // Clean up uploaded file
+      try { const fs = await import('fs'); fs.unlinkSync(file.path); } catch {}
 
       addToHistory(userId, 'assistant', responseText);
       if (useDb && lindaConvId) {
@@ -1127,6 +1110,177 @@ export class LindaController {
       }
     }
 
+    // Parse [CREATE_FILE] blocks — Linda generates a file for the user
+    const createFileRegex = /\[CREATE_FILE\]\s*([\s\S]*?)\[\/CREATE_FILE\]/gi;
+    let fileMatch;
+
+    while ((fileMatch = createFileRegex.exec(responseText)) !== null) {
+      const block = fileMatch[1];
+      const fileNameMatch = block.match(/filename:\s*(.+)/i);
+      const contentMatch = block.match(/content:\s*([\s\S]*?)$/i);
+
+      if (!fileNameMatch || !contentMatch) {
+        actions.push({ type: 'create_file', target: fileNameMatch?.[1] || 'unknown', status: 'missing_fields' });
+        continue;
+      }
+
+      try {
+        const fileName = fileNameMatch[1].trim();
+        const fileContent = contentMatch[1].trim();
+        const savedFile = await saveLindaGeneratedFile(fileName, fileContent);
+
+        console.log(`[Linda] Generated file: ${fileName} (${savedFile.fileSize} bytes)`);
+        actions.push({
+          type: 'create_file',
+          target: fileName,
+          status: 'created',
+          ...savedFile,
+        } as any);
+
+        logLindaActivity({
+          orderedById: requestingUserId,
+          actionType: 'create_file',
+          status: 'completed',
+          summary: `Generated file "${fileName}"`,
+          details: { fileName, fileSize: savedFile.fileSize, url: savedFile.url },
+        });
+      } catch (err) {
+        console.error('[Linda] Failed to create file:', err);
+        actions.push({ type: 'create_file', target: fileNameMatch[1], status: 'error' });
+      }
+    }
+
+    // Parse [SEND_FILE] blocks — Linda forwards an existing file to another user
+    const sendFileRegex = /\[SEND_FILE\]\s*([\s\S]*?)\[\/SEND_FILE\]/gi;
+    let sendFileMatch;
+
+    while ((sendFileMatch = sendFileRegex.exec(responseText)) !== null) {
+      const block = sendFileMatch[1];
+      const toMatch = block.match(/to:\s*@?(\S+)/i);
+      const attIdMatch = block.match(/attachment_id:\s*(\S+)/i);
+      const msgMatch = block.match(/message:\s*([\s\S]*?)$/i);
+
+      if (!toMatch || !attIdMatch) {
+        actions.push({ type: 'send_file', target: toMatch?.[1] || 'unknown', status: 'missing_fields' });
+        continue;
+      }
+
+      try {
+        const targetUsername = toMatch[1].trim();
+        const attachmentId = attIdMatch[1].trim();
+        const messageContent = msgMatch ? msgMatch[1].trim() : '';
+
+        // Find the attachment
+        const attachment = await prisma.messageAttachment.findUnique({
+          where: { id: attachmentId },
+          select: { fileName: true, fileSize: true, mimeType: true, url: true },
+        });
+
+        if (!attachment) {
+          console.warn(`[Linda] Attachment not found: ${attachmentId}`);
+          actions.push({ type: 'send_file', target: targetUsername, status: 'attachment_not_found' });
+          continue;
+        }
+
+        // Find target user
+        const targetUser = await prisma.user.findFirst({
+          where: {
+            OR: [
+              { username: { equals: targetUsername, mode: 'insensitive' } },
+              { displayName: { equals: targetUsername, mode: 'insensitive' } },
+            ],
+          },
+          select: { id: true, username: true, displayName: true },
+        });
+
+        if (!targetUser) {
+          actions.push({ type: 'send_file', target: targetUsername, status: 'user_not_found' });
+          continue;
+        }
+
+        const lindaId = await getLindaBotUserId();
+
+        // Find or create DM between Linda and target
+        let conversation = await prisma.conversation.findFirst({
+          where: {
+            type: 'DIRECT',
+            AND: [
+              { members: { some: { userId: lindaId } } },
+              { members: { some: { userId: targetUser.id } } },
+            ],
+          },
+        });
+
+        if (!conversation) {
+          conversation = await prisma.conversation.create({
+            data: {
+              type: 'DIRECT',
+              members: {
+                create: [
+                  { userId: lindaId, role: 'OWNER' },
+                  { userId: targetUser.id, role: 'MEMBER' },
+                ],
+              },
+            },
+          });
+        }
+
+        // Create a file message from Linda with the same attachment info
+        const fileMsg = `${messageContent || `Here's a file for you: ${attachment.fileName}`}`;
+        const newMessage = await prisma.message.create({
+          data: {
+            conversationId: conversation.id,
+            senderId: lindaId,
+            content: fileMsg,
+            type: 'FILE',
+            attachments: {
+              create: {
+                fileName: attachment.fileName,
+                fileSize: attachment.fileSize,
+                mimeType: attachment.mimeType,
+                url: attachment.url, // Same file on disk, just a new attachment record
+              },
+            },
+          },
+          include: {
+            sender: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
+            attachments: true,
+          },
+        });
+
+        await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { updatedAt: new Date() },
+        });
+
+        emitToConversation(conversation.id, 'message:new', {
+          id: newMessage.id,
+          conversationId: conversation.id,
+          senderId: newMessage.sender.id,
+          content: newMessage.content,
+          type: newMessage.type,
+          reactions: {},
+          attachments: newMessage.attachments,
+          createdAt: newMessage.createdAt,
+          sender: newMessage.sender,
+        });
+
+        console.log(`[Linda] Forwarded file "${attachment.fileName}" to @${targetUser.username}`);
+        actions.push({ type: 'send_file', target: `@${targetUser.username}`, status: 'sent' });
+        logLindaActivity({
+          orderedById: requestingUserId,
+          actionType: 'send_file',
+          targetUserId: targetUser.id,
+          status: 'completed',
+          summary: `Forwarded file "${attachment.fileName}" to ${targetUser.displayName || targetUser.username}`,
+          details: { fileName: attachment.fileName, conversationId: conversation.id },
+        });
+      } catch (err) {
+        console.error('[Linda] Failed to forward file:', err);
+        actions.push({ type: 'send_file', target: toMatch[1], status: 'error' });
+      }
+    }
+
     return actions;
   }
 
@@ -1138,6 +1292,8 @@ export class LindaController {
       .replace(/\[UPDATE_TASK\][\s\S]*?\[\/UPDATE_TASK\]/gi, '')
       .replace(/\[CREATE_ANNOUNCEMENT\][\s\S]*?\[\/CREATE_ANNOUNCEMENT\]/gi, '')
       .replace(/\[ANNOUNCE\][\s\S]*?\[\/ANNOUNCE\]/gi, '')
+      .replace(/\[CREATE_FILE\][\s\S]*?\[\/CREATE_FILE\]/gi, '')
+      .replace(/\[SEND_FILE\][\s\S]*?\[\/SEND_FILE\]/gi, '')
       .trim();
   }
 
@@ -1199,6 +1355,48 @@ TASK MANAGEMENT:
 - When asked to follow up on tasks, check the task context and report back
 - When asked to mark a task as done/complete, use [UPDATE_TASK] with status: COMPLETED
 - When asked to change priority, use [UPDATE_TASK] with the new priority
+
+FILE GENERATION:
+You CAN create and send text-based files to the user. Use this when asked to write documents, reports, code, spreadsheets (CSV), lists, scripts, config files, etc.
+
+Format for creating a file:
+[CREATE_FILE]
+filename: the-file-name.ext
+content: The entire file content goes here.
+It can span multiple lines.
+All text after "content:" until [/CREATE_FILE] is the file body.
+[/CREATE_FILE]
+
+Rules for file generation:
+- For documents, reports, letters, memos, proposals, plans: ALWAYS use .docx extension (generates a real Word document)
+- For formal reports or read-only documents: use .pdf extension (generates a real PDF)
+- For tabular data, spreadsheets: use .csv with proper comma-separated format and headers
+- For structured data: use .json
+- For code: use the appropriate extension (.py, .js, .ts, .html, .sql, .sh, etc.)
+- For plain text or notes: use .txt
+- NEVER use .md for documents the user wants to download — use .docx or .pdf instead
+- Write document content using markdown-style formatting (# headings, **bold**, *italic*, - bullets) — it will be converted to proper Word/PDF formatting automatically
+- For code files, write clean, well-commented, production-ready code
+- ALWAYS generate the complete file — never truncate or use placeholders like "..." or "rest of content here"
+- You can generate multiple files in one response by using multiple [CREATE_FILE] blocks
+- In your visible response, briefly mention the file you created (e.g., "Here's the report you asked for" or "I've generated the document")
+
+FILE FORWARDING:
+You CAN forward files that have been shared in your conversation to other users. Use the attachment IDs from the "Recent files" section in the workspace context.
+
+Format for forwarding a file:
+[SEND_FILE]
+to: @username
+attachment_id: the-attachment-uuid
+message: Optional message to accompany the file
+[/SEND_FILE]
+
+Rules for file forwarding:
+- ONLY use attachment IDs from the workspace context — never make up IDs
+- You can forward any file that appears in "Recent files in your conversation with Linda"
+- Include a natural message with the file (e.g., "Hey! Siavash asked me to send this your way.")
+- If the user asks you to send/forward a file and you can see it in your recent files list, use [SEND_FILE]
+- If you can't find the file in the recent files list, ask the user to share it with you again
 
 ANNOUNCEMENTS:
 - You CAN create public announcements using [CREATE_ANNOUNCEMENT] blocks
@@ -1344,6 +1542,51 @@ Guidelines:
         }
       } catch (err) {
         // Task table may not exist yet
+      }
+
+      // Include recent files shared in Linda's conversations (so she can forward them)
+      try {
+        const lindaUser = await prisma.user.findFirst({
+          where: { OR: [{ username: 'linda' }, { email: 'linda@omnilink.system' }] },
+          select: { id: true },
+        });
+        if (lindaUser) {
+          const recentFileMessages = await prisma.message.findMany({
+            where: {
+              conversation: {
+                type: 'DIRECT',
+                AND: [
+                  { members: { some: { userId: lindaUser.id } } },
+                  { members: { some: { userId } } },
+                ],
+              },
+              type: { in: ['FILE', 'IMAGE', 'VIDEO'] },
+              isDeleted: false,
+            },
+            include: {
+              attachments: { select: { id: true, fileName: true, fileSize: true, mimeType: true, url: true } },
+              sender: { select: { displayName: true, username: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 10,
+          });
+
+          if (recentFileMessages.length > 0) {
+            const fileSummaries = recentFileMessages
+              .filter(m => m.attachments.length > 0)
+              .map(m => {
+                const att = m.attachments[0];
+                const sender = m.sender?.displayName || m.sender?.username || 'Unknown';
+                const sizeKB = (att.fileSize / 1024).toFixed(1);
+                return `- [attachment_id: ${att.id}] "${att.fileName}" (${sizeKB} KB, ${att.mimeType}) — sent by ${sender} on ${m.createdAt.toISOString().split('T')[0]}`;
+              });
+            if (fileSummaries.length > 0) {
+              parts.push(`Recent files in your conversation with Linda:\n${fileSummaries.join('\n')}`);
+            }
+          }
+        }
+      } catch (err) {
+        // Attachments query failed — not critical
       }
 
       return parts.length > 0 ? parts.join('\n\n') : 'No workspace data available yet.';
@@ -1495,11 +1738,146 @@ Try asking me things like "help", "how do tasks work", or "tell me about stories
   }
 }
 
+/** Save a file generated by Linda to the uploads directory */
+async function saveLindaGeneratedFile(
+  fileName: string,
+  content: string,
+): Promise<{ url: string; fileSize: number; mimeType: string; filePath: string }> {
+  const fs = await import('fs');
+  const pathModule = await import('path');
+  const { generateDocx, generatePdf } = await import('./documentGenerator');
+
+  // Sanitize filename
+  const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const timestamp = Date.now();
+  const random = Math.round(Math.random() * 1e9);
+  const ext = pathModule.extname(safeName) || '.txt';
+  const storedName = `${timestamp}-${random}${ext}`;
+
+  const uploadsDir = pathModule.join(process.cwd(), 'uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+
+  const filePath = pathModule.join(uploadsDir, storedName);
+
+  // Generate proper binary files for .docx and .pdf
+  const extLower = ext.toLowerCase();
+  let fileBuffer: Buffer;
+
+  if (extLower === '.docx') {
+    // Extract title from first heading or filename
+    const titleMatch = content.match(/^#\s+(.+)/m);
+    const title = titleMatch ? titleMatch[1] : safeName.replace(ext, '');
+    fileBuffer = generateDocx(content, title);
+    fs.writeFileSync(filePath, fileBuffer);
+  } else if (extLower === '.pdf') {
+    const titleMatch = content.match(/^#\s+(.+)/m);
+    const title = titleMatch ? titleMatch[1] : safeName.replace(ext, '');
+    fileBuffer = generatePdf(content, title);
+    fs.writeFileSync(filePath, fileBuffer);
+  } else {
+    // Text-based files: write as UTF-8
+    fs.writeFileSync(filePath, content, 'utf-8');
+    fileBuffer = Buffer.from(content, 'utf-8');
+  }
+
+  // Determine MIME type from extension
+  const mimeMap: Record<string, string> = {
+    '.txt': 'text/plain',
+    '.md': 'text/markdown',
+    '.csv': 'text/csv',
+    '.tsv': 'text/tab-separated-values',
+    '.json': 'application/json',
+    '.xml': 'application/xml',
+    '.html': 'text/html',
+    '.htm': 'text/html',
+    '.css': 'text/css',
+    '.js': 'application/javascript',
+    '.ts': 'application/typescript',
+    '.py': 'text/x-python',
+    '.java': 'text/x-java',
+    '.sql': 'application/sql',
+    '.yaml': 'text/yaml',
+    '.yml': 'text/yaml',
+    '.sh': 'application/x-sh',
+    '.log': 'text/plain',
+    '.env': 'text/plain',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.pdf': 'application/pdf',
+  };
+  const mimeType = mimeMap[extLower] || 'text/plain';
+
+  return {
+    url: `/uploads/${storedName}`,
+    fileSize: fileBuffer.length,
+    mimeType,
+    filePath,
+  };
+}
+
+/** Send a file message from Linda into a conversation (for auto-reply file generation) */
+async function sendLindaFileToConversation(
+  lindaId: string,
+  conversationId: string,
+  textContent: string,
+  file: { fileName: string; fileSize: number; mimeType: string; url: string },
+): Promise<void> {
+  await markMessagesAsReadByLinda(lindaId, conversationId);
+
+  const newMessage = await prisma.message.create({
+    data: {
+      conversationId,
+      senderId: lindaId,
+      content: textContent,
+      type: 'FILE',
+      attachments: {
+        create: {
+          fileName: file.fileName,
+          fileSize: file.fileSize,
+          mimeType: file.mimeType,
+          url: file.url,
+        },
+      },
+    },
+    include: {
+      sender: {
+        select: { id: true, username: true, displayName: true, avatarUrl: true },
+      },
+      attachments: true,
+    },
+  });
+
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { updatedAt: new Date() },
+  });
+
+  emitToConversation(conversationId, 'message:new', {
+    id: newMessage.id,
+    conversationId,
+    senderId: newMessage.sender.id,
+    content: newMessage.content,
+    type: newMessage.type,
+    reactions: {},
+    attachments: newMessage.attachments,
+    createdAt: newMessage.createdAt,
+    sender: newMessage.sender,
+  });
+
+  console.log(`[Linda] Sent generated file "${file.fileName}" in conversation ${conversationId}`);
+}
+
 /**
  * Hook for regular messaging: when a message is sent in a conversation where Linda is a member,
  * this generates an AI response and sends it as a regular message from Linda.
  */
-export async function handleLindaAutoReply(conversationId: string, senderUserId: string, messageContent: string): Promise<void> {
+export async function handleLindaAutoReply(
+  conversationId: string,
+  senderUserId: string,
+  messageContent: string,
+  fileInfo?: { fileName: string; mimeType: string; fileSize: number; filePath: string }
+): Promise<void> {
   try {
     const lindaId = await getLindaBotUserId();
 
@@ -1561,14 +1939,46 @@ export async function handleLindaAutoReply(conversationId: string, senderUserId:
 
     console.log(`[Linda] Sending ${messagesForApi.length} messages to Claude API. Last user msg: "${messagesForApi[messagesForApi.length - 1]?.content?.slice(0, 80)}"`);
 
+    // Process file if provided — supports PDF, DOCX, XLSX, PPTX, images, code, text, etc.
+    if (fileInfo) {
+      try {
+        const processed = await processFile(fileInfo.filePath, fileInfo.fileName, fileInfo.mimeType, fileInfo.fileSize);
+        const claudeContent = buildClaudeContentForFile(processed, messageContent || '');
+
+        if (messagesForApi.length > 0) {
+          if (isMultimodalContent(processed)) {
+            // Replace with multimodal content (image or PDF document)
+            messagesForApi[messagesForApi.length - 1] = {
+              role: 'user',
+              content: claudeContent,
+            };
+          } else {
+            // Replace with enriched text content
+            messagesForApi[messagesForApi.length - 1].content = claudeContent;
+          }
+        }
+
+        // Clean up uploaded file
+        try { const fs = await import('fs'); fs.unlinkSync(fileInfo.filePath); } catch {}
+      } catch (err) {
+        console.warn('[Linda] File processing error:', (err as any)?.message);
+      }
+    }
+
     // Build workspace context and system prompt
     const lindaController = new LindaController();
     const workspaceContext = await (lindaController as any).getWorkspaceContext(senderUserId);
     const systemPrompt = (lindaController as any).buildSystemPrompt(senderName, workspaceContext);
 
+    // Determine max_tokens: increase for file attachments or file generation requests
+    const lastUserMsg = (messagesForApi[messagesForApi.length - 1]?.content || '').toLowerCase();
+    const isFileGenerationRequest = /\b(create|make|generate|write|draft|build|prepare|produce)\b.*\b(file|document|report|script|code|csv|json|list|template|spreadsheet|letter|memo|plan|proposal)\b/i.test(lastUserMsg)
+      || /\b(file|document|report|csv|json|txt|md|py|js|ts|html|sql)\b.*\b(for me|for download|to download|and send)\b/i.test(lastUserMsg);
+    const maxTokens = (fileInfo || isFileGenerationRequest) ? 4096 : 1024;
+
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 512,
+      max_tokens: maxTokens,
       system: systemPrompt,
       messages: messagesForApi,
     });
@@ -1576,8 +1986,23 @@ export async function handleLindaAutoReply(conversationId: string, senderUserId:
     const textBlock = response.content.find((block: { type: string }) => block.type === 'text') as { type: 'text'; text: string } | undefined;
     const rawResponse = textBlock ? textBlock.text : "Sorry, I couldn't process that. Try again?";
 
-    // Execute any action blocks (send messages to other users, etc.)
-    await (lindaController as any).executeActions(rawResponse, senderUserId);
+    // Execute any action blocks (send messages to other users, create files, etc.)
+    const actions = await (lindaController as any).executeActions(rawResponse, senderUserId);
+
+    // Send any generated files as downloadable file messages in the conversation
+    const generatedFileActions = actions.filter((a: any) => a.type === 'create_file' && a.status === 'created' && a.url);
+    for (const fileAction of generatedFileActions) {
+      try {
+        await sendLindaFileToConversation(lindaId, conversationId, `Here's your file: ${fileAction.target}`, {
+          fileName: fileAction.target,
+          fileSize: fileAction.fileSize,
+          mimeType: fileAction.mimeType,
+          url: fileAction.url,
+        });
+      } catch (fileErr) {
+        console.error('[Linda] Failed to send generated file:', fileErr);
+      }
+    }
 
     // Strip action blocks from visible response
     const cleanResponse = rawResponse
@@ -1586,6 +2011,8 @@ export async function handleLindaAutoReply(conversationId: string, senderUserId:
       .replace(/\[UPDATE_TASK\][\s\S]*?\[\/UPDATE_TASK\]/gi, '')
       .replace(/\[CREATE_ANNOUNCEMENT\][\s\S]*?\[\/CREATE_ANNOUNCEMENT\]/gi, '')
       .replace(/\[ANNOUNCE\][\s\S]*?\[\/ANNOUNCE\]/gi, '')
+      .replace(/\[CREATE_FILE\][\s\S]*?\[\/CREATE_FILE\]/gi, '')
+      .replace(/\[SEND_FILE\][\s\S]*?\[\/SEND_FILE\]/gi, '')
       .trim();
 
     if (cleanResponse) {

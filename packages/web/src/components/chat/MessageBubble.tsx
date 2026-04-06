@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { format } from 'date-fns';
-import { Check, CheckCheck } from 'lucide-react';
+import { Check, CheckCheck, Volume2 } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { MessageResponse } from '@/services/api';
@@ -313,27 +313,52 @@ export default function MessageBubble({
               <>
                 {message.content && (
                   <>
-                    <p className="break-words text-[13px] leading-snug">
-                      {linkifyText(message.content).map((part, i) =>
-                        typeof part === 'string'
-                          ? part
-                          : (
-                            <a
-                              key={i}
-                              href={part.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className={`underline transition ${
-                                isOwnMessage
-                                  ? 'text-blue-100 hover:text-white'
-                                  : 'text-blue-500 hover:text-blue-600'
-                              }`}
-                            >
-                              {part.url}
-                            </a>
-                          )
+                    <div className="flex items-end gap-1">
+                      <div className="flex-1">
+                        <p className="break-words text-[13px] leading-snug">
+                          {linkifyText(message.content).map((part, i) =>
+                            typeof part === 'string'
+                              ? part
+                              : (
+                                <a
+                                  key={i}
+                                  href={part.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className={`underline transition ${
+                                    isOwnMessage
+                                      ? 'text-blue-100 hover:text-white'
+                                      : 'text-blue-500 hover:text-blue-600'
+                                  }`}
+                                >
+                                  {part.url}
+                                </a>
+                              )
+                          )}
+                        </p>
+                      </div>
+                      {/* Voice button for Linda's messages */}
+                      {message.sender?.username === 'linda' && message.content && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const utterance = new SpeechSynthesisUtterance(message.content);
+                            utterance.rate = 1.0;
+                            utterance.pitch = 1.0;
+                            // Try to find a female voice
+                            const voices = window.speechSynthesis.getVoices();
+                            const femaleVoice = voices.find(v => v.name.includes('Female') || v.name.includes('Samantha') || v.name.includes('Victoria') || v.name.includes('Karen'));
+                            if (femaleVoice) utterance.voice = femaleVoice;
+                            window.speechSynthesis.cancel(); // Stop any current speech
+                            window.speechSynthesis.speak(utterance);
+                          }}
+                          className="inline-flex items-center justify-center w-6 h-6 rounded-full hover:bg-white/30 dark:hover:bg-slate-600/50 transition ml-1 flex-shrink-0"
+                          title="Listen to Linda's message"
+                        >
+                          <Volume2 size={12} className="text-slate-500 dark:text-slate-400" />
+                        </button>
                       )}
-                    </p>
+                    </div>
                     {extractUrls(message.content).length > 0 && (
                       <LinkPreview url={extractUrls(message.content)[0]} />
                     )}

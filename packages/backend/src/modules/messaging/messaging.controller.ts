@@ -670,6 +670,16 @@ export class MessagingController {
         createdAt: message.createdAt,
         sender: message.sender,
       });
+
+      // Trigger Linda auto-reply with file context
+      handleLindaAutoReply(conversationId, userId, message.content || '', {
+        fileName: file.originalname,
+        mimeType: file.mimetype,
+        fileSize: file.size,
+        filePath: file.path,
+      }).catch((err) => {
+        console.error('[Linda] Auto-reply hook error (file):', err);
+      });
     } catch (error) {
       console.error('Upload file error:', error);
       res.status(500).json({ error: 'Internal server error' });

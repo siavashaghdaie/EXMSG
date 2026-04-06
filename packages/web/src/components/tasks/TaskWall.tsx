@@ -674,8 +674,8 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
       {/* Create/Edit Task Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center">
-          <div className="bg-white dark:bg-surface-900 rounded-t-lg md:rounded-lg w-full md:max-w-md max-h-screen md:max-h-none overflow-y-auto">
-            <div className="sticky top-0 bg-white dark:bg-surface-900 border-b border-gray-200 dark:border-surface-700 px-6 py-4 flex items-center justify-between">
+          <div className="bg-white dark:bg-surface-900 rounded-t-lg md:rounded-lg w-full md:max-w-md max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex-shrink-0 bg-white dark:bg-surface-900 border-b border-gray-200 dark:border-surface-700 px-6 py-4 flex items-center justify-between">
               <h2 className="text-lg font-bold text-gray-900 dark:text-white">
                 {editingTask ? 'Edit Task' : 'Create Task'}
               </h2>
@@ -691,7 +691,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
               </button>
             </div>
 
-            <div className="px-6 py-4 space-y-4">
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
               {/* Title */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -867,50 +867,50 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                   </div>
                 )}
               </div>
-            </div>
 
-            {/* Linda Following */}
-            <div className="px-6 pb-4">
-              <div className="bg-gradient-to-r from-violet-50 to-blue-50 dark:from-violet-900/20 dark:to-blue-900/20 rounded-xl p-4 border border-violet-200 dark:border-violet-800">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formData.lindaFollowing}
-                    onChange={(e) => setFormData({ ...formData, lindaFollowing: e.target.checked })}
-                    className="w-5 h-5 rounded border-violet-300 text-violet-600 focus:ring-violet-500 cursor-pointer"
-                  />
-                  <div className="flex-1">
-                    <span className="text-sm font-semibold text-violet-900 dark:text-violet-200">
-                      Requires Linda's Following
-                    </span>
-                    <p className="text-xs text-violet-600 dark:text-violet-400 mt-0.5">
-                      Linda AI will track this task and send periodic reminders
-                    </p>
-                  </div>
-                  <span className="text-lg">🤖</span>
-                </label>
+              {/* Linda Following */}
+              <div>
+                <div className="bg-gradient-to-r from-violet-50 to-blue-50 dark:from-violet-900/20 dark:to-blue-900/20 rounded-xl p-4 border border-violet-200 dark:border-violet-800">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.lindaFollowing}
+                      onChange={(e) => setFormData({ ...formData, lindaFollowing: e.target.checked })}
+                      className="w-5 h-5 rounded border-violet-300 text-violet-600 focus:ring-violet-500 cursor-pointer"
+                    />
+                    <div className="flex-1">
+                      <span className="text-sm font-semibold text-violet-900 dark:text-violet-200">
+                        Requires Linda's Following
+                      </span>
+                      <p className="text-xs text-violet-600 dark:text-violet-400 mt-0.5">
+                        Linda AI will track this task and send periodic reminders
+                      </p>
+                    </div>
+                    <span className="text-lg">🤖</span>
+                  </label>
 
-                {formData.lindaFollowing && (
-                  <div className="mt-3 pl-8">
-                    <label className="block text-xs font-medium text-violet-700 dark:text-violet-300 mb-1.5">
-                      Follow-up Interval
-                    </label>
-                    <select
-                      value={formData.lindaFollowInterval}
-                      onChange={(e) => setFormData({ ...formData, lindaFollowInterval: e.target.value })}
-                      className="w-full px-3 py-2 rounded-lg border border-violet-200 dark:border-violet-700 bg-white dark:bg-surface-800 text-sm text-violet-900 dark:text-violet-200 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                    >
-                      <option value="twice_daily">Twice a day</option>
-                      <option value="daily">Daily</option>
-                      <option value="every_2_days">Every 2 days</option>
-                      <option value="weekly">Weekly</option>
-                    </select>
-                  </div>
-                )}
+                  {formData.lindaFollowing && (
+                    <div className="mt-3 pl-8">
+                      <label className="block text-xs font-medium text-violet-700 dark:text-violet-300 mb-1.5">
+                        Follow-up Interval
+                      </label>
+                      <select
+                        value={formData.lindaFollowInterval}
+                        onChange={(e) => setFormData({ ...formData, lindaFollowInterval: e.target.value })}
+                        className="w-full px-3 py-2 rounded-lg border border-violet-200 dark:border-violet-700 bg-white dark:bg-surface-800 text-sm text-violet-900 dark:text-violet-200 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      >
+                        <option value="twice_daily">Twice a day</option>
+                        <option value="daily">Daily</option>
+                        <option value="every_2_days">Every 2 days</option>
+                        <option value="weekly">Weekly</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
-            <div className="sticky bottom-0 bg-gray-50 dark:bg-surface-800 border-t border-gray-200 dark:border-surface-700 px-6 py-4 flex gap-2">
+            <div className="flex-shrink-0 bg-gray-50 dark:bg-surface-800 border-t border-gray-200 dark:border-surface-700 px-6 py-4 flex gap-2">
               <button
                 onClick={() => {
                   setShowCreateModal(false);

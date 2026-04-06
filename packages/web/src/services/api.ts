@@ -633,7 +633,13 @@ class APIClient {
   }
 
   // Linda AI Secretary API
-  async chatWithLinda(message: string, conversationId?: string): Promise<{ response: string; timestamp: string; conversationId: string; actions?: Array<{ type: string; target: string; status: string }> }> {
+  async chatWithLinda(message: string, conversationId?: string): Promise<{
+    response: string;
+    timestamp: string;
+    conversationId: string;
+    actions?: Array<{ type: string; target: string; status: string }>;
+    generatedFiles?: Array<{ fileName: string; fileSize: number; mimeType: string; url: string }>;
+  }> {
     const res = await this.client.post('/linda/chat', { message, conversationId }, { timeout: 60000 });
     return res.data;
   }
