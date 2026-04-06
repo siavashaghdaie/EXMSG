@@ -161,6 +161,7 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
       }
       resetForm();
       setShowCreateModal(false);
+      window.dispatchEvent(new Event('badges:refresh'));
     } catch (error: any) {
       console.error('Failed to save announcement:', error);
       alert(error?.response?.data?.error || 'Failed to save announcement. Please try again.');
@@ -175,6 +176,7 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
       await api.deleteAnnouncement(id);
       setAnnouncements(announcements.filter((a) => a.id !== id));
       setOpenMenuId(null);
+      window.dispatchEvent(new Event('badges:refresh'));
     } catch (error) {
       console.error('Failed to delete announcement:', error);
       alert('Failed to delete announcement.');
@@ -194,6 +196,7 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
           a.id === announcementId ? { ...a, noted: true, notedAt: result.notedAt } : a
         ));
       }
+      window.dispatchEvent(new Event('badges:refresh'));
     } catch (error) {
       console.error('Failed to toggle noted:', error);
     }

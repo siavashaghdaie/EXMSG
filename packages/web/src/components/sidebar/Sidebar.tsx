@@ -113,7 +113,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       // Poll task and announcement counts every 15 seconds
       const interval = setInterval(refreshCounts, 15000);
-      return () => clearInterval(interval);
+
+      // Listen for instant badge refresh events from AnnouncementBoard / TaskWall
+      const handleBadgeRefresh = () => refreshCounts();
+      window.addEventListener('badges:refresh', handleBadgeRefresh);
+
+      return () => {
+        clearInterval(interval);
+        window.removeEventListener('badges:refresh', handleBadgeRefresh);
+      };
     }
   }, [user?.id]);
 

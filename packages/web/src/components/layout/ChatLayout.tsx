@@ -59,7 +59,15 @@ export const ChatLayout: React.FC = () => {
 
     // Poll counts every 15 seconds for real-time badge updates
     const interval = setInterval(loadCounts, 15000);
-    return () => clearInterval(interval);
+
+    // Listen for instant badge refresh events
+    const handleBadgeRefresh = () => loadCounts();
+    window.addEventListener('badges:refresh', handleBadgeRefresh);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('badges:refresh', handleBadgeRefresh);
+    };
   }, [isAuthenticated, user]);
 
   // Check authentication on mount

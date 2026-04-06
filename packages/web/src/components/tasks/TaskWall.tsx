@@ -178,6 +178,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
       setShowCreateModal(false);
       setEditingTask(null);
       resetForm();
+      window.dispatchEvent(new Event('badges:refresh'));
     } catch (error) {
       console.error('Failed to save task:', error);
       alert('Failed to save task');
@@ -193,6 +194,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
     try {
       await api.deleteTask(taskId);
       setTasks(tasks.filter(t => t.id !== taskId));
+      window.dispatchEvent(new Event('badges:refresh'));
     } catch (error) {
       console.error('Failed to delete task:', error);
       alert('Failed to delete task');
@@ -207,6 +209,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
     try {
       const updated = await api.updateTask(taskId, { status: newStatus });
       setTasks(tasks.map(t => t.id === updated.id ? updated : t));
+      window.dispatchEvent(new Event('badges:refresh'));
     } catch (error) {
       console.error('Failed to update task status:', error);
     }
