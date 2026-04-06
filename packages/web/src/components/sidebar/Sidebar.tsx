@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Search, Settings, Plus, BarChart3, Bell, Clipboard } from 'lucide-react';
+import { Search, Settings, Plus, Bell, Clipboard } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { usePresenceStore } from '@/store/presenceStore';
@@ -76,7 +76,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     try {
       const tasks = await api.getTasks();
-      const incompleteTasks = tasks?.filter((task: any) => !task.completed && task.assignedToId === user?.id) || [];
+      const incompleteTasks = tasks?.filter((task: any) => task.status !== 'COMPLETED' && task.assignedToId === user?.id) || [];
       setTaskCount(incompleteTasks.length);
     } catch (_e) { /* ignore */ }
   };
@@ -225,13 +225,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         {taskCount > 9 ? '9+' : taskCount}
                       </span>
                     )}
-                  </button>
-                  <button
-                    onClick={onDashboardClick}
-                    className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors"
-                    title="Admin Dashboard"
-                  >
-                    <BarChart3 className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                   </button>
                   <button
                     onClick={handleSettingsClick}

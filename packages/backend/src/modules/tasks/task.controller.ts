@@ -24,6 +24,7 @@ export class TaskController {
         include: {
           assignedTo: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
           createdBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
+          orderedBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -39,7 +40,7 @@ export class TaskController {
   async createTask(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.user!.userId;
-      const { title, description, assignedToId, deadline, priority, labels } = req.body;
+      const { title, description, assignedToId, deadline, priority, labels, lindaFollowing, lindaFollowInterval, orderedById } = req.body;
 
       if (!title) {
         res.status(400).json({ error: 'Task title is required' });
@@ -52,14 +53,18 @@ export class TaskController {
           description,
           assignedToId: assignedToId || userId,
           createdById: userId,
+          orderedById: orderedById || null,
           deadline: deadline ? new Date(deadline) : null,
           priority: priority || 'MEDIUM',
           labels: labels || [],
           status: 'NOT_STARTED',
+          lindaFollowing: lindaFollowing || false,
+          lindaFollowInterval: lindaFollowInterval || null,
         },
         include: {
           assignedTo: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
           createdBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
+          orderedBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
         },
       });
 
@@ -75,7 +80,7 @@ export class TaskController {
     try {
       const { taskId } = req.params;
       const userId = req.user!.userId;
-      const { title, description, status, priority, deadline, labels } = req.body;
+      const { title, description, status, priority, deadline, labels, lindaFollowing, lindaFollowInterval } = req.body;
 
       const task = await prisma.task.findUnique({ where: { id: taskId } });
       if (!task || (task.assignedToId !== userId && task.createdById !== userId)) {
@@ -92,10 +97,13 @@ export class TaskController {
           ...(priority !== undefined && { priority }),
           ...(deadline !== undefined && { deadline: deadline ? new Date(deadline) : null }),
           ...(labels !== undefined && { labels }),
+          ...(lindaFollowing !== undefined && { lindaFollowing }),
+          ...(lindaFollowInterval !== undefined && { lindaFollowInterval }),
         },
         include: {
           assignedTo: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
           createdBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
+          orderedBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
         },
       });
 

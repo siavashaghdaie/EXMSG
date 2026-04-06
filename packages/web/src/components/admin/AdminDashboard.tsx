@@ -30,10 +30,11 @@ interface DashboardData {
 }
 
 interface AdminDashboardProps {
-  onBack: () => void;
+  onBack?: () => void;
+  isEmbedded?: boolean;
 }
 
-export default function AdminDashboard({ onBack }: AdminDashboardProps) {
+export default function AdminDashboard({ onBack, isEmbedded }: AdminDashboardProps) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -129,26 +130,28 @@ export default function AdminDashboard({ onBack }: AdminDashboardProps) {
 
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 overflow-y-auto">
-      {/* Header */}
-      <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-4 sticky top-0 z-10 flex items-center gap-3">
-        <button
-          onClick={onBack}
-          className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition"
-        >
-          <ArrowLeft size={20} className="text-slate-600 dark:text-slate-300" />
-        </button>
-        <div className="flex-1">
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Admin Dashboard</h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400">OmniLink Messenger Intelligence</p>
+      {/* Header — hidden when embedded in Settings */}
+      {!isEmbedded && (
+        <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-4 sticky top-0 z-10 flex items-center gap-3">
+          <button
+            onClick={onBack}
+            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition"
+          >
+            <ArrowLeft size={20} className="text-slate-600 dark:text-slate-300" />
+          </button>
+          <div className="flex-1">
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white">Admin Dashboard</h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400">OmniLink Messenger Intelligence</p>
+          </div>
+          <button
+            onClick={loadDashboard}
+            disabled={isLoading}
+            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition disabled:opacity-50"
+          >
+            <RefreshCw size={18} className="text-slate-500 dark:text-slate-400" />
+          </button>
         </div>
-        <button
-          onClick={loadDashboard}
-          disabled={isLoading}
-          className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition disabled:opacity-50"
-        >
-          <RefreshCw size={18} className="text-slate-500 dark:text-slate-400" />
-        </button>
-      </div>
+      )}
 
       <div className="p-4 md:p-6 space-y-6">
         {/* Stat Cards */}

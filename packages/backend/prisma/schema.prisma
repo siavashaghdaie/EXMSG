@@ -50,6 +50,7 @@ model User {
   refreshTokens    RefreshToken[]
   tasksAssigned    Task[]               @relation("TasksAssigned")
   tasksCreated     Task[]               @relation("TasksCreated")
+  tasksOrdered     Task[]               @relation("TasksOrdered")
   lindaConversations LindaConversation[]
   lindaRelated       LindaConversationRelatedUser[]
   userStatuses     UserStatus[]
@@ -269,7 +270,13 @@ model Task {
   createdById  String
   createdBy    User     @relation("TasksCreated", fields: [createdById], references: [id])
 
+  orderedById  String?  @map("ordered_by_id")
+  orderedBy    User?    @relation("TasksOrdered", fields: [orderedById], references: [id])
+
   sourceMessageId String?
+
+  lindaFollowing       Boolean  @default(false) @map("linda_following")
+  lindaFollowInterval  String?  @map("linda_follow_interval") // e.g. "daily", "every_2_days", "weekly"
 
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")

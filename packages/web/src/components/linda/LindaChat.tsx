@@ -248,6 +248,8 @@ export default function LindaChat({ onClose }: LindaChatProps) {
       const cleanContent = data.response
         .replace(/\[SEND_MESSAGE\][\s\S]*?\[\/SEND_MESSAGE\]/gi, '')
         .replace(/\[ASSIGN_TASK\][\s\S]*?\[\/ASSIGN_TASK\]/gi, '')
+        .replace(/\[UPDATE_TASK\][\s\S]*?\[\/UPDATE_TASK\]/gi, '')
+        .replace(/\[CREATE_ANNOUNCEMENT\][\s\S]*?\[\/CREATE_ANNOUNCEMENT\]/gi, '')
         .replace(/\[ANNOUNCE\][\s\S]*?\[\/ANNOUNCE\]/gi, '')
         .trim();
 

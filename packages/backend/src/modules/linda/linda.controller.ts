@@ -732,6 +732,186 @@ export class LindaController {
       }
     }
 
+    // Parse [ASSIGN_TASK] blocks
+    const assignTaskRegex = /\[ASSIGN_TASK\]\s*([\s\S]*?)\[\/ASSIGN_TASK\]/gi;
+    let taskMatch;
+
+    while ((taskMatch = assignTaskRegex.exec(responseText)) !== null) {
+      const block = taskMatch[1];
+      const assigneeMatch = block.match(/assignee:\s*@?(\S+)/i);
+      const titleMatch = block.match(/title:\s*(.+)/i);
+      const descMatch = block.match(/description:\s*(.+)/i);
+      const priorityMatch = block.match(/priority:\s*(LOW|MEDIUM|HIGH|CRITICAL)/i);
+      const deadlineMatch = block.match(/deadline:\s*(\d{4}-\d{2}-\d{2})/i);
+
+      if (!assigneeMatch || !titleMatch) {
+        actions.push({ type: 'assign_task', target: assigneeMatch?.[1] || 'unknown', status: 'missing_fields' });
+        continue;
+      }
+
+      try {
+        const targetUser = await prisma.user.findFirst({
+          where: {
+            OR: [
+              { username: { equals: assigneeMatch[1].trim(), mode: 'insensitive' } },
+              { displayName: { equals: assigneeMatch[1].trim(), mode: 'insensitive' } },
+            ],
+          },
+          select: { id: true, username: true, displayName: true },
+        });
+
+        if (!targetUser) {
+          actions.push({ type: 'assign_task', target: assigneeMatch[1], status: 'user_not_found' });
+          continue;
+        }
+
+        const lindaId = await getLindaBotUserId();
+        const task = await prisma.task.create({
+          data: {
+            title: titleMatch[1].trim(),
+            description: descMatch ? descMatch[1].trim() : undefined,
+            assignedToId: targetUser.id,
+            createdById: lindaId,
+            orderedById: requestingUserId,
+            priority: priorityMatch ? priorityMatch[1].toUpperCase() : 'MEDIUM',
+            deadline: deadlineMatch ? new Date(deadlineMatch[1]) : null,
+            status: 'NOT_STARTED',
+            lindaFollowing: true,
+          },
+        });
+
+        console.log(`[Linda] Created task "${task.title}" assigned to @${targetUser.username}`);
+        actions.push({ type: 'assign_task', target: `@${targetUser.username}`, status: 'created' });
+
+        // Notify assignee via DM from Linda
+        try {
+          let conversation = await prisma.conversation.findFirst({
+            where: {
+              type: 'DIRECT',
+              AND: [
+                { members: { some: { userId: lindaId } } },
+                { members: { some: { userId: targetUser.id } } },
+              ],
+            },
+          });
+
+          if (!conversation) {
+            conversation = await prisma.conversation.create({
+              data: {
+                type: 'DIRECT',
+                members: {
+                  create: [
+                    { userId: lindaId, role: 'OWNER' },
+                    { userId: targetUser.id, role: 'MEMBER' },
+                  ],
+                },
+              },
+            });
+          }
+
+          const priorityLabel = priorityMatch ? priorityMatch[1].toUpperCase() : 'MEDIUM';
+          const deadlineInfo = deadlineMatch ? ` Due by ${deadlineMatch[1]}.` : '';
+          const notifyMsg = await prisma.message.create({
+            data: {
+              conversationId: conversation.id,
+              senderId: lindaId,
+              content: `Hey ${targetUser.displayName || targetUser.username}! You've been assigned a new task: **${titleMatch[1].trim()}** (Priority: ${priorityLabel}).${deadlineInfo} Let me know if you need any help with it!`,
+              type: 'TEXT',
+            },
+            include: { sender: { select: { id: true, username: true, displayName: true, avatarUrl: true } } },
+          });
+
+          await prisma.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } });
+
+          emitToConversation(conversation.id, 'message:new', {
+            id: notifyMsg.id,
+            conversationId: conversation.id,
+            senderId: notifyMsg.sender.id,
+            content: notifyMsg.content,
+            type: notifyMsg.type,
+            reactions: {},
+            createdAt: notifyMsg.createdAt,
+            sender: notifyMsg.sender,
+          });
+        } catch (notifyErr) {
+          console.error('[Linda] Failed to notify assignee:', notifyErr);
+        }
+      } catch (err) {
+        console.error('[Linda] Failed to create task:', err);
+        actions.push({ type: 'assign_task', target: assigneeMatch[1], status: 'error' });
+      }
+    }
+
+    // Parse [UPDATE_TASK] blocks
+    const updateTaskRegex = /\[UPDATE_TASK\]\s*([\s\S]*?)\[\/UPDATE_TASK\]/gi;
+    let updateMatch;
+
+    while ((updateMatch = updateTaskRegex.exec(responseText)) !== null) {
+      const block = updateMatch[1];
+      const taskIdMatch = block.match(/taskId:\s*(\S+)/i);
+      const statusMatch = block.match(/status:\s*(NOT_STARTED|IN_PROGRESS|PENDING_REVIEW|COMPLETED|BLOCKED)/i);
+      const priorityMatch = block.match(/priority:\s*(LOW|MEDIUM|HIGH|CRITICAL)/i);
+
+      if (!taskIdMatch) {
+        actions.push({ type: 'update_task', target: 'unknown', status: 'missing_task_id' });
+        continue;
+      }
+
+      try {
+        const updateData: any = {};
+        if (statusMatch) updateData.status = statusMatch[1].toUpperCase();
+        if (priorityMatch) updateData.priority = priorityMatch[1].toUpperCase();
+
+        const updated = await prisma.task.update({
+          where: { id: taskIdMatch[1].trim() },
+          data: updateData,
+          include: { assignedTo: { select: { username: true, displayName: true } } },
+        });
+
+        console.log(`[Linda] Updated task "${updated.title}" — status: ${updated.status}, priority: ${updated.priority}`);
+        actions.push({ type: 'update_task', target: updated.title, status: 'updated' });
+      } catch (err) {
+        console.error('[Linda] Failed to update task:', err);
+        actions.push({ type: 'update_task', target: taskIdMatch[1], status: 'error' });
+      }
+    }
+
+    // Parse [CREATE_ANNOUNCEMENT] blocks
+    const announceRegex = /\[CREATE_ANNOUNCEMENT\]\s*([\s\S]*?)\[\/CREATE_ANNOUNCEMENT\]/gi;
+    let announceMatch;
+
+    while ((announceMatch = announceRegex.exec(responseText)) !== null) {
+      const block = announceMatch[1];
+      const titleMatch = block.match(/title:\s*(.+)/i);
+      const contentMatch = block.match(/content:\s*([\s\S]*?)(?=(?:priority:|pinned:|$))/i);
+      const priorityMatch = block.match(/priority:\s*(LOW|NORMAL|HIGH|URGENT)/i);
+      const pinnedMatch = block.match(/pinned:\s*(true|false)/i);
+
+      if (!titleMatch || !contentMatch) {
+        actions.push({ type: 'create_announcement', target: titleMatch?.[1] || 'unknown', status: 'missing_fields' });
+        continue;
+      }
+
+      try {
+        // Use the requesting user's ID as the author (they ordered the announcement)
+        const announcement = await (prisma as any).announcement.create({
+          data: {
+            authorId: requestingUserId,
+            title: titleMatch[1].trim(),
+            content: contentMatch[1].trim(),
+            priority: priorityMatch ? priorityMatch[1].toUpperCase() : 'NORMAL',
+            pinned: pinnedMatch ? pinnedMatch[1].toLowerCase() === 'true' : false,
+          },
+        });
+
+        console.log(`[Linda] Created announcement "${announcement.title}"`);
+        actions.push({ type: 'create_announcement', target: announcement.title, status: 'created' });
+      } catch (err) {
+        console.error('[Linda] Failed to create announcement:', err);
+        actions.push({ type: 'create_announcement', target: titleMatch[1], status: 'error' });
+      }
+    }
+
     return actions;
   }
 
@@ -740,6 +920,8 @@ export class LindaController {
     return text
       .replace(/\[SEND_MESSAGE\][\s\S]*?\[\/SEND_MESSAGE\]/gi, '')
       .replace(/\[ASSIGN_TASK\][\s\S]*?\[\/ASSIGN_TASK\]/gi, '')
+      .replace(/\[UPDATE_TASK\][\s\S]*?\[\/UPDATE_TASK\]/gi, '')
+      .replace(/\[CREATE_ANNOUNCEMENT\][\s\S]*?\[\/CREATE_ANNOUNCEMENT\]/gi, '')
       .replace(/\[ANNOUNCE\][\s\S]*?\[\/ANNOUNCE\]/gi, '')
       .trim();
   }
@@ -763,12 +945,52 @@ to: @username
 message: Your natural, human-like message here
 [/SEND_MESSAGE]
 
-Rules for message content:
+Format for assigning a task:
+[ASSIGN_TASK]
+assignee: @username
+title: Task title here
+description: Optional task description
+priority: LOW | MEDIUM | HIGH | CRITICAL
+deadline: YYYY-MM-DD (optional)
+[/ASSIGN_TASK]
+
+Format for updating a task:
+[UPDATE_TASK]
+taskId: the-task-uuid
+status: NOT_STARTED | IN_PROGRESS | PENDING_REVIEW | COMPLETED | BLOCKED
+priority: LOW | MEDIUM | HIGH | CRITICAL (optional)
+[/UPDATE_TASK]
+
+Format for creating a public announcement:
+[CREATE_ANNOUNCEMENT]
+title: Announcement title here
+content: The full announcement body text
+priority: LOW | NORMAL | HIGH | URGENT (optional, defaults to NORMAL)
+pinned: true | false (optional, defaults to false)
+[/CREATE_ANNOUNCEMENT]
+
+Rules for actions:
 - Write messages as if YOU (Linda) are writing naturally to the recipient
 - Sound human: "Hey! ${userName} wanted me to let you know he'd like to meet in his office when you get a chance."
 - NEVER use robotic formats like "Message from ${userName}: ..." or sign with "— Linda AI"
 - NEVER include the action block syntax in your visible reply to the user
 - You can use the recipient's first name or @username naturally
+- When creating tasks, always include a clear title and reasonable priority
+- When the user asks about tasks, reference the task context below
+
+TASK MANAGEMENT:
+- You CAN create tasks and assign them to team members using [ASSIGN_TASK] blocks
+- You CAN update task status and priority using [UPDATE_TASK] blocks
+- When asked to follow up on tasks, check the task context and report back
+- When asked to mark a task as done/complete, use [UPDATE_TASK] with status: COMPLETED
+- When asked to change priority, use [UPDATE_TASK] with the new priority
+
+ANNOUNCEMENTS:
+- You CAN create public announcements using [CREATE_ANNOUNCEMENT] blocks
+- Use this when the user asks you to announce something, make a public announcement, or notify everyone
+- Write the announcement content professionally and clearly
+- Choose appropriate priority: NORMAL for general info, HIGH for important updates, URGENT for critical notices
+- Set pinned: true only for announcements that should stay at the top
 
 Current workspace context:
 ${workspaceContext}
@@ -840,6 +1062,37 @@ Guidelines:
         parts.push(`All team members: ${userList}`);
       }
 
+      // Include task context
+      try {
+        const tasks = await prisma.task.findMany({
+          where: {
+            OR: [
+              { assignedToId: userId },
+              { createdById: userId },
+            ],
+            status: { not: 'COMPLETED' },
+          },
+          include: {
+            assignedTo: { select: { id: true, username: true, displayName: true } },
+            createdBy: { select: { id: true, username: true, displayName: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+        });
+
+        if (tasks.length > 0) {
+          const taskSummaries = tasks.map(t => {
+            const assignee = t.assignedTo.displayName || t.assignedTo.username;
+            const deadline = t.deadline ? ` (due: ${t.deadline.toISOString().split('T')[0]})` : '';
+            const linda = (t as any).lindaFollowing ? ' [Linda following]' : '';
+            return `- [${t.id}] "${t.title}" | Status: ${t.status} | Priority: ${t.priority} | Assigned to: @${t.assignedTo.username} (${assignee})${deadline}${linda}`;
+          });
+          parts.push(`Active tasks:\n${taskSummaries.join('\n')}`);
+        }
+      } catch (err) {
+        // Task table may not exist yet
+      }
+
       return parts.length > 0 ? parts.join('\n\n') : 'No workspace data available yet.';
     } catch (error) {
       console.error('Error gathering workspace context:', error);
@@ -891,19 +1144,16 @@ Need anything specific? Just ask!`;
 
     // Tasks related
     if (lowerMsg.includes('task') || lowerMsg.includes('todo') || lowerMsg.includes('deadline') || lowerMsg.includes('assign')) {
-      return `About your tasks, ${userName}:
+      return `I can help you with tasks, ${userName}! When the AI engine is enabled, I can:
 
-You can manage tasks by clicking the **clipboard icon** in the sidebar or the **Tasks** tab on mobile. From there you can:
+• **Create & assign tasks** — Just tell me, e.g. "Assign a task to @john to prepare the report by Friday"
+• **Update task status** — "Mark the report task as completed" or "Set it to in progress"
+• **Change priorities** — "Make it critical priority"
+• **Follow up** — I'll track tasks marked with "Linda's Following" and remind assignees
 
-• **View tasks** assigned to you or that you created
-• **Create new tasks** with title, description, priority, and deadline
-• **Assign tasks** to other team members using the assignee search
-• **Track progress** by updating status (Not Started → In Progress → Pending Review → Completed)
-• **Set priorities** — Low, Medium, High, or Critical
+You can also manage tasks manually via the **clipboard icon** in the sidebar.
 
-To create a task for someone, click the **+ New Task** button and search for their name in the "Assign To" field.
-
-Would you like help with anything else?`;
+What would you like me to do?`;
     }
 
     // Messages / chat related
@@ -1080,6 +1330,8 @@ export async function handleLindaAutoReply(conversationId: string, senderUserId:
     const cleanResponse = rawResponse
       .replace(/\[SEND_MESSAGE\][\s\S]*?\[\/SEND_MESSAGE\]/gi, '')
       .replace(/\[ASSIGN_TASK\][\s\S]*?\[\/ASSIGN_TASK\]/gi, '')
+      .replace(/\[UPDATE_TASK\][\s\S]*?\[\/UPDATE_TASK\]/gi, '')
+      .replace(/\[CREATE_ANNOUNCEMENT\][\s\S]*?\[\/CREATE_ANNOUNCEMENT\]/gi, '')
       .replace(/\[ANNOUNCE\][\s\S]*?\[\/ANNOUNCE\]/gi, '')
       .trim();
 

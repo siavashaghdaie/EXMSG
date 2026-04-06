@@ -1,16 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, User, Bell, Shield, Palette, Bot, Info, LogOut, Check, Plus } from 'lucide-react';
+import { X, User, Bell, Shield, Palette, Bot, Info, LogOut, Check, Plus, BarChart3 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { api } from '@/services/api';
 import Avatar from '@/components/common/Avatar';
 import AvatarCropModal from './AvatarCropModal';
 import AgentsPage from '@/components/agents/AgentsPage';
+import AdminDashboard from '@/components/admin/AdminDashboard';
 
 interface SettingsPageProps {
   onBack: () => void;
 }
 
-type SettingsTab = 'profile' | 'notifications' | 'privacy' | 'appearance' | 'agents' | 'about';
+type SettingsTab = 'profile' | 'notifications' | 'privacy' | 'appearance' | 'agents' | 'dashboard' | 'about';
 
 export default function SettingsPage({ onBack }: SettingsPageProps) {
   const { user, updateUser } = useAuthStore();
@@ -147,6 +148,7 @@ export default function SettingsPage({ onBack }: SettingsPageProps) {
     { id: 'privacy', label: 'Privacy', icon: <Shield size={18} /> },
     { id: 'appearance', label: 'Appearance', icon: <Palette size={18} /> },
     { id: 'agents', label: 'Agents Management', icon: <Bot size={18} /> },
+    { id: 'dashboard', label: 'Admin Dashboard', icon: <BarChart3 size={18} /> },
     { id: 'about', label: 'About', icon: <Info size={18} /> },
   ];
 
@@ -523,6 +525,10 @@ export default function SettingsPage({ onBack }: SettingsPageProps) {
 
           {activeTab === 'agents' && (
             <AgentsPage isEmbedded={true} />
+          )}
+
+          {activeTab === 'dashboard' && (
+            <AdminDashboard isEmbedded={true} />
           )}
 
           {activeTab === 'about' && (

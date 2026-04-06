@@ -242,10 +242,10 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
         <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700">
           <button
             onClick={handleCreateClick}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl font-semibold transition-all shadow-md hover:shadow-lg"
           >
             <Plus className="w-5 h-5" />
-            New Announcement
+            Add Announcement...
           </button>
         </div>
       )}
@@ -257,9 +257,23 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
             <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
           </div>
         ) : announcements.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <Megaphone className="w-12 h-12 text-slate-300 dark:text-slate-700 mb-3" />
-            <p className="text-slate-500 dark:text-slate-400">No announcements yet</p>
+          <div className="flex flex-col items-center justify-center h-full text-center px-6">
+            <div className="w-20 h-20 bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/30 dark:to-indigo-900/30 rounded-full flex items-center justify-center mb-4">
+              <Megaphone className="w-10 h-10 text-blue-500 dark:text-blue-400" />
+            </div>
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">No Announcements Yet</h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4 max-w-sm">
+              Keep your team informed with important updates and company-wide announcements.
+            </p>
+            {canAnnounce && (
+              <button
+                onClick={handleCreateClick}
+                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl font-semibold transition-all shadow-md hover:shadow-lg"
+              >
+                <Plus className="w-5 h-5" />
+                Create First Announcement
+              </button>
+            )}
           </div>
         ) : (
           <div
@@ -355,13 +369,18 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
 
       {/* Create/Edit Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg max-w-md w-full max-h-[90vh] flex flex-col">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden">
             {/* Modal Header */}
-            <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                {editingAnnouncement ? 'Edit Announcement' : 'New Announcement'}
-              </h2>
+            <div className="flex items-center justify-between p-5 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-b border-slate-200 dark:border-slate-700">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-full flex items-center justify-center">
+                  <Megaphone className="w-5 h-5 text-white" />
+                </div>
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                  {editingAnnouncement ? 'Edit Announcement' : 'New Announcement'}
+                </h2>
+              </div>
               <button
                 onClick={() => {
                   setShowCreateModal(false);

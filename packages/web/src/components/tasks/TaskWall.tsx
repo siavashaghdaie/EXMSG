@@ -24,6 +24,14 @@ interface Task {
     username: string;
     avatarUrl?: string;
   };
+  orderedBy?: {
+    id: string;
+    displayName: string;
+    username: string;
+    avatarUrl?: string;
+  } | null;
+  lindaFollowing?: boolean;
+  lindaFollowInterval?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -53,6 +61,8 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
     deadline: '',
     priority: 'MEDIUM' as 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL',
     labels: [] as string[],
+    lindaFollowing: false,
+    lindaFollowInterval: 'daily' as string,
   });
   const [labelInput, setLabelInput] = useState('');
 
@@ -145,6 +155,8 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
           deadline: formData.deadline || null,
           priority: formData.priority,
           labels: formData.labels,
+          lindaFollowing: formData.lindaFollowing,
+          lindaFollowInterval: formData.lindaFollowing ? formData.lindaFollowInterval : null,
         });
         setTasks(tasks.map(t => t.id === updated.id ? updated : t));
       } else {
@@ -155,6 +167,8 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
           deadline: formData.deadline || undefined,
           priority: formData.priority,
           labels: formData.labels,
+          lindaFollowing: formData.lindaFollowing,
+          lindaFollowInterval: formData.lindaFollowing ? formData.lindaFollowInterval : undefined,
         });
         console.log('Task created:', created);
         // Refetch all tasks to ensure consistency with server
@@ -208,6 +222,8 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
       deadline: task.deadline ? new Date(task.deadline).toISOString().split('T')[0] : '',
       priority: task.priority,
       labels: task.labels,
+      lindaFollowing: task.lindaFollowing || false,
+      lindaFollowInterval: task.lindaFollowInterval || 'daily',
     });
     setSelectedAssignee(task.assignedTo);
     setAssigneeSearch('');
@@ -223,6 +239,8 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
       deadline: '',
       priority: 'MEDIUM',
       labels: [],
+      lindaFollowing: false,
+      lindaFollowInterval: 'daily',
     });
     setLabelInput('');
     setSelectedAssignee(null);
@@ -418,7 +436,19 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
               {task.priority}
             </span>
           )}
+          {task.lindaFollowing && (
+            <span className="text-xs px-2 py-1 rounded font-medium bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300" title="Linda is following this task">
+              🤖 Linda
+            </span>
+          )}
         </div>
+
+        {task.orderedBy && (
+          <div className="flex items-center gap-1.5 mb-2 text-xs text-amber-700 dark:text-amber-400">
+            <span className="font-medium">📋 Ordered by:</span>
+            <span>{task.orderedBy.displayName || task.orderedBy.username}</span>
+          </div>
+        )}
 
         {task.deadline && (
           <div className={`flex items-center gap-1 text-xs mb-2 ${getDeadlineColor(task.deadline)}`}>
@@ -831,6 +861,47 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                         </button>
                       </span>
                     ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Linda Following */}
+            <div className="px-6 pb-4">
+              <div className="bg-gradient-to-r from-violet-50 to-blue-50 dark:from-violet-900/20 dark:to-blue-900/20 rounded-xl p-4 border border-violet-200 dark:border-violet-800">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.lindaFollowing}
+                    onChange={(e) => setFormData({ ...formData, lindaFollowing: e.target.checked })}
+                    className="w-5 h-5 rounded border-violet-300 text-violet-600 focus:ring-violet-500 cursor-pointer"
+                  />
+                  <div className="flex-1">
+                    <span className="text-sm font-semibold text-violet-900 dark:text-violet-200">
+                      Requires Linda's Following
+                    </span>
+                    <p className="text-xs text-violet-600 dark:text-violet-400 mt-0.5">
+                      Linda AI will track this task and send periodic reminders
+                    </p>
+                  </div>
+                  <span className="text-lg">🤖</span>
+                </label>
+
+                {formData.lindaFollowing && (
+                  <div className="mt-3 pl-8">
+                    <label className="block text-xs font-medium text-violet-700 dark:text-violet-300 mb-1.5">
+                      Follow-up Interval
+                    </label>
+                    <select
+                      value={formData.lindaFollowInterval}
+                      onChange={(e) => setFormData({ ...formData, lindaFollowInterval: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg border border-violet-200 dark:border-violet-700 bg-white dark:bg-surface-800 text-sm text-violet-900 dark:text-violet-200 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    >
+                      <option value="twice_daily">Twice a day</option>
+                      <option value="daily">Daily</option>
+                      <option value="every_2_days">Every 2 days</option>
+                      <option value="weekly">Weekly</option>
+                    </select>
                   </div>
                 )}
               </div>

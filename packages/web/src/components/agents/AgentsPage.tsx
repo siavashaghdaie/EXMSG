@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bot, MessageSquare, FileText, Search, Zap, Shield, Globe, Code, Plus, ChevronRight, X, Star } from 'lucide-react';
+import { Bot, MessageSquare, FileText, Search, Zap, Shield, Globe, Code, Plus, ChevronRight, X, Star, SlidersHorizontal } from 'lucide-react';
 
 interface Agent {
   id: string;
@@ -89,7 +89,18 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
   const [searchQuery, setSearchQuery] = useState('');
   const [enabledAgents, setEnabledAgents] = useState<Set<string>>(new Set(['linda']));
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+  const [tuningAgent, setTuningAgent] = useState<string | null>(null);
+  const [agentSettings, setAgentSettings] = useState<Record<string, { responsiveness: number; creativity: number; verbosity: number }>>({});
   const [isMobile] = useState(window.innerWidth < 768);
+
+  const getAgentSetting = (agentId: string) => agentSettings[agentId] || { responsiveness: 70, creativity: 50, verbosity: 60 };
+
+  const updateAgentSetting = (agentId: string, key: string, value: number) => {
+    setAgentSettings(prev => ({
+      ...prev,
+      [agentId]: { ...getAgentSetting(agentId), [key]: value },
+    }));
+  };
 
   const filteredAgents = AVAILABLE_AGENTS.filter((agent) => {
     const matchesCategory = activeCategory === 'all' || agent.category === activeCategory;
@@ -208,6 +219,23 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
                   <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate mt-0.5">{agent.description}</p>
                 </div>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {/* Tuning button */}
+                  {isEnabled && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setTuningAgent(tuningAgent === agent.id ? null : agent.id);
+                      }}
+                      className={`p-1.5 rounded-lg transition flex-shrink-0 ${
+                        tuningAgent === agent.id
+                          ? 'bg-violet-100 dark:bg-violet-900/40 text-violet-600 dark:text-violet-400'
+                          : 'hover:bg-gray-100 dark:hover:bg-surface-700 text-gray-400 dark:text-gray-500'
+                      }`}
+                      title="Tune agent settings"
+                    >
+                      <SlidersHorizontal size={14} />
+                    </button>
+                  )}
                   {/* Toggle switch */}
                   <button
                     onClick={(e) => {
@@ -237,8 +265,50 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
                 </div>
               </div>
 
+              {/* Tuning Panel */}
+              {tuningAgent === agent.id && isEnabled && (
+                <div className="px-3 pb-3 border-t border-violet-100 dark:border-violet-900/30 pt-3 bg-gradient-to-b from-violet-50/50 to-transparent dark:from-violet-900/10 dark:to-transparent">
+                  <div className="flex items-center gap-2 mb-3">
+                    <SlidersHorizontal size={13} className="text-violet-600 dark:text-violet-400" />
+                    <p className="text-xs font-semibold text-violet-700 dark:text-violet-300">Agent Tuning</p>
+                  </div>
+                  <div className="space-y-3">
+                    {[
+                      { key: 'responsiveness', label: 'Responsiveness', desc: 'How quickly the agent reacts' },
+                      { key: 'creativity', label: 'Creativity', desc: 'Balance between precise and creative' },
+                      { key: 'verbosity', label: 'Verbosity', desc: 'How detailed responses are' },
+                    ].map(({ key, label, desc }) => (
+                      <div key={key}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[11px] font-medium text-gray-700 dark:text-gray-300">{label}</span>
+                          <span className="text-[10px] text-violet-600 dark:text-violet-400 font-semibold">{getAgentSetting(agent.id)[key as keyof ReturnType<typeof getAgentSetting>]}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={getAgentSetting(agent.id)[key as keyof ReturnType<typeof getAgentSetting>]}
+                          onChange={(e) => updateAgentSetting(agent.id, key, parseInt(e.target.value))}
+                          className="w-full h-1.5 bg-gray-200 dark:bg-surface-700 rounded-full appearance-none cursor-pointer accent-violet-600"
+                        />
+                        <p className="text-[9px] text-gray-400 dark:text-gray-500 mt-0.5">{desc}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setTuningAgent(null);
+                    }}
+                    className="mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-medium transition"
+                  >
+                    Save Settings
+                  </button>
+                </div>
+              )}
+
               {/* Expanded Details */}
-              {isExpanded && (
+              {isExpanded && tuningAgent !== agent.id && (
                 <div className="px-3 pb-3 border-t border-gray-100 dark:border-surface-700 pt-2.5">
                   <p className="text-[11px] text-gray-600 dark:text-gray-400 mb-2.5 leading-relaxed">{agent.description}</p>
                   <div className="space-y-1.5">
