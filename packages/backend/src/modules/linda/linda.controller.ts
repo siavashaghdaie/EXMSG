@@ -893,6 +893,10 @@ export class LindaController {
       }
 
       try {
+        // Default expiration: 7 days from now
+        const defaultExpiry = new Date();
+        defaultExpiry.setDate(defaultExpiry.getDate() + 7);
+
         // Use the requesting user's ID as the author (they ordered the announcement)
         const announcement = await (prisma as any).announcement.create({
           data: {
@@ -901,10 +905,32 @@ export class LindaController {
             content: contentMatch[1].trim(),
             priority: priorityMatch ? priorityMatch[1].toUpperCase() : 'NORMAL',
             pinned: pinnedMatch ? pinnedMatch[1].toLowerCase() === 'true' : false,
+            expiresAt: defaultExpiry,
+          },
+          include: {
+            author: {
+              select: { id: true, username: true, displayName: true, avatarUrl: true },
+            },
           },
         });
 
-        console.log(`[Linda] Created announcement "${announcement.title}"`);
+        // Linda notifies all users about the announcement
+        const lindaId = await getLindaBotUserId();
+        const authorName = announcement.author?.displayName || announcement.author?.username || 'Admin';
+        const allUsers = await prisma.user.findMany({
+          where: { id: { notIn: [lindaId, requestingUserId] }, email: { not: 'linda@omnilink.system' } },
+          select: { id: true },
+        });
+        for (const u of allUsers) {
+          this.lindaNotifyUserAboutAnnouncement(lindaId, u.id, {
+            title: announcement.title,
+            content: announcement.content,
+            priority: announcement.priority,
+            authorName,
+          }).catch(() => {});
+        }
+
+        console.log(`[Linda] Created announcement "${announcement.title}" and notifying ${allUsers.length} users`);
         actions.push({ type: 'create_announcement', target: announcement.title, status: 'created' });
       } catch (err) {
         console.error('[Linda] Failed to create announcement:', err);
@@ -999,6 +1025,42 @@ Guidelines:
 - Address ${userName} by name occasionally
 - If you don't know something, say so briefly
 - Never make up data`;
+  }
+
+  // Helper: Linda notifies a user about a new announcement
+  private async lindaNotifyUserAboutAnnouncement(lindaId: string, targetUserId: string, announcement: { title: string; content: string; priority: string; authorName: string }) {
+    try {
+      let conversation = await prisma.conversation.findFirst({
+        where: {
+          type: 'DIRECT',
+          AND: [
+            { members: { some: { userId: lindaId } } },
+            { members: { some: { userId: targetUserId } } },
+          ],
+        },
+      });
+      if (!conversation) {
+        conversation = await prisma.conversation.create({
+          data: {
+            type: 'DIRECT',
+            members: { create: [{ userId: lindaId, role: 'OWNER' }, { userId: targetUserId, role: 'MEMBER' }] },
+          },
+        });
+      }
+      const priorityEmoji = announcement.priority === 'URGENT' ? '🚨' : announcement.priority === 'HIGH' ? '⚠️' : '📢';
+      const msgContent = `${priorityEmoji} **New Announcement from ${announcement.authorName}**\n\n**${announcement.title}**\n${announcement.content}\n\nPlease check the Public Announcements board and mark it as "Noted" once you've read it.`;
+      const newMessage = await prisma.message.create({
+        data: { conversationId: conversation.id, senderId: lindaId, content: msgContent, type: 'TEXT' },
+        include: { sender: { select: { id: true, username: true, displayName: true, avatarUrl: true } } },
+      });
+      await prisma.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } });
+      emitToConversation(conversation.id, 'message:new', {
+        id: newMessage.id, conversationId: conversation.id, senderId: newMessage.sender.id,
+        content: newMessage.content, type: newMessage.type, reactions: {}, createdAt: newMessage.createdAt, sender: newMessage.sender,
+      });
+    } catch (err) {
+      console.error(`[Linda] Failed to notify user about announcement:`, err);
+    }
   }
 
   // Gather workspace context

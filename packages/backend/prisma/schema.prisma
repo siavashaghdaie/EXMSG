@@ -57,6 +57,7 @@ model User {
   statusViews      StatusView[]         @relation("StatusViews")
   statusLikes      StatusLike[]         @relation("StatusLikes")
   announcements    Announcement[]
+  announcementReads AnnouncementRead[]
 
   @@map("users")
 }
@@ -393,12 +394,29 @@ model Announcement {
   content   String
   priority  String   @default("NORMAL") // 'LOW', 'NORMAL', 'HIGH', 'URGENT'
   pinned    Boolean  @default(false)
-  expiresAt DateTime? @map("expires_at")
+  expiresAt DateTime @map("expires_at")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  reads  AnnouncementRead[]
 
   @@index([createdAt])
   @@map("announcements")
+}
+
+model AnnouncementRead {
+  id             String   @id @default(uuid())
+  announcementId String   @map("announcement_id")
+  userId         String   @map("user_id")
+  noted          Boolean  @default(false)
+  readAt         DateTime @default(now()) @map("read_at")
+  notedAt        DateTime? @map("noted_at")
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
+  @@index([userId])
+  @@map("announcement_reads")
 }

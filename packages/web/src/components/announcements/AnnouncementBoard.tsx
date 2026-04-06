@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import Avatar from '@/components/common/Avatar';
-import { Plus, X, Pin, MoreVertical, Loader2, Megaphone } from 'lucide-react';
+import { Plus, X, Pin, MoreVertical, Loader2, Megaphone, Check, Clock, Eye, Users, CheckCircle2 } from 'lucide-react';
 import { api, AnnouncementItem } from '@/services/api';
 
 interface AnnouncementBoardProps {
@@ -15,6 +15,7 @@ interface CreateAnnouncementForm {
   content: string;
   priority: Priority;
   pinned: boolean;
+  expiresAt: string;
 }
 
 interface EditingAnnouncement {
@@ -32,12 +33,21 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [viewingReadsId, setViewingReadsId] = useState<string | null>(null);
+
+  // Default expiration: 7 days from now
+  const getDefaultExpiry = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return d.toISOString().split('T')[0];
+  };
 
   const [formData, setFormData] = useState<CreateAnnouncementForm>({
     title: '',
     content: '',
     priority: 'NORMAL',
     pinned: false,
+    expiresAt: getDefaultExpiry(),
   });
 
   // Load announcements and check permissions
@@ -45,30 +55,34 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
     const loadData = async () => {
       try {
         setLoading(true);
-        const [announcementsResponse, canAnnounceResponse] = await Promise.all([
+        // Load independently so one failure doesn't block the other
+        const [announcementsResult, canAnnounceResult] = await Promise.allSettled([
           api.getAnnouncements(),
           api.canAnnounce(),
         ]);
-        const { announcements } = announcementsResponse;
-        const { canAnnounce } = canAnnounceResponse;
-        setAnnouncements(announcements);
-        setCanAnnounce(canAnnounce);
+        if (announcementsResult.status === 'fulfilled') {
+          setAnnouncements(announcementsResult.value.announcements || []);
+        } else {
+          console.error('Failed to load announcements:', announcementsResult.reason);
+          setAnnouncements([]);
+        }
+        if (canAnnounceResult.status === 'fulfilled') {
+          setCanAnnounce(canAnnounceResult.value.canAnnounce);
+        } else {
+          console.error('Failed to check announce permission:', canAnnounceResult.reason);
+          setCanAnnounce(false);
+        }
       } catch (error) {
-        console.error('Failed to load announcements:', error);
+        console.error('Failed to load announcements data:', error);
       } finally {
         setLoading(false);
       }
     };
-
     loadData();
   }, []);
 
-  // Handle window resize for mobile detection
   useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -79,6 +93,7 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
       content: '',
       priority: 'NORMAL',
       pinned: false,
+      expiresAt: getDefaultExpiry(),
     });
     setEditingAnnouncement(null);
   };
@@ -96,6 +111,7 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
         content: announcement.content,
         priority: announcement.priority as Priority,
         pinned: announcement.pinned,
+        expiresAt: announcement.expiresAt ? new Date(announcement.expiresAt).toISOString().split('T')[0] : getDefaultExpiry(),
       },
     });
     setFormData({
@@ -103,6 +119,7 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
       content: announcement.content,
       priority: announcement.priority as Priority,
       pinned: announcement.pinned,
+      expiresAt: announcement.expiresAt ? new Date(announcement.expiresAt).toISOString().split('T')[0] : getDefaultExpiry(),
     });
     setShowCreateModal(true);
     setOpenMenuId(null);
@@ -110,101 +127,96 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!formData.title.trim() || !formData.content.trim()) {
       alert('Title and content are required');
+      return;
+    }
+    if (!formData.expiresAt) {
+      alert('Expiration date is required');
       return;
     }
 
     try {
       setSubmitting(true);
-
       if (editingAnnouncement) {
-        // Update existing announcement
-        await api.updateAnnouncement(editingAnnouncement.id, {
+        const updated = await api.updateAnnouncement(editingAnnouncement.id, {
           title: formData.title,
           content: formData.content,
           priority: formData.priority,
           pinned: formData.pinned,
+          expiresAt: formData.expiresAt,
         });
-
         setAnnouncements(
-          announcements.map((a) =>
-            a.id === editingAnnouncement.id
-              ? {
-                  ...a,
-                  title: formData.title,
-                  content: formData.content,
-                  priority: formData.priority,
-                  pinned: formData.pinned,
-                }
-              : a
-          )
+          announcements.map((a) => a.id === editingAnnouncement.id ? { ...a, ...updated } : a)
         );
       } else {
-        // Create new announcement
         const newAnnouncement = await api.createAnnouncement({
           title: formData.title,
           content: formData.content,
           priority: formData.priority,
           pinned: formData.pinned,
+          expiresAt: formData.expiresAt,
         });
-
         setAnnouncements([newAnnouncement, ...announcements]);
       }
-
       resetForm();
       setShowCreateModal(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to save announcement:', error);
-      alert('Failed to save announcement. Please try again.');
+      alert(error?.response?.data?.error || 'Failed to save announcement. Please try again.');
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this announcement?')) {
-      return;
-    }
-
+    if (!confirm('Are you sure you want to delete this announcement?')) return;
     try {
       await api.deleteAnnouncement(id);
       setAnnouncements(announcements.filter((a) => a.id !== id));
       setOpenMenuId(null);
     } catch (error) {
       console.error('Failed to delete announcement:', error);
-      alert('Failed to delete announcement. Please try again.');
+      alert('Failed to delete announcement.');
     }
   };
 
-  const getPriorityColor = (priority: Priority): string => {
-    switch (priority) {
-      case 'LOW':
-        return 'border-l-green-500';
-      case 'NORMAL':
-        return 'border-l-blue-500';
-      case 'HIGH':
-        return 'border-l-amber-500';
-      case 'URGENT':
-        return 'border-l-red-500';
-      default:
-        return 'border-l-blue-500';
+  const handleToggleNoted = async (announcementId: string, currentlyNoted: boolean) => {
+    try {
+      if (currentlyNoted) {
+        await api.unnoteAnnouncement(announcementId);
+        setAnnouncements(announcements.map((a) =>
+          a.id === announcementId ? { ...a, noted: false, notedAt: null } : a
+        ));
+      } else {
+        const result = await api.noteAnnouncement(announcementId);
+        setAnnouncements(announcements.map((a) =>
+          a.id === announcementId ? { ...a, noted: true, notedAt: result.notedAt } : a
+        ));
+      }
+    } catch (error) {
+      console.error('Failed to toggle noted:', error);
     }
   };
 
-  const getPriorityBgColor = (priority: Priority): string => {
+  const getPriorityColor = (priority: string): string => {
     switch (priority) {
-      case 'LOW':
-        return 'bg-green-50 dark:bg-green-950';
-      case 'NORMAL':
-        return 'bg-blue-50 dark:bg-blue-950';
-      case 'HIGH':
-        return 'bg-amber-50 dark:bg-amber-950';
-      case 'URGENT':
-        return 'bg-red-50 dark:bg-red-950';
-      default:
-        return 'bg-blue-50 dark:bg-blue-950';
+      case 'LOW': return 'border-l-green-500';
+      case 'NORMAL': return 'border-l-blue-500';
+      case 'HIGH': return 'border-l-amber-500';
+      case 'URGENT': return 'border-l-red-500';
+      default: return 'border-l-blue-500';
+    }
+  };
+
+  const getNotedBg = (noted: boolean, priority: string): string => {
+    if (noted) return 'bg-green-50 dark:bg-green-950/40';
+    switch (priority) {
+      case 'LOW': return 'bg-green-50 dark:bg-green-950';
+      case 'NORMAL': return 'bg-blue-50 dark:bg-blue-950';
+      case 'HIGH': return 'bg-amber-50 dark:bg-amber-950';
+      case 'URGENT': return 'bg-red-50 dark:bg-red-950';
+      default: return 'bg-blue-50 dark:bg-blue-950';
     }
   };
 
@@ -212,14 +224,26 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
     return user?.id === announcement.author.id;
   };
 
+  const isAuthor = (announcement: AnnouncementItem): boolean => {
+    return user?.id === announcement.author.id;
+  };
+
   const sortedAnnouncements = [...announcements].sort((a, b) => {
-    // Pinned announcements first
-    if (a.pinned !== b.pinned) {
-      return a.pinned ? -1 : 1;
-    }
-    // Then by date
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
+
+  const getExpiryInfo = (expiresAt?: string) => {
+    if (!expiresAt) return null;
+    const now = new Date();
+    const exp = new Date(expiresAt);
+    const diff = exp.getTime() - now.getTime();
+    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+    if (days <= 0) return { text: 'Expired', color: 'text-red-500' };
+    if (days <= 2) return { text: `Expires in ${days}d`, color: 'text-red-500' };
+    if (days <= 7) return { text: `Expires in ${days}d`, color: 'text-amber-500' };
+    return { text: `Expires ${exp.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, color: 'text-slate-500 dark:text-slate-400' };
+  };
 
   return (
     <div className="h-full flex flex-col bg-white dark:bg-slate-900">
@@ -229,10 +253,7 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
           <Megaphone className="w-6 h-6 text-slate-700 dark:text-slate-300" />
           <h1 className="text-xl font-bold text-slate-900 dark:text-white">Public Announcements</h1>
         </div>
-        <button
-          onClick={onClose}
-          className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
-        >
+        <button onClick={onClose} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
           <X className="w-5 h-5 text-slate-600 dark:text-slate-400" />
         </button>
       </div>
@@ -266,111 +287,154 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
               Keep your team informed with important updates and company-wide announcements.
             </p>
             {canAnnounce && (
-              <button
-                onClick={handleCreateClick}
-                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl font-semibold transition-all shadow-md hover:shadow-lg"
-              >
+              <button onClick={handleCreateClick} className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl font-semibold transition-all shadow-md hover:shadow-lg">
                 <Plus className="w-5 h-5" />
                 Create First Announcement
               </button>
             )}
           </div>
         ) : (
-          <div
-            className={
-              isMobile
-                ? 'space-y-4'
-                : 'grid grid-cols-2 gap-4'
-            }
-          >
-            {sortedAnnouncements.map((announcement) => (
-              <div
-                key={announcement.id}
-                className={`border-l-4 ${getPriorityColor(announcement.priority)} rounded-lg p-4 bg-white dark:bg-slate-800 shadow-sm hover:shadow-md transition-shadow ${getPriorityBgColor(announcement.priority)}`}
-              >
-                {/* Card Header */}
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="text-lg font-bold text-slate-900 dark:text-white break-words">
-                        {announcement.title}
-                      </h3>
-                      {announcement.pinned && (
-                        <Pin className="w-4 h-4 text-amber-500 flex-shrink-0" fill="currentColor" />
-                      )}
+          <div className={isMobile ? 'space-y-4' : 'grid grid-cols-2 gap-4'}>
+            {sortedAnnouncements.map((announcement) => {
+              const noted = announcement.noted || false;
+              const expiryInfo = getExpiryInfo(announcement.expiresAt);
+              const reads = announcement.reads || [];
+              const notedCount = reads.filter((r) => r.noted).length;
+              const totalReads = reads.length;
+
+              return (
+                <div
+                  key={announcement.id}
+                  className={`border-l-4 ${noted ? 'border-l-green-500' : getPriorityColor(announcement.priority)} rounded-lg p-4 shadow-sm hover:shadow-md transition-all ${getNotedBg(noted, announcement.priority)} ${noted ? 'opacity-80' : ''}`}
+                >
+                  {/* Card Header */}
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        {noted && <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />}
+                        <h3 className={`text-lg font-bold break-words ${noted ? 'text-green-800 dark:text-green-300' : 'text-slate-900 dark:text-white'}`}>
+                          {announcement.title}
+                        </h3>
+                        {announcement.pinned && <Pin className="w-4 h-4 text-amber-500 flex-shrink-0" fill="currentColor" />}
+                      </div>
                     </div>
+
+                    {/* Menu */}
+                    {canEditOrDelete(announcement) && (
+                      <div className="relative ml-2">
+                        <button
+                          onClick={() => setOpenMenuId(openMenuId === announcement.id ? null : announcement.id)}
+                          className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                        >
+                          <MoreVertical className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+                        </button>
+                        {openMenuId === announcement.id && (
+                          <div className="absolute right-0 top-8 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-10 min-w-max">
+                            <button onClick={() => handleEditClick(announcement)} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-900 dark:text-white transition-colors">Edit</button>
+                            <button onClick={() => handleDelete(announcement.id)} className="w-full text-left px-4 py-2 hover:bg-red-50 dark:hover:bg-red-950 text-red-600 dark:text-red-400 transition-colors border-t border-slate-200 dark:border-slate-700">Delete</button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
-                  {/* Menu */}
-                  {canEditOrDelete(announcement) && (
-                    <div className="relative ml-2">
-                      <button
-                        onClick={() =>
-                          setOpenMenuId(openMenuId === announcement.id ? null : announcement.id)
-                        }
-                        className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                      >
-                        <MoreVertical className="w-4 h-4 text-slate-600 dark:text-slate-400" />
-                      </button>
+                  {/* Card Content */}
+                  <p className={`mb-3 break-words whitespace-pre-wrap ${noted ? 'text-green-700 dark:text-green-400' : 'text-slate-700 dark:text-slate-300'}`}>
+                    {announcement.content}
+                  </p>
 
-                      {openMenuId === announcement.id && (
-                        <div className="absolute right-0 top-8 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-10 min-w-max">
-                          <button
-                            onClick={() => handleEditClick(announcement)}
-                            className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-900 dark:text-white transition-colors"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDelete(announcement.id)}
-                            className="w-full text-left px-4 py-2 hover:bg-red-50 dark:hover:bg-red-950 text-red-600 dark:text-red-400 transition-colors border-t border-slate-200 dark:border-slate-700"
-                          >
-                            Delete
-                          </button>
+                  {/* Expiry Info */}
+                  {expiryInfo && (
+                    <div className={`flex items-center gap-1 text-xs mb-3 ${expiryInfo.color}`}>
+                      <Clock className="w-3 h-3" />
+                      <span>{expiryInfo.text}</span>
+                    </div>
+                  )}
+
+                  {/* Noted Checkbox */}
+                  <div className="mb-3">
+                    <button
+                      onClick={() => handleToggleNoted(announcement.id, noted)}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all w-full ${
+                        noted
+                          ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-700'
+                          : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600'
+                      }`}
+                    >
+                      <div className={`w-5 h-5 rounded flex items-center justify-center border-2 transition-colors ${
+                        noted ? 'bg-green-500 border-green-500' : 'border-slate-400 dark:border-slate-500'
+                      }`}>
+                        {noted && <Check className="w-3 h-3 text-white" />}
+                      </div>
+                      <span>{noted ? 'Noted' : 'Mark as Noted'}</span>
+                    </button>
+                  </div>
+
+                  {/* Author row with "Who noted" for announcement author */}
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-300 dark:border-slate-600">
+                    <div className="flex items-center gap-2">
+                      <Avatar src={announcement.author.avatarUrl} name={announcement.author.displayName} size="sm" />
+                      <div className="flex flex-col">
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">{announcement.author.displayName}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          {new Date(announcement.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Who Noted button — visible to author */}
+                    {isAuthor(announcement) && (
+                      <button
+                        onClick={() => setViewingReadsId(viewingReadsId === announcement.id ? null : announcement.id)}
+                        className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+                      >
+                        <Eye className="w-3 h-3" />
+                        <span>{notedCount}/{totalReads > notedCount ? totalReads : notedCount} noted</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Who Noted panel */}
+                  {viewingReadsId === announcement.id && isAuthor(announcement) && (
+                    <div className="mt-3 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+                      <div className="flex items-center gap-2 mb-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
+                        <Users className="w-4 h-4" />
+                        <span>Read Status</span>
+                      </div>
+                      {reads.length === 0 ? (
+                        <p className="text-xs text-slate-500 dark:text-slate-400">No one has seen this yet.</p>
+                      ) : (
+                        <div className="space-y-2 max-h-32 overflow-y-auto">
+                          {reads.map((read) => (
+                            <div key={read.userId} className="flex items-center justify-between text-sm">
+                              <div className="flex items-center gap-2">
+                                <Avatar src={read.user.avatarUrl} name={read.user.displayName} size="sm" />
+                                <span className="text-slate-700 dark:text-slate-300">{read.user.displayName}</span>
+                              </div>
+                              {read.noted ? (
+                                <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 font-medium">
+                                  <CheckCircle2 className="w-3 h-3" /> Noted
+                                </span>
+                              ) : (
+                                <span className="text-xs text-slate-400">Seen</span>
+                              )}
+                            </div>
+                          ))}
                         </div>
                       )}
                     </div>
                   )}
                 </div>
-
-                {/* Card Content */}
-                <p className="text-slate-700 dark:text-slate-300 mb-3 break-words whitespace-pre-wrap">
-                  {announcement.content}
-                </p>
-
-                {/* Card Footer */}
-                <div className="flex items-center justify-between pt-3 border-t border-slate-300 dark:border-slate-600">
-                  <div className="flex items-center gap-2">
-                    <Avatar
-                      src={announcement.author.avatarUrl}
-                      name={announcement.author.displayName}
-                      size="sm"
-                    />
-                    <div className="flex flex-col">
-                      <p className="text-sm font-medium text-slate-900 dark:text-white">
-                        {announcement.author.displayName}
-                      </p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        {new Date(announcement.createdAt).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
 
       {/* Create/Edit Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={() => { setShowCreateModal(false); resetForm(); }}>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
             {/* Modal Header */}
             <div className="flex items-center justify-between p-5 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-b border-slate-200 dark:border-slate-700">
               <div className="flex items-center gap-3">
@@ -381,88 +445,75 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
                   {editingAnnouncement ? 'Edit Announcement' : 'New Announcement'}
                 </h2>
               </div>
-              <button
-                onClick={() => {
-                  setShowCreateModal(false);
-                  resetForm();
-                }}
-                disabled={submitting}
-                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50"
-              >
+              <button onClick={() => { setShowCreateModal(false); resetForm(); }} disabled={submitting} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors disabled:opacity-50">
                 <X className="w-5 h-5 text-slate-600 dark:text-slate-400" />
               </button>
             </div>
 
             {/* Modal Content */}
             <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 space-y-4">
-              {/* Title Input */}
               <div>
-                <label className="block text-sm font-medium text-slate-900 dark:text-white mb-2">
-                  Title
-                </label>
+                <label className="block text-sm font-medium text-slate-900 dark:text-white mb-2">Title *</label>
                 <input
                   type="text"
                   value={formData.title}
-                  onChange={(e) =>
-                    setFormData({ ...formData, title: e.target.value })
-                  }
+                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                   placeholder="Announcement title"
                   className="w-full px-3 py-2 border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   disabled={submitting}
                 />
               </div>
 
-              {/* Content Textarea */}
               <div>
-                <label className="block text-sm font-medium text-slate-900 dark:text-white mb-2">
-                  Content
-                </label>
+                <label className="block text-sm font-medium text-slate-900 dark:text-white mb-2">Content *</label>
                 <textarea
                   value={formData.content}
-                  onChange={(e) =>
-                    setFormData({ ...formData, content: e.target.value })
-                  }
+                  onChange={(e) => setFormData({ ...formData, content: e.target.value })}
                   placeholder="Announcement content"
-                  rows={5}
+                  rows={4}
                   className="w-full px-3 py-2 border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                   disabled={submitting}
                 />
               </div>
 
-              {/* Priority Selector */}
-              <div>
-                <label className="block text-sm font-medium text-slate-900 dark:text-white mb-2">
-                  Priority
-                </label>
-                <select
-                  value={formData.priority}
-                  onChange={(e) =>
-                    setFormData({ ...formData, priority: e.target.value as Priority })
-                  }
-                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  disabled={submitting}
-                >
-                  <option value="LOW">Low</option>
-                  <option value="NORMAL">Normal</option>
-                  <option value="HIGH">High</option>
-                  <option value="URGENT">Urgent</option>
-                </select>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-900 dark:text-white mb-2">Priority</label>
+                  <select
+                    value={formData.priority}
+                    onChange={(e) => setFormData({ ...formData, priority: e.target.value as Priority })}
+                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    disabled={submitting}
+                  >
+                    <option value="LOW">Low</option>
+                    <option value="NORMAL">Normal</option>
+                    <option value="HIGH">High</option>
+                    <option value="URGENT">Urgent</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-900 dark:text-white mb-2">Expires *</label>
+                  <input
+                    type="date"
+                    value={formData.expiresAt}
+                    onChange={(e) => setFormData({ ...formData, expiresAt: e.target.value })}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    disabled={submitting}
+                  />
+                </div>
               </div>
 
-              {/* Pin Toggle */}
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={formData.pinned}
-                  onChange={(e) =>
-                    setFormData({ ...formData, pinned: e.target.checked })
-                  }
+                  onChange={(e) => setFormData({ ...formData, pinned: e.target.checked })}
                   className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
                   disabled={submitting}
                 />
-                <span className="text-sm font-medium text-slate-900 dark:text-white">
-                  Pin this announcement
-                </span>
+                <span className="text-sm font-medium text-slate-900 dark:text-white">Pin this announcement</span>
               </label>
             </form>
 
@@ -470,10 +521,7 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
             <div className="flex items-center gap-3 p-4 border-t border-slate-200 dark:border-slate-700">
               <button
                 type="button"
-                onClick={() => {
-                  setShowCreateModal(false);
-                  resetForm();
-                }}
+                onClick={() => { setShowCreateModal(false); resetForm(); }}
                 disabled={submitting}
                 className="flex-1 px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white rounded-lg font-medium hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors disabled:opacity-50"
               >

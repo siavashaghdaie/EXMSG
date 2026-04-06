@@ -44,15 +44,21 @@ export const ChatLayout: React.FC = () => {
     if (!isAuthenticated || !user) return;
     const loadCounts = async () => {
       try {
-        const annResult = await api.getAnnouncements();
-        setAnnouncementCount((annResult?.announcements || []).length);
-      } catch {}
+        const result = await api.getUnnotedAnnouncementCount();
+        setAnnouncementCount(result?.count || 0);
+      } catch {
+        try {
+          const annResult = await api.getAnnouncements();
+          const unnoted = (annResult?.announcements || []).filter((a: any) => !a.noted);
+          setAnnouncementCount(unnoted.length);
+        } catch {}
+      }
       refreshTaskCount();
     };
     loadCounts();
 
-    // Poll task count every 15 seconds for real-time badge updates
-    const interval = setInterval(refreshTaskCount, 15000);
+    // Poll counts every 15 seconds for real-time badge updates
+    const interval = setInterval(loadCounts, 15000);
     return () => clearInterval(interval);
   }, [isAuthenticated, user]);
 

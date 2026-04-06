@@ -69,10 +69,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Reusable refresh functions for counts
   const refreshCounts = async () => {
     try {
-      const annResult = await api.getAnnouncements();
-      const announcements = annResult?.announcements || [];
-      setAnnouncementCount(announcements.length);
-    } catch (_e) { /* ignore */ }
+      const result = await api.getUnnotedAnnouncementCount();
+      setAnnouncementCount(result?.count || 0);
+    } catch (_e) {
+      // Fallback: count un-noted from full list
+      try {
+        const annResult = await api.getAnnouncements();
+        const announcements = annResult?.announcements || [];
+        const unnoted = announcements.filter((a: any) => !a.noted);
+        setAnnouncementCount(unnoted.length);
+      } catch (_e2) { /* ignore */ }
+    }
 
     try {
       const tasks = await api.getTasks();

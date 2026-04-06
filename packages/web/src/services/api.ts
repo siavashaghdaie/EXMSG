@@ -152,6 +152,14 @@ export interface AnnouncementItem {
   expiresAt?: string;
   createdAt: string;
   updatedAt: string;
+  noted?: boolean;
+  notedAt?: string | null;
+  reads?: Array<{
+    userId: string;
+    noted: boolean;
+    notedAt?: string | null;
+    user: { id: string; username: string; displayName: string; avatarUrl?: string };
+  }>;
   author: {
     id: string;
     username: string;
@@ -740,12 +748,12 @@ class APIClient {
     return data;
   }
 
-  async createAnnouncement(payload: { title: string; content: string; priority?: string; pinned?: boolean; expiresAt?: string }): Promise<AnnouncementItem> {
+  async createAnnouncement(payload: { title: string; content: string; priority?: string; pinned?: boolean; expiresAt: string }): Promise<AnnouncementItem> {
     const { data } = await this.client.post('/announcements', payload);
     return data;
   }
 
-  async updateAnnouncement(id: string, payload: { title?: string; content?: string; priority?: string; pinned?: boolean }): Promise<AnnouncementItem> {
+  async updateAnnouncement(id: string, payload: { title?: string; content?: string; priority?: string; pinned?: boolean; expiresAt?: string }): Promise<AnnouncementItem> {
     const { data } = await this.client.put(`/announcements/${id}`, payload);
     return data;
   }
@@ -756,6 +764,21 @@ class APIClient {
 
   async canAnnounce(): Promise<{ canAnnounce: boolean }> {
     const { data } = await this.client.get('/announcements/can-announce');
+    return data;
+  }
+
+  async noteAnnouncement(id: string): Promise<{ success: boolean; noted: boolean; notedAt: string }> {
+    const { data } = await this.client.post(`/announcements/${id}/note`);
+    return data;
+  }
+
+  async unnoteAnnouncement(id: string): Promise<{ success: boolean; noted: boolean }> {
+    const { data } = await this.client.delete(`/announcements/${id}/note`);
+    return data;
+  }
+
+  async getUnnotedAnnouncementCount(): Promise<{ count: number }> {
+    const { data } = await this.client.get('/announcements/unread-count');
     return data;
   }
 }

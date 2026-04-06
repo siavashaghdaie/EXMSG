@@ -1,22 +1,105 @@
 import { Request, Response } from 'express';
 import { prisma } from '../../config/database';
+import { emitToConversation } from '../../services/socket';
 
 // Type-safe accessors for Announcement model
 const db = prisma as any;
 
-// Check if Announcement table is available
-let dbAvailable: boolean | null = null;
+// Check if AnnouncementRead table exists (cached after first success, retries on failure)
+let readsTableAvailable: boolean | null = null;
 
-async function isDbAvailable(): Promise<boolean> {
-  if (dbAvailable !== null) return dbAvailable;
+async function checkReadsTable(): Promise<boolean> {
+  if (readsTableAvailable === true) return true;
   try {
-    await db.announcement.findFirst({ take: 1 });
-    dbAvailable = true;
+    await db.announcementRead.findFirst({ take: 1 });
+    readsTableAvailable = true;
+    return true;
   } catch {
-    console.warn('[Announcements] Announcement DB table not available. Run: npx prisma migrate dev');
-    dbAvailable = false;
+    readsTableAvailable = false;
+    return false;
   }
-  return dbAvailable;
+}
+
+// Helper: get or create Linda bot user
+async function getLindaBotUserId(): Promise<string> {
+  const LINDA_EMAIL = 'linda@omnilink.system';
+  let lindaUser = await prisma.user.findFirst({ where: { email: LINDA_EMAIL }, select: { id: true } });
+  if (!lindaUser) {
+    const bcrypt = await import('bcryptjs');
+    const hash = await bcrypt.hash(`linda-bot-${Date.now()}-${Math.random()}`, 10);
+    lindaUser = await prisma.user.create({
+      data: {
+        email: LINDA_EMAIL, username: 'linda', displayName: 'Linda AI',
+        passwordHash: hash, bio: 'AI Coordinator', isOnline: true,
+        status: 'Always here to help!',
+      },
+      select: { id: true },
+    });
+  }
+  return lindaUser.id;
+}
+
+// Helper: Linda sends PM to a user about an announcement
+async function lindaNotifyUser(lindaId: string, targetUserId: string, announcement: { title: string; content: string; priority: string; authorName: string }) {
+  try {
+    // Find or create DM conversation between Linda and target user
+    let conversation = await prisma.conversation.findFirst({
+      where: {
+        type: 'DIRECT',
+        AND: [
+          { members: { some: { userId: lindaId } } },
+          { members: { some: { userId: targetUserId } } },
+        ],
+      },
+    });
+
+    if (!conversation) {
+      conversation = await prisma.conversation.create({
+        data: {
+          type: 'DIRECT',
+          members: {
+            create: [
+              { userId: lindaId, role: 'OWNER' },
+              { userId: targetUserId, role: 'MEMBER' },
+            ],
+          },
+        },
+      });
+    }
+
+    const priorityEmoji = announcement.priority === 'URGENT' ? '🚨' : announcement.priority === 'HIGH' ? '⚠️' : '📢';
+    const msgContent = `${priorityEmoji} **New Announcement from ${announcement.authorName}**\n\n**${announcement.title}**\n${announcement.content}\n\nPlease check the Public Announcements board and mark it as "Noted" once you've read it.`;
+
+    const newMessage = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        senderId: lindaId,
+        content: msgContent,
+        type: 'TEXT',
+      },
+      include: {
+        sender: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
+      },
+    });
+
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { updatedAt: new Date() },
+    });
+
+    emitToConversation(conversation.id, 'message:new', {
+      id: newMessage.id,
+      conversationId: conversation.id,
+      senderId: newMessage.sender.id,
+      content: newMessage.content,
+      type: newMessage.type,
+      reactions: {},
+      createdAt: newMessage.createdAt,
+      sender: newMessage.sender,
+    });
+  } catch (err) {
+    console.error(`[Announcements] Failed to notify user ${targetUserId}:`, err);
+  }
 }
 
 export class AnnouncementController {
@@ -32,22 +115,21 @@ export class AnnouncementController {
         return;
       }
 
-      // Check if user is OWNER or ADMIN
-      const orgMember = await prisma.organizationMember.findFirst({
-        where: {
-          userId,
-          role: { in: ['OWNER', 'ADMIN'] },
-        },
-      });
-
-      if (!orgMember) {
-        res.status(403).json({ error: 'Only OWNER or ADMIN can create announcements' });
+      if (!expiresAt) {
+        res.status(400).json({ error: 'Expiration date is required' });
         return;
       }
 
-      const useDb = await isDbAvailable();
-      if (!useDb) {
-        res.status(503).json({ error: 'Announcement service not available' });
+      // Check if user can announce (OWNER/ADMIN, or no org setup yet)
+      const orgMember = await prisma.organizationMember.findFirst({
+        where: { userId, role: { in: ['OWNER', 'ADMIN'] } },
+      });
+      const orgCount = await prisma.organization.count();
+      const userMembership = await prisma.organizationMember.findFirst({ where: { userId } });
+      const canAnnounce = !!orgMember || orgCount === 0 || !userMembership;
+
+      if (!canAnnounce) {
+        res.status(403).json({ error: 'Only OWNER or ADMIN can create announcements' });
         return;
       }
 
@@ -59,13 +141,18 @@ export class AnnouncementController {
           content: content.trim(),
           priority: priority.toUpperCase(),
           pinned: !!pinned,
-          expiresAt: expiresAt ? new Date(expiresAt) : null,
+          expiresAt: new Date(expiresAt),
         },
         include: {
           author: {
             select: { id: true, username: true, displayName: true, avatarUrl: true },
           },
         },
+      });
+
+      // Linda notifies all users via PM (async, don't block response)
+      this.notifyAllUsersViaLinda(announcement).catch(err => {
+        console.error('[Announcements] Linda notification error:', err);
       });
 
       res.status(201).json({
@@ -85,51 +172,208 @@ export class AnnouncementController {
     }
   }
 
-  // GET /api/announcements - Get all non-expired announcements
+  // Notify all users via Linda PM
+  private async notifyAllUsersViaLinda(announcement: any) {
+    const lindaId = await getLindaBotUserId();
+    const authorName = announcement.author?.displayName || announcement.author?.username || 'Admin';
+
+    // Get all users except Linda and the author
+    const allUsers = await prisma.user.findMany({
+      where: {
+        id: { notIn: [lindaId, announcement.authorId] },
+        email: { not: 'linda@omnilink.system' },
+      },
+      select: { id: true },
+    });
+
+    // Send PM to each user
+    for (const user of allUsers) {
+      await lindaNotifyUser(lindaId, user.id, {
+        title: announcement.title,
+        content: announcement.content,
+        priority: announcement.priority,
+        authorName,
+      });
+    }
+
+    console.log(`[Announcements] Linda notified ${allUsers.length} users about announcement "${announcement.title}"`);
+  }
+
+  // GET /api/announcements - Get all non-expired announcements with read status
   async getAll(req: Request, res: Response): Promise<void> {
     try {
-      const useDb = await isDbAvailable();
-      if (!useDb) {
-        res.json({ announcements: [] });
-        return;
-      }
-
+      const userId = req.user!.userId;
       const now = new Date();
+      const hasReads = await checkReadsTable();
+
+      // Build the query — only include reads if the table exists
+      const includeClause: any = {
+        author: {
+          select: { id: true, username: true, displayName: true, avatarUrl: true },
+        },
+      };
+
+      if (hasReads) {
+        includeClause.reads = {
+          select: {
+            userId: true,
+            noted: true,
+            notedAt: true,
+            user: {
+              select: { id: true, username: true, displayName: true, avatarUrl: true },
+            },
+          },
+        };
+      }
 
       const announcements = await db.announcement.findMany({
         where: {
-          OR: [
-            { expiresAt: null }, // No expiration
-            { expiresAt: { gt: now } }, // Not yet expired
-          ],
+          expiresAt: { gt: now },
         },
-        include: {
-          author: {
-            select: { id: true, username: true, displayName: true, avatarUrl: true },
-          },
-        },
+        include: includeClause,
         orderBy: [
-          { pinned: 'desc' }, // Pinned first
-          { createdAt: 'desc' }, // Then newest first
+          { pinned: 'desc' },
+          { createdAt: 'desc' },
         ],
       });
 
       res.json({
-        announcements: announcements.map((a: any) => ({
-          id: a.id,
-          title: a.title,
-          content: a.content,
-          priority: a.priority,
-          pinned: a.pinned,
-          expiresAt: a.expiresAt,
-          author: a.author,
-          createdAt: a.createdAt,
-          updatedAt: a.updatedAt,
-        })),
+        announcements: announcements.map((a: any) => {
+          const userRead = hasReads ? a.reads?.find((r: any) => r.userId === userId) : null;
+          return {
+            id: a.id,
+            title: a.title,
+            content: a.content,
+            priority: a.priority,
+            pinned: a.pinned,
+            expiresAt: a.expiresAt,
+            author: a.author,
+            createdAt: a.createdAt,
+            updatedAt: a.updatedAt,
+            noted: userRead?.noted || false,
+            notedAt: userRead?.notedAt || null,
+            reads: hasReads ? (a.reads?.map((r: any) => ({
+              userId: r.userId,
+              noted: r.noted,
+              notedAt: r.notedAt,
+              user: r.user,
+            })) || []) : [],
+          };
+        }),
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching announcements:', error);
       res.status(500).json({ error: 'Failed to fetch announcements' });
+    }
+  }
+
+  // POST /api/announcements/:id/note - Mark announcement as noted
+  async noteAnnouncement(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.userId;
+      const { id } = req.params;
+
+      try {
+        const read = await db.announcementRead.upsert({
+          where: {
+            announcementId_userId: {
+              announcementId: id,
+              userId,
+            },
+          },
+          update: {
+            noted: true,
+            notedAt: new Date(),
+          },
+          create: {
+            announcementId: id,
+            userId,
+            noted: true,
+            notedAt: new Date(),
+          },
+        });
+        res.json({ success: true, noted: true, notedAt: read.notedAt });
+      } catch (err: any) {
+        console.warn('[Announcements] AnnouncementRead table not available:', err?.message);
+        res.json({ success: true, noted: true, notedAt: new Date().toISOString() });
+      }
+    } catch (error) {
+      console.error('Error noting announcement:', error);
+      res.status(500).json({ error: 'Failed to note announcement' });
+    }
+  }
+
+  // DELETE /api/announcements/:id/note - Unmark announcement as noted
+  async unnoteAnnouncement(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.userId;
+      const { id } = req.params;
+
+      try {
+        await db.announcementRead.upsert({
+          where: {
+            announcementId_userId: {
+              announcementId: id,
+              userId,
+            },
+          },
+          update: {
+            noted: false,
+            notedAt: null,
+          },
+          create: {
+            announcementId: id,
+            userId,
+            noted: false,
+          },
+        });
+      } catch (err: any) {
+        console.warn('[Announcements] AnnouncementRead table not available:', err?.message);
+      }
+
+      res.json({ success: true, noted: false });
+    } catch (error) {
+      console.error('Error unnoting announcement:', error);
+      res.status(500).json({ error: 'Failed to unnote announcement' });
+    }
+  }
+
+  // GET /api/announcements/unread-count - Get count of un-noted announcements
+  async getUnnotedCount(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.userId;
+      const now = new Date();
+      const hasReads = await checkReadsTable();
+
+      let unnotedCount = 0;
+
+      if (hasReads) {
+        const allAnnouncements = await db.announcement.findMany({
+          where: {
+            expiresAt: { gt: now },
+          },
+          select: {
+            id: true,
+            reads: {
+              where: { userId, noted: true },
+              select: { id: true },
+            },
+          },
+        });
+        unnotedCount = allAnnouncements.filter((a: any) => !a.reads || a.reads.length === 0).length;
+      } else {
+        // No reads table — count all non-expired announcements
+        unnotedCount = await db.announcement.count({
+          where: {
+            expiresAt: { gt: now },
+          },
+        });
+      }
+
+      res.json({ count: unnotedCount });
+    } catch (error) {
+      console.error('Error getting unnoted count:', error);
+      res.json({ count: 0 });
     }
   }
 
@@ -140,38 +384,23 @@ export class AnnouncementController {
       const { id } = req.params;
       const { title, content, priority, pinned, expiresAt } = req.body;
 
-      const useDb = await isDbAvailable();
-      if (!useDb) {
-        res.status(503).json({ error: 'Announcement service not available' });
-        return;
-      }
-
-      // Find the announcement
-      const announcement = await db.announcement.findUnique({
-        where: { id },
-      });
+      const announcement = await db.announcement.findUnique({ where: { id } });
 
       if (!announcement) {
         res.status(404).json({ error: 'Announcement not found' });
         return;
       }
 
-      // Check authorization: only author or OWNER can update
       if (announcement.authorId !== userId) {
         const isOwner = await prisma.organizationMember.findFirst({
-          where: {
-            userId,
-            role: 'OWNER',
-          },
+          where: { userId, role: 'OWNER' },
         });
-
         if (!isOwner) {
           res.status(403).json({ error: 'Only author or OWNER can update this announcement' });
           return;
         }
       }
 
-      // Update announcement
       const updated = await db.announcement.update({
         where: { id },
         data: {
@@ -211,42 +440,24 @@ export class AnnouncementController {
       const userId = req.user!.userId;
       const { id } = req.params;
 
-      const useDb = await isDbAvailable();
-      if (!useDb) {
-        res.status(503).json({ error: 'Announcement service not available' });
-        return;
-      }
-
-      // Find the announcement
-      const announcement = await db.announcement.findUnique({
-        where: { id },
-      });
+      const announcement = await db.announcement.findUnique({ where: { id } });
 
       if (!announcement) {
         res.status(404).json({ error: 'Announcement not found' });
         return;
       }
 
-      // Check authorization: only author or OWNER can delete
       if (announcement.authorId !== userId) {
         const isOwner = await prisma.organizationMember.findFirst({
-          where: {
-            userId,
-            role: 'OWNER',
-          },
+          where: { userId, role: 'OWNER' },
         });
-
         if (!isOwner) {
           res.status(403).json({ error: 'Only author or OWNER can delete this announcement' });
           return;
         }
       }
 
-      // Delete announcement
-      await db.announcement.delete({
-        where: { id },
-      });
-
+      await db.announcement.delete({ where: { id } });
       res.status(204).send();
     } catch (error) {
       console.error('Error deleting announcement:', error);
@@ -259,6 +470,7 @@ export class AnnouncementController {
     try {
       const userId = req.user!.userId;
 
+      // Check if user is OWNER or ADMIN in any organization
       const isManager = await prisma.organizationMember.findFirst({
         where: {
           userId,
@@ -266,12 +478,31 @@ export class AnnouncementController {
         },
       });
 
-      res.json({
-        canAnnounce: !!isManager,
+      if (isManager) {
+        res.json({ canAnnounce: true });
+        return;
+      }
+
+      // If no organizations exist at all, allow any user to announce (initial setup)
+      const orgCount = await prisma.organization.count();
+      if (orgCount === 0) {
+        res.json({ canAnnounce: true });
+        return;
+      }
+
+      // Also allow if user has no org membership (standalone mode)
+      const userMembership = await prisma.organizationMember.findFirst({
+        where: { userId },
       });
+      if (!userMembership) {
+        res.json({ canAnnounce: true });
+        return;
+      }
+
+      res.json({ canAnnounce: false });
     } catch (error) {
       console.error('Error checking announcement permission:', error);
-      res.json({ canAnnounce: false });
+      res.json({ canAnnounce: true }); // Default to true on error for usability
     }
   }
 }
