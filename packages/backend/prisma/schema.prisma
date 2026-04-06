@@ -58,6 +58,8 @@ model User {
   statusLikes      StatusLike[]         @relation("StatusLikes")
   announcements    Announcement[]
   announcementReads AnnouncementRead[]
+  lindaActivitiesOrdered LindaActivity[] @relation("LindaActivitiesOrdered")
+  lindaActivitiesTarget  LindaActivity[] @relation("LindaActivitiesTarget")
 
   @@map("users")
 }
@@ -419,4 +421,26 @@ model AnnouncementRead {
   @@unique([announcementId, userId])
   @@index([userId])
   @@map("announcement_reads")
+}
+
+// ============================================
+// LINDA ACTIVITY LOG
+// ============================================
+
+model LindaActivity {
+  id             String   @id @default(uuid())
+  orderedById    String   @map("ordered_by_id")
+  actionType     String   @map("action_type")       // 'send_message', 'assign_task', 'create_announcement', 'update_task'
+  targetUserId   String?  @map("target_user_id")
+  status         String   @default("completed")      // 'completed', 'failed'
+  summary        String                               // Human-readable summary
+  details        String?                              // JSON with action-specific data
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  orderedBy  User  @relation("LindaActivitiesOrdered", fields: [orderedById], references: [id], onDelete: Cascade)
+  targetUser User? @relation("LindaActivitiesTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([orderedById, createdAt])
+  @@index([targetUserId])
+  @@map("linda_activities")
 }

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, Sparkles, X, Paperclip, Mic, Image as ImageIcon, ChevronLeft, Users, Eye, SlidersHorizontal } from 'lucide-react';
-import { api, LindaConversationSummary, LindaMessageData } from '@/services/api';
+import { Send, Bot, Sparkles, X, Paperclip, Mic, Image as ImageIcon, ChevronLeft, Users, Eye, SlidersHorizontal, MessageSquare, ClipboardList, Megaphone, RefreshCw, CheckCircle2, XCircle, ArrowUpDown } from 'lucide-react';
+import { api, LindaConversationSummary, LindaMessageData, LindaActivity } from '@/services/api';
 import VoiceRecorder from '@/components/chat/VoiceRecorder';
 
 interface LindaAttachment {
@@ -22,7 +22,7 @@ interface LindaChatProps {
   onClose: () => void;
 }
 
-type ViewMode = 'chat' | 'monitor' | 'all-conversations' | 'settings';
+type ViewMode = 'chat' | 'monitor' | 'all-conversations' | 'settings' | 'activities';
 
 export default function LindaChat({ onClose }: LindaChatProps) {
   // View state — default is direct chat
@@ -45,6 +45,10 @@ export default function LindaChat({ onClose }: LindaChatProps) {
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [attachedPreview, setAttachedPreview] = useState<string | null>(null);
+
+  // Activities state
+  const [activities, setActivities] = useState<LindaActivity[]>([]);
+  const [loadingActivities, setLoadingActivities] = useState(false);
 
   // Settings state
   const [responseStyle, setResponseStyle] = useState(() => {
@@ -131,6 +135,18 @@ export default function LindaChat({ onClose }: LindaChatProps) {
       console.error('Failed to load all Linda conversations:', err);
     } finally {
       setLoadingConversations(false);
+    }
+  };
+
+  const loadActivities = async () => {
+    setLoadingActivities(true);
+    try {
+      const data = await api.getLindaActivities();
+      setActivities(data.activities || []);
+    } catch (err) {
+      console.error('Failed to load Linda activities:', err);
+    } finally {
+      setLoadingActivities(false);
     }
   };
 
@@ -494,6 +510,150 @@ export default function LindaChat({ onClose }: LindaChatProps) {
     );
   }
 
+  // ============ RENDER: Activities View ============
+  if (viewMode === 'activities') {
+    const getActivityIcon = (type: string) => {
+      switch (type) {
+        case 'send_message': return <MessageSquare size={18} className="text-blue-500" />;
+        case 'assign_task': return <ClipboardList size={18} className="text-amber-500" />;
+        case 'create_announcement': return <Megaphone size={18} className="text-purple-500" />;
+        case 'update_task': return <ArrowUpDown size={18} className="text-green-500" />;
+        default: return <Bot size={18} className="text-slate-400" />;
+      }
+    };
+
+    const getActivityLabel = (type: string) => {
+      switch (type) {
+        case 'send_message': return 'Message Delivered';
+        case 'assign_task': return 'Task Assigned';
+        case 'create_announcement': return 'Announcement Created';
+        case 'update_task': return 'Task Updated';
+        default: return 'Action';
+      }
+    };
+
+    const timeAgo = (dateStr: string) => {
+      const diff = Date.now() - new Date(dateStr).getTime();
+      const mins = Math.floor(diff / 60000);
+      if (mins < 1) return 'just now';
+      if (mins < 60) return `${mins}m ago`;
+      const hours = Math.floor(mins / 60);
+      if (hours < 24) return `${hours}h ago`;
+      const days = Math.floor(hours / 24);
+      return `${days}d ago`;
+    };
+
+    return (
+      <div className="flex flex-col h-full bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-700">
+        {/* Header */}
+        <div className="flex items-center gap-3 p-4 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-slate-50 to-blue-50 dark:from-slate-800 dark:to-blue-900/20 flex-shrink-0">
+          <button
+            onClick={() => setViewMode('chat')}
+            className="p-1 hover:bg-white/50 dark:hover:bg-slate-700 rounded-lg transition"
+          >
+            <ChevronLeft size={20} className="text-slate-500" />
+          </button>
+          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
+            <Eye size={16} className="text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Linda's Activities</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">What Linda did for you</p>
+          </div>
+          <button
+            onClick={loadActivities}
+            className="p-2 hover:bg-white/50 dark:hover:bg-slate-700 rounded-lg transition"
+            title="Refresh"
+          >
+            <RefreshCw size={14} className={`text-slate-400 ${loadingActivities ? 'animate-spin' : ''}`} />
+          </button>
+          <button onClick={onClose} className="p-2 hover:bg-white/50 dark:hover:bg-slate-800 rounded-lg transition">
+            <X size={18} className="text-slate-500" />
+          </button>
+        </div>
+
+        {/* Activities List */}
+        <div className="flex-1 overflow-y-auto">
+          {loadingActivities ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="flex items-center gap-2 text-sm text-slate-500">
+                <RefreshCw size={16} className="animate-spin" />
+                Loading activities...
+              </div>
+            </div>
+          ) : activities.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center px-6">
+              <div className="w-16 h-16 bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 rounded-full flex items-center justify-center mb-3">
+                <Eye size={28} className="text-blue-400" />
+              </div>
+              <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-1">No Activities Yet</h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs">
+                When you ask Linda to send messages, create tasks, or make announcements, you'll see her progress here.
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+              {activities.map((activity) => (
+                <div
+                  key={activity.id}
+                  className="px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                >
+                  <div className="flex items-start gap-3">
+                    {/* Linda avatar + action icon */}
+                    <div className="relative flex-shrink-0">
+                      <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
+                        <Sparkles size={16} className="text-white" />
+                      </div>
+                      {/* Target user avatar overlay */}
+                      {activity.targetUser && (
+                        <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-600 border-2 border-white dark:border-slate-900 flex items-center justify-center overflow-hidden">
+                          {activity.targetUser.avatarUrl ? (
+                            <img src={activity.targetUser.avatarUrl} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-[8px] font-bold text-slate-600 dark:text-slate-300">
+                              {(activity.targetUser.displayName || activity.targetUser.username || '?')[0].toUpperCase()}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Content */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        {getActivityIcon(activity.actionType)}
+                        <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                          {getActivityLabel(activity.actionType)}
+                        </span>
+                        {activity.status === 'completed' ? (
+                          <CheckCircle2 size={12} className="text-green-500" />
+                        ) : (
+                          <XCircle size={12} className="text-red-500" />
+                        )}
+                      </div>
+                      <p className="text-sm text-slate-800 dark:text-slate-200 leading-snug">
+                        {activity.summary}
+                      </p>
+                      {/* Details snippet */}
+                      {activity.details?.message && (
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 italic">
+                          "{activity.details.message}"
+                        </p>
+                      )}
+                      <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">
+                        {timeAgo(activity.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // ============ RENDER: Monitor / All Conversations List ============
   if (viewMode === 'monitor' || viewMode === 'all-conversations') {
     const isAllView = viewMode === 'all-conversations';
@@ -631,27 +791,27 @@ export default function LindaChat({ onClose }: LindaChatProps) {
             }
           </p>
         </div>
-        {/* Settings button */}
-        {isOwnConversation && (
-          <button
-            onClick={() => setViewMode('settings')}
-            className="p-2 hover:bg-white/50 dark:hover:bg-slate-800 rounded-lg transition"
-            title="Linda settings"
-          >
-            <SlidersHorizontal size={16} className="text-slate-400" />
-          </button>
-        )}
-        {/* Monitor button — small icon next to avatar */}
+        {/* Activities button — eye icon */}
         {isOwnConversation && (
           <button
             onClick={() => {
-              loadConversations();
-              setViewMode('monitor');
+              loadActivities();
+              setViewMode('activities');
             }}
-            className="p-2 hover:bg-white/50 dark:hover:bg-slate-800 rounded-lg transition"
-            title="Monitor Linda's activity"
+            className={`p-2 hover:bg-white/50 dark:hover:bg-slate-800 rounded-lg transition ${viewMode === 'activities' ? 'bg-white/30 dark:bg-slate-700' : ''}`}
+            title="Linda's Activities"
           >
-            <Eye size={16} className="text-slate-400" />
+            <Eye size={16} className={viewMode === 'activities' ? 'text-blue-500' : 'text-slate-400'} />
+          </button>
+        )}
+        {/* Settings button — tuning/faders icon */}
+        {isOwnConversation && (
+          <button
+            onClick={() => setViewMode('settings')}
+            className={`p-2 hover:bg-white/50 dark:hover:bg-slate-800 rounded-lg transition ${viewMode === 'settings' ? 'bg-white/30 dark:bg-slate-700' : ''}`}
+            title="Linda settings"
+          >
+            <SlidersHorizontal size={16} className={viewMode === 'settings' ? 'text-blue-500' : 'text-slate-400'} />
           </button>
         )}
         <button

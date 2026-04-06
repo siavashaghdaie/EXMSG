@@ -35,6 +35,9 @@ router.get('/linda/conversations', authenticate, controller.getConversations.bin
 router.get('/linda/conversations/all', authenticate, controller.getAllConversations.bind(controller));
 router.get('/linda/conversations/:id/messages', authenticate, controller.getConversationMessages.bind(controller));
 
+// Activities
+router.get('/linda/activities', authenticate, controller.getActivities.bind(controller));
+
 // Manager check
 router.get('/linda/manager-check', authenticate, controller.checkManager.bind(controller));
 

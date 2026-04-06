@@ -113,6 +113,16 @@ interface LindaMessageData {
   createdAt: string;
 }
 
+export interface LindaActivity {
+  id: string;
+  actionType: string;
+  status: string;
+  summary: string;
+  details: any;
+  targetUser?: { id: string; username: string; displayName: string; avatarUrl?: string } | null;
+  createdAt: string;
+}
+
 export interface StatusItem {
   id: string;
   type: 'text' | 'image' | 'video';
@@ -649,6 +659,11 @@ class APIClient {
 
   async checkLindaManager(): Promise<{ isManager: boolean }> {
     const res = await this.client.get('/linda/manager-check');
+    return res.data;
+  }
+
+  async getLindaActivities(): Promise<{ activities: LindaActivity[] }> {
+    const res = await this.client.get('/linda/activities');
     return res.data;
   }
 

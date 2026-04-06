@@ -46,6 +46,32 @@ async function getLindaBotUserId(): Promise<string> {
   return lindaBotUserId;
 }
 
+// Log a Linda activity (fire-and-forget, never blocks)
+async function logLindaActivity(data: {
+  orderedById: string;
+  actionType: string;
+  targetUserId?: string | null;
+  status: string;
+  summary: string;
+  details?: any;
+}) {
+  try {
+    await db.lindaActivity.create({
+      data: {
+        orderedById: data.orderedById,
+        actionType: data.actionType,
+        targetUserId: data.targetUserId || null,
+        status: data.status,
+        summary: data.summary,
+        details: data.details ? JSON.stringify(data.details) : null,
+      },
+    });
+  } catch (err) {
+    // Table may not exist yet — silently ignore
+    console.warn('[Linda] Could not log activity:', (err as any)?.message);
+  }
+}
+
 // In-memory fallback for conversation history (used when DB tables don't exist yet)
 const userConversations = new Map<string, Array<{ role: 'user' | 'assistant'; content: string }>>();
 const MAX_HISTORY = 20;
@@ -563,6 +589,38 @@ export class LindaController {
     }
   }
 
+  // GET /api/linda/activities — get activities Linda performed for the current user
+  async getActivities(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.userId;
+      const activities = await db.lindaActivity.findMany({
+        where: { orderedById: userId },
+        include: {
+          targetUser: {
+            select: { id: true, username: true, displayName: true, avatarUrl: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      });
+
+      res.json({
+        activities: activities.map((a: any) => ({
+          id: a.id,
+          actionType: a.actionType,
+          status: a.status,
+          summary: a.summary,
+          details: a.details ? JSON.parse(a.details) : null,
+          targetUser: a.targetUser,
+          createdAt: a.createdAt,
+        })),
+      });
+    } catch (err) {
+      console.warn('[Linda] Could not fetch activities:', (err as any)?.message);
+      res.json({ activities: [] });
+    }
+  }
+
   // GET /api/linda/greeting
   async getGreeting(req: Request, res: Response): Promise<void> {
     try {
@@ -726,6 +784,14 @@ export class LindaController {
 
         console.log(`[Linda] Sent message to @${targetUser.username} in conversation ${conversation.id}`);
         actions.push({ type: 'send_message', target: `@${targetUser.username}`, status: 'sent' });
+        logLindaActivity({
+          orderedById: requestingUserId,
+          actionType: 'send_message',
+          targetUserId: targetUser.id,
+          status: 'completed',
+          summary: `Delivered message to ${targetUser.displayName || targetUser.username}`,
+          details: { message: messageContent.substring(0, 200), conversationId: conversation.id },
+        });
       } catch (err) {
         console.error(`[Linda] Failed to send message to ${targetUsername}:`, err);
         actions.push({ type: 'send_message', target: targetUsername, status: 'error' });
@@ -782,6 +848,14 @@ export class LindaController {
 
         console.log(`[Linda] Created task "${task.title}" assigned to @${targetUser.username}`);
         actions.push({ type: 'assign_task', target: `@${targetUser.username}`, status: 'created' });
+        logLindaActivity({
+          orderedById: requestingUserId,
+          actionType: 'assign_task',
+          targetUserId: targetUser.id,
+          status: 'completed',
+          summary: `Assigned task "${task.title}" to ${targetUser.displayName || targetUser.username}`,
+          details: { taskId: task.id, title: task.title, priority: task.priority, assignee: targetUser.displayName },
+        });
 
         // Notify assignee via DM from Linda
         try {
@@ -870,6 +944,14 @@ export class LindaController {
 
         console.log(`[Linda] Updated task "${updated.title}" — status: ${updated.status}, priority: ${updated.priority}`);
         actions.push({ type: 'update_task', target: updated.title, status: 'updated' });
+        logLindaActivity({
+          orderedById: requestingUserId,
+          actionType: 'update_task',
+          targetUserId: updated.assignedTo ? undefined : undefined,
+          status: 'completed',
+          summary: `Updated task "${updated.title}" — ${statusMatch ? 'status: ' + updated.status : ''} ${priorityMatch ? 'priority: ' + updated.priority : ''}`.trim(),
+          details: { taskId: updated.id, title: updated.title, newStatus: updated.status, newPriority: updated.priority },
+        });
       } catch (err) {
         console.error('[Linda] Failed to update task:', err);
         actions.push({ type: 'update_task', target: taskIdMatch[1], status: 'error' });
@@ -932,6 +1014,13 @@ export class LindaController {
 
         console.log(`[Linda] Created announcement "${announcement.title}" and notifying ${allUsers.length} users`);
         actions.push({ type: 'create_announcement', target: announcement.title, status: 'created' });
+        logLindaActivity({
+          orderedById: requestingUserId,
+          actionType: 'create_announcement',
+          status: 'completed',
+          summary: `Created announcement "${announcement.title}" and notified ${allUsers.length} users`,
+          details: { announcementId: announcement.id, title: announcement.title, priority: announcement.priority },
+        });
       } catch (err) {
         console.error('[Linda] Failed to create announcement:', err);
         actions.push({ type: 'create_announcement', target: titleMatch[1], status: 'error' });
