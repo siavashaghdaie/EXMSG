@@ -369,7 +369,7 @@ export default function ChatView() {
                       {isGroup
                         ? `${conversation.participants.length} members`
                         : otherParticipants.length > 0 && (
-                            <PresenceIndicator userId={otherParticipants[0]?.id} showText />
+                            <PresenceIndicator userId={otherParticipants[0]?.id} showText forceOnline={isLindaConversation} />
                           )}
                     </p>
                   </div>

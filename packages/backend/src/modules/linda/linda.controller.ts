@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import { prisma } from '../../config/database';
 import { env } from '../../config/env';
-import { emitToConversation } from '../../services/socket';
+import { emitToConversation, getIO, registerLindaBotUserId } from '../../services/socket';
 import { processFile, buildClaudeContentForFile, isMultimodalContent } from './fileProcessor';
 
 // Type-safe accessors for new Prisma models (available after running `npx prisma generate`)
@@ -45,6 +45,25 @@ async function getLindaBotUserId(): Promise<string> {
   await prisma.user.update({ where: { id: lindaUser.id }, data: { isOnline: true } }).catch(() => {});
   lindaBotUserId = lindaUser.id;
   return lindaBotUserId;
+}
+
+/**
+ * Initialize Linda at server startup — ensures bot user exists and is online.
+ * Call this from index.ts after database is connected AND socket server is initialized.
+ */
+export async function initializeLinda(): Promise<void> {
+  try {
+    const id = await getLindaBotUserId();
+    // Register Linda's ID with socket module so new clients see her as online
+    registerLindaBotUserId(id);
+    // Broadcast Linda's online presence to any already-connected clients
+    try {
+      getIO().emit('user:online', { userId: id });
+    } catch {}
+    console.log(`[Linda] Initialized — bot user ${id} is online`);
+  } catch (err) {
+    console.error('[Linda] Failed to initialize:', err);
+  }
 }
 
 // Log a Linda activity (fire-and-forget, never blocks)
@@ -270,9 +289,10 @@ export class LindaController {
       }
 
       // Determine max_tokens: increase for file generation requests
-      const isFileGenRequest = /\b(create|make|generate|write|draft|build|prepare|produce)\b.*\b(file|document|report|script|code|csv|json|list|template|spreadsheet|letter|memo|plan|proposal)\b/i.test(message)
-        || /\b(file|document|report|csv|json|txt|md|py|js|ts|html|sql)\b.*\b(for me|for download|to download|and send)\b/i.test(message);
-      const chatMaxTokens = isFileGenRequest ? 4096 : 1024;
+      const isFileGenRequest = /\b(create|make|generate|write|draft|build|prepare|produce|give me|send me)\b/i.test(message)
+        && /\b(file|document|report|script|code|csv|json|list|template|spreadsheet|letter|memo|plan|proposal|docx|pdf|txt)\b/i.test(message);
+      const isDownloadReq = /\b(download|docx|pdf|\.doc|\.pdf)\b/i.test(message);
+      const chatMaxTokens = (isFileGenRequest || isDownloadReq) ? 4096 : 2048;
 
       const response = await client.messages.create({
         model: 'claude-sonnet-4-6',
@@ -1356,10 +1376,10 @@ TASK MANAGEMENT:
 - When asked to mark a task as done/complete, use [UPDATE_TASK] with status: COMPLETED
 - When asked to change priority, use [UPDATE_TASK] with the new priority
 
-FILE GENERATION:
-You CAN create and send text-based files to the user. Use this when asked to write documents, reports, code, spreadsheets (CSV), lists, scripts, config files, etc.
+FILE GENERATION (VERY IMPORTANT):
+You MUST use [CREATE_FILE] blocks whenever the user asks you to create, write, make, generate, draft, or prepare ANY document, file, report, letter, or code. NEVER type the document content as a regular chat message — ALWAYS put it inside a [CREATE_FILE] block so it becomes a downloadable file.
 
-Format for creating a file:
+Format:
 [CREATE_FILE]
 filename: the-file-name.ext
 content: The entire file content goes here.
@@ -1367,19 +1387,17 @@ It can span multiple lines.
 All text after "content:" until [/CREATE_FILE] is the file body.
 [/CREATE_FILE]
 
-Rules for file generation:
-- For documents, reports, letters, memos, proposals, plans: ALWAYS use .docx extension (generates a real Word document)
-- For formal reports or read-only documents: use .pdf extension (generates a real PDF)
-- For tabular data, spreadsheets: use .csv with proper comma-separated format and headers
-- For structured data: use .json
-- For code: use the appropriate extension (.py, .js, .ts, .html, .sql, .sh, etc.)
-- For plain text or notes: use .txt
-- NEVER use .md for documents the user wants to download — use .docx or .pdf instead
-- Write document content using markdown-style formatting (# headings, **bold**, *italic*, - bullets) — it will be converted to proper Word/PDF formatting automatically
-- For code files, write clean, well-commented, production-ready code
-- ALWAYS generate the complete file — never truncate or use placeholders like "..." or "rest of content here"
-- You can generate multiple files in one response by using multiple [CREATE_FILE] blocks
-- In your visible response, briefly mention the file you created (e.g., "Here's the report you asked for" or "I've generated the document")
+CRITICAL RULES:
+- When the user asks for a document/report/letter/memo → ALWAYS use [CREATE_FILE] with .docx extension
+- When the user asks for a PDF → ALWAYS use [CREATE_FILE] with .pdf extension
+- For tabular data → use .csv
+- For code → use the appropriate extension (.py, .js, etc.)
+- NEVER output document content as plain text in chat. ALWAYS wrap it in [CREATE_FILE].
+- NEVER use .md or .txt for documents — use .docx or .pdf
+- Write content using markdown formatting (# headings, **bold**, *italic*, - bullets) — it gets auto-converted to proper Word/PDF styling
+- ALWAYS generate complete content — never truncate or use "..." placeholders
+- In your visible response OUTSIDE the block, just briefly say something like "Here's your document!" or "I've created the report for you."
+- If in doubt whether to make a file, MAKE THE FILE. Users always prefer a downloadable document.
 
 FILE FORWARDING:
 You CAN forward files that have been shared in your conversation to other users. Use the attachment IDs from the "Recent files" section in the workspace context.
@@ -1896,10 +1914,18 @@ export async function handleLindaAutoReply(
     });
     const senderName = sender?.displayName || sender?.username || 'there';
 
+    // Emit typing indicator so the user sees Linda is working
+    emitToConversation(conversationId, 'typing:start', {
+      userId: lindaId,
+      username: 'Linda',
+      conversationId,
+    });
+
     const client = getAnthropicClient();
     if (!client) {
       // Basic fallback — just acknowledge
       const fallback = `Hi ${senderName}! I'm Linda, your AI coordinator. My AI capabilities aren't fully configured yet — please ask your admin to set the API key.`;
+      emitToConversation(conversationId, 'typing:stop', { userId: lindaId, username: 'Linda', conversationId });
       await sendLindaMessageToConversation(lindaId, conversationId, fallback);
       return;
     }
@@ -1970,11 +1996,18 @@ export async function handleLindaAutoReply(
     const workspaceContext = await (lindaController as any).getWorkspaceContext(senderUserId);
     const systemPrompt = (lindaController as any).buildSystemPrompt(senderName, workspaceContext);
 
-    // Determine max_tokens: increase for file attachments or file generation requests
-    const lastUserMsg = (messagesForApi[messagesForApi.length - 1]?.content || '').toLowerCase();
-    const isFileGenerationRequest = /\b(create|make|generate|write|draft|build|prepare|produce)\b.*\b(file|document|report|script|code|csv|json|list|template|spreadsheet|letter|memo|plan|proposal)\b/i.test(lastUserMsg)
-      || /\b(file|document|report|csv|json|txt|md|py|js|ts|html|sql)\b.*\b(for me|for download|to download|and send)\b/i.test(lastUserMsg);
-    const maxTokens = (fileInfo || isFileGenerationRequest) ? 4096 : 1024;
+    // Determine max_tokens: always generous — file generation needs 4096+
+    // Extract text from last user message (might be string or multimodal array)
+    const lastMsgContent: any = messagesForApi[messagesForApi.length - 1]?.content;
+    const lastUserMsg: string = typeof lastMsgContent === 'string'
+      ? lastMsgContent
+      : Array.isArray(lastMsgContent)
+        ? (lastMsgContent as any[]).filter((b: any) => b.type === 'text').map((b: any) => b.text).join(' ')
+        : '';
+    const isFileGenerationRequest = /\b(create|make|generate|write|draft|build|prepare|produce|give me|send me)\b/i.test(lastUserMsg)
+      && /\b(file|document|report|script|code|csv|json|list|template|spreadsheet|letter|memo|plan|proposal|docx|pdf|txt)\b/i.test(lastUserMsg);
+    const isDownloadRequest = /\b(download|docx|pdf|\.doc|\.pdf)\b/i.test(lastUserMsg);
+    const maxTokens = (fileInfo || isFileGenerationRequest || isDownloadRequest) ? 4096 : 2048;
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
@@ -1986,10 +2019,10 @@ export async function handleLindaAutoReply(
     const textBlock = response.content.find((block: { type: string }) => block.type === 'text') as { type: 'text'; text: string } | undefined;
     const rawResponse = textBlock ? textBlock.text : "Sorry, I couldn't process that. Try again?";
 
-    // Execute any action blocks (send messages to other users, create files, etc.)
+    // Execute any action blocks (send messages to other users, etc.)
     const actions = await (lindaController as any).executeActions(rawResponse, senderUserId);
 
-    // Send any generated files as downloadable file messages in the conversation
+    // Send any generated files from [CREATE_FILE] blocks
     const generatedFileActions = actions.filter((a: any) => a.type === 'create_file' && a.status === 'created' && a.url);
     for (const fileAction of generatedFileActions) {
       try {
@@ -2004,6 +2037,54 @@ export async function handleLindaAutoReply(
       }
     }
 
+    // FALLBACK: If the user asked for a file but Linda didn't use [CREATE_FILE],
+    // generate the document separately using her text response as content
+    if (generatedFileActions.length === 0 && (isFileGenerationRequest || isDownloadRequest)) {
+      console.log(`[Linda] File generation request detected but no [CREATE_FILE] block found. Generating document from response.`);
+      try {
+        // Determine format from user request
+        const wantsPdf = /\.pdf\b|pdf\b/i.test(lastUserMsg);
+        const ext = wantsPdf ? '.pdf' : '.docx';
+        const titleMatch = rawResponse.match(/^#+\s*(.+)/m) || messageContent.match(/(?:about|for|titled?|called?)\s+["']?([^"'\n,.]+)/i);
+        const docTitle = titleMatch ? (titleMatch[1] || titleMatch[2] || '').trim() : 'Document';
+        const fileName = docTitle.replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_').slice(0, 40) + ext;
+
+        // Use the response text as document content (strip action blocks first)
+        let docContent = rawResponse
+          .replace(/\[SEND_MESSAGE\][\s\S]*?\[\/SEND_MESSAGE\]/gi, '')
+          .replace(/\[ASSIGN_TASK\][\s\S]*?\[\/ASSIGN_TASK\]/gi, '')
+          .replace(/\[UPDATE_TASK\][\s\S]*?\[\/UPDATE_TASK\]/gi, '')
+          .replace(/\[CREATE_ANNOUNCEMENT\][\s\S]*?\[\/CREATE_ANNOUNCEMENT\]/gi, '')
+          .replace(/\[CREATE_FILE\][\s\S]*?\[\/CREATE_FILE\]/gi, '')
+          .replace(/\[SEND_FILE\][\s\S]*?\[\/SEND_FILE\]/gi, '')
+          .trim();
+
+        // If the response is too short (Linda just said "Here's your doc!"), do a dedicated generation call
+        if (docContent.length < 200) {
+          console.log(`[Linda] Response too short for a document (${docContent.length} chars). Making dedicated generation call.`);
+          const docGenResponse = await client.messages.create({
+            model: 'claude-sonnet-4-6',
+            max_tokens: 4096,
+            system: `You are a professional document writer. Generate well-structured document content using markdown formatting (# headings, ## subheadings, **bold**, *italic*, - bullets). Write the FULL document content only — no preamble, no "here is your document", just the actual content. Make it professional, detailed, and well-organized.`,
+            messages: [{ role: 'user', content: `Write the following document:\n\n${messageContent}` }],
+          });
+          const docTextBlock = docGenResponse.content.find((b: { type: string }) => b.type === 'text') as { type: 'text'; text: string } | undefined;
+          docContent = docTextBlock?.text || docContent;
+        }
+
+        const savedFile = await saveLindaGeneratedFile(fileName, docContent);
+        await sendLindaFileToConversation(lindaId, conversationId, `Here's your document: ${fileName}`, {
+          fileName,
+          fileSize: savedFile.fileSize,
+          mimeType: savedFile.mimeType,
+          url: savedFile.url,
+        });
+        console.log(`[Linda] Fallback file generated: ${fileName} (${savedFile.fileSize} bytes)`);
+      } catch (fallbackErr) {
+        console.error('[Linda] Fallback file generation failed:', fallbackErr);
+      }
+    }
+
     // Strip action blocks from visible response
     const cleanResponse = rawResponse
       .replace(/\[SEND_MESSAGE\][\s\S]*?\[\/SEND_MESSAGE\]/gi, '')
@@ -2015,11 +2096,19 @@ export async function handleLindaAutoReply(
       .replace(/\[SEND_FILE\][\s\S]*?\[\/SEND_FILE\]/gi, '')
       .trim();
 
+    // Stop typing indicator before sending the final message
+    emitToConversation(conversationId, 'typing:stop', { userId: lindaId, username: 'Linda', conversationId });
+
     if (cleanResponse) {
       await sendLindaMessageToConversation(lindaId, conversationId, cleanResponse);
     }
   } catch (error) {
     console.error('[Linda] Auto-reply error:', error);
+    // Make sure typing indicator stops even on error
+    try {
+      const lindaId = await getLindaBotUserId();
+      emitToConversation(conversationId, 'typing:stop', { userId: lindaId, username: 'Linda', conversationId });
+    } catch {}
   }
 }
 

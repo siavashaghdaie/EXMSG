@@ -1,180 +1,138 @@
 /**
- * Document Generator — Creates proper .docx and .pdf binary files
- * from text/markdown content using only Node.js built-ins.
+ * Document Generator — Creates .docx and .pdf files.
  *
- * No external dependencies required:
- * - DOCX: Built as a ZIP archive containing Office Open XML
- * - PDF: Built using raw PDF 1.4 syntax
+ * DOCX: Uses Python's built-in zipfile module (no pip packages needed) to create
+ *       valid Office Open XML archives. XML content is generated in TypeScript.
+ * PDF:  Generated in pure Node.js (valid PDF 1.4 with Helvetica).
  */
 
-import * as zlib from 'zlib';
+import { execSync } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 
-// ─── DOCX Generation ────────────────────────────────────────────────────────
+// ─── Markdown Parsing ────────────────────────────────────────────
 
-/**
- * Generate a .docx file buffer from text content.
- * Supports basic markdown: # headings, **bold**, *italic*, - bullet lists, numbered lists.
- */
-export function generateDocx(content: string, title?: string): Buffer {
-  const paragraphs = parseContentToParagraphs(content);
-  const documentXml = buildDocumentXml(paragraphs, title);
-  const stylesXml = buildStylesXml();
-  const contentTypesXml = buildContentTypesXml();
-  const relsXml = buildRelsXml();
-  const docRelsXml = buildDocRelsXml();
-
-  // Build ZIP archive
-  const files: Array<{ path: string; content: string }> = [
-    { path: '[Content_Types].xml', content: contentTypesXml },
-    { path: '_rels/.rels', content: relsXml },
-    { path: 'word/_rels/document.xml.rels', content: docRelsXml },
-    { path: 'word/document.xml', content: documentXml },
-    { path: 'word/styles.xml', content: stylesXml },
-  ];
-
-  return createZipBuffer(files);
-}
-
-interface DocParagraph {
+interface DocNode {
+  type: 'heading' | 'paragraph' | 'bullet' | 'numbered' | 'blockquote' | 'hr';
+  level?: number;
   text: string;
-  style: 'Title' | 'Heading1' | 'Heading2' | 'Heading3' | 'Normal' | 'ListBullet' | 'ListNumber';
   runs: Array<{ text: string; bold?: boolean; italic?: boolean }>;
+  index?: number;
 }
 
-function parseContentToParagraphs(content: string): DocParagraph[] {
+function parseInline(text: string): Array<{ text: string; bold?: boolean; italic?: boolean }> {
+  const runs: Array<{ text: string; bold?: boolean; italic?: boolean }> = [];
+  const regex = /(\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*|([^*]+))/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    if (match[2]) runs.push({ text: match[2], bold: true, italic: true });
+    else if (match[3]) runs.push({ text: match[3], bold: true });
+    else if (match[4]) runs.push({ text: match[4], italic: true });
+    else if (match[5]) runs.push({ text: match[5] });
+  }
+  return runs.length > 0 ? runs : [{ text }];
+}
+
+function parseMarkdown(content: string): DocNode[] {
   const lines = content.split('\n');
-  const paragraphs: DocParagraph[] = [];
+  const nodes: DocNode[] = [];
+  let numIdx = 0;
 
   for (const line of lines) {
-    const trimmed = line.trimEnd();
-
-    // Skip empty lines but add spacing
-    if (!trimmed) {
-      paragraphs.push({ text: '', style: 'Normal', runs: [{ text: '' }] });
+    if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+      nodes.push({ type: 'hr', text: '', runs: [] });
+      numIdx = 0;
       continue;
     }
-
-    // Headings
-    if (trimmed.startsWith('### ')) {
-      const text = trimmed.slice(4);
-      paragraphs.push({ text, style: 'Heading3', runs: parseInlineFormatting(text) });
-    } else if (trimmed.startsWith('## ')) {
-      const text = trimmed.slice(3);
-      paragraphs.push({ text, style: 'Heading2', runs: parseInlineFormatting(text) });
-    } else if (trimmed.startsWith('# ')) {
-      const text = trimmed.slice(2);
-      paragraphs.push({ text, style: 'Heading1', runs: parseInlineFormatting(text) });
+    const hm = line.match(/^(#{1,6})\s+(.+)/);
+    if (hm) {
+      nodes.push({ type: 'heading', level: hm[1].length, text: hm[2].trim(), runs: parseInline(hm[2].trim()) });
+      numIdx = 0;
+      continue;
     }
-    // Bullet lists
-    else if (/^[-*•]\s+/.test(trimmed)) {
-      const text = trimmed.replace(/^[-*•]\s+/, '');
-      paragraphs.push({ text, style: 'ListBullet', runs: parseInlineFormatting(text) });
+    const bm = line.match(/^\s*[-*+]\s+(.+)/);
+    if (bm) {
+      nodes.push({ type: 'bullet', text: bm[1].trim(), runs: parseInline(bm[1].trim()) });
+      numIdx = 0;
+      continue;
     }
-    // Numbered lists
-    else if (/^\d+[.)]\s+/.test(trimmed)) {
-      const text = trimmed.replace(/^\d+[.)]\s+/, '');
-      paragraphs.push({ text, style: 'ListNumber', runs: parseInlineFormatting(text) });
+    const nm = line.match(/^\s*(\d+)[.)]\s+(.+)/);
+    if (nm) {
+      numIdx++;
+      nodes.push({ type: 'numbered', text: nm[2].trim(), runs: parseInline(nm[2].trim()), index: numIdx });
+      continue;
     }
-    // Normal paragraph
-    else {
-      paragraphs.push({ text: trimmed, style: 'Normal', runs: parseInlineFormatting(trimmed) });
+    const qm = line.match(/^>\s*(.*)/);
+    if (qm) {
+      nodes.push({ type: 'blockquote', text: qm[1].trim(), runs: parseInline(qm[1].trim()) });
+      continue;
     }
+    if (!line.trim()) { numIdx = 0; continue; }
+    nodes.push({ type: 'paragraph', text: line.trim(), runs: parseInline(line.trim()) });
+    numIdx = 0;
   }
-
-  return paragraphs;
+  return nodes;
 }
 
-function parseInlineFormatting(text: string): Array<{ text: string; bold?: boolean; italic?: boolean }> {
-  const runs: Array<{ text: string; bold?: boolean; italic?: boolean }> = [];
-  // Match **bold**, *italic*, and plain text
-  const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|([^*]+))/g;
-  let match;
-
-  while ((match = regex.exec(text)) !== null) {
-    if (match[2]) {
-      runs.push({ text: match[2], bold: true });
-    } else if (match[3]) {
-      runs.push({ text: match[3], italic: true });
-    } else if (match[4]) {
-      runs.push({ text: match[4] });
-    }
-  }
-
-  if (runs.length === 0) {
-    runs.push({ text });
-  }
-
-  return runs;
+function escXml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function escapeXml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+// ─── DOCX XML Building ──────────────────────────────────────────
+
+function makeRun(run: { text: string; bold?: boolean; italic?: boolean }, sz: number, color: string): string {
+  let rPr = `<w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>`;
+  rPr += `<w:sz w:val="${sz * 2}"/><w:szCs w:val="${sz * 2}"/>`;
+  if (run.bold) rPr += '<w:b/><w:bCs/>';
+  if (run.italic) rPr += '<w:i/><w:iCs/>';
+  rPr += `<w:color w:val="${color}"/>`;
+  return `<w:r><w:rPr>${rPr}</w:rPr><w:t xml:space="preserve">${escXml(run.text)}</w:t></w:r>`;
 }
 
-function buildDocumentXml(paragraphs: DocParagraph[], title?: string): string {
-  let body = '';
+function buildDocXml(title: string, nodes: DocNode[]): string {
+  const hClr: Record<number, string> = { 1: '1A568E', 2: '1E6BB8', 3: '2980B9', 4: '3498DB', 5: '5DADE2', 6: '7FB3D8' };
+  const hSz: Record<number, number> = { 1: 24, 2: 20, 3: 16, 4: 14, 5: 13, 6: 12 };
+  let b = '';
 
-  // Add title if provided
-  if (title) {
-    body += `<w:p><w:pPr><w:pStyle w:val="Title"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="56"/></w:rPr><w:t>${escapeXml(title)}</w:t></w:r></w:p>`;
-  }
+  // Title
+  b += '<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:after="120"/></w:pPr>';
+  b += `<w:r><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:b/><w:bCs/><w:sz w:val="56"/><w:szCs w:val="56"/><w:color w:val="1A568E"/></w:rPr><w:t xml:space="preserve">${escXml(title)}</w:t></w:r></w:p>`;
+  // Separator
+  b += '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="12" w:space="1" w:color="1A568E"/></w:pBdr><w:spacing w:after="300"/></w:pPr></w:p>';
 
-  for (const para of paragraphs) {
-    body += '<w:p>';
-
-    // Paragraph properties
-    if (para.style !== 'Normal' || !para.text) {
-      body += '<w:pPr>';
-      if (para.style !== 'Normal') {
-        body += `<w:pStyle w:val="${para.style}"/>`;
-      }
-      if (para.style === 'ListBullet') {
-        body += '<w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>';
-      } else if (para.style === 'ListNumber') {
-        body += '<w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr>';
-      }
-      body += '</w:pPr>';
+  for (const n of nodes) {
+    if (n.type === 'heading') {
+      const lv = n.level || 1;
+      b += `<w:p><w:pPr><w:spacing w:before="${lv <= 2 ? '240' : '160'}" w:after="120"/></w:pPr>`;
+      for (const r of n.runs) b += makeRun({ ...r, bold: true }, hSz[lv] || 14, hClr[lv] || '1A568E');
+      b += '</w:p>';
+    } else if (n.type === 'paragraph') {
+      b += '<w:p><w:pPr><w:spacing w:after="120" w:line="276" w:lineRule="auto"/></w:pPr>';
+      for (const r of n.runs) b += makeRun(r, 11, '333333');
+      b += '</w:p>';
+    } else if (n.type === 'bullet') {
+      b += '<w:p><w:pPr><w:spacing w:after="60" w:line="276" w:lineRule="auto"/><w:ind w:left="720" w:hanging="360"/></w:pPr>';
+      b += makeRun({ text: '\u2022  ' }, 11, '1A568E');
+      for (const r of n.runs) b += makeRun(r, 11, '333333');
+      b += '</w:p>';
+    } else if (n.type === 'numbered') {
+      b += '<w:p><w:pPr><w:spacing w:after="60" w:line="276" w:lineRule="auto"/><w:ind w:left="720" w:hanging="360"/></w:pPr>';
+      b += makeRun({ text: `${n.index || 1}.  ` }, 11, '1A568E');
+      for (const r of n.runs) b += makeRun(r, 11, '333333');
+      b += '</w:p>';
+    } else if (n.type === 'blockquote') {
+      b += '<w:p><w:pPr><w:pBdr><w:left w:val="single" w:sz="18" w:space="8" w:color="1A568E"/></w:pBdr><w:ind w:left="480"/><w:spacing w:after="120" w:line="276" w:lineRule="auto"/><w:shd w:val="clear" w:color="auto" w:fill="F0F4F8"/></w:pPr>';
+      for (const r of n.runs) b += makeRun({ ...r, italic: true }, 11, '555555');
+      b += '</w:p>';
+    } else if (n.type === 'hr') {
+      b += '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="CCCCCC"/></w:pBdr><w:spacing w:before="120" w:after="120"/></w:pPr></w:p>';
     }
-
-    // Runs
-    for (const run of para.runs) {
-      body += '<w:r>';
-      if (run.bold || run.italic) {
-        body += '<w:rPr>';
-        if (run.bold) body += '<w:b/>';
-        if (run.italic) body += '<w:i/>';
-        body += '</w:rPr>';
-      }
-      body += `<w:t xml:space="preserve">${escapeXml(run.text)}</w:t>`;
-      body += '</w:r>';
-    }
-
-    body += '</w:p>';
   }
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
-  xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-  xmlns:o="urn:schemas-microsoft-com:office:office"
-  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-  xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"
-  xmlns:v="urn:schemas-microsoft-com:vml"
-  xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
-  xmlns:w10="urn:schemas-microsoft-com:office:word"
-  xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-  xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"
-  xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"
-  xmlns:wpi="http://schemas.microsoft.com/office/word/2010/wordprocessingInk"
-  xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml"
-  xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
-  mc:Ignorable="w14 wp14">
+<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:w10="urn:schemas-microsoft-com:office:word" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup" xmlns:wpi="http://schemas.microsoft.com/office/word/2010/wordprocessingInk" xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" mc:Ignorable="w14 wp14">
   <w:body>
-    ${body}
+    ${b}
     <w:sectPr>
       <w:pgSz w:w="12240" w:h="15840"/>
       <w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>
@@ -183,416 +141,232 @@ function buildDocumentXml(paragraphs: DocParagraph[], title?: string): string {
 </w:document>`;
 }
 
-function buildStylesXml(): string {
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-  <w:docDefaults>
-    <w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:rPrDefault>
-    <w:pPrDefault><w:pPr><w:spacing w:after="160" w:line="259" w:lineRule="auto"/></w:pPr></w:pPrDefault>
-  </w:docDefaults>
-  <w:style w:type="paragraph" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>
-  <w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:qFormat/>
-    <w:pPr><w:spacing w:after="300"/></w:pPr>
-    <w:rPr><w:b/><w:sz w:val="56"/><w:szCs w:val="56"/><w:color w:val="2E74B5"/></w:rPr>
-  </w:style>
-  <w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:qFormat/>
-    <w:pPr><w:spacing w:before="240" w:after="120"/></w:pPr>
-    <w:rPr><w:b/><w:sz w:val="40"/><w:szCs w:val="40"/><w:color w:val="2E74B5"/></w:rPr>
-  </w:style>
-  <w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Normal"/><w:qFormat/>
-    <w:pPr><w:spacing w:before="200" w:after="80"/></w:pPr>
-    <w:rPr><w:b/><w:sz w:val="32"/><w:szCs w:val="32"/><w:color w:val="2E74B5"/></w:rPr>
-  </w:style>
-  <w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="heading 3"/><w:basedOn w:val="Normal"/><w:qFormat/>
-    <w:pPr><w:spacing w:before="160" w:after="80"/></w:pPr>
-    <w:rPr><w:b/><w:sz w:val="28"/><w:szCs w:val="28"/><w:color w:val="1F4D78"/></w:rPr>
-  </w:style>
-  <w:style w:type="paragraph" w:styleId="ListBullet"><w:name w:val="List Bullet"/><w:basedOn w:val="Normal"/><w:qFormat/>
-    <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr>
-  </w:style>
-  <w:style w:type="paragraph" w:styleId="ListNumber"><w:name w:val="List Number"/><w:basedOn w:val="Normal"/><w:qFormat/>
-    <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr>
-  </w:style>
-  <w:style w:type="numbering" w:styleId="BulletList"><w:name w:val="BulletList"/></w:style>
-</w:styles>`;
-}
-
-function buildContentTypesXml(): string {
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+const CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="xml" ContentType="application/xml"/>
   <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
-  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
 </Types>`;
-}
 
-function buildRelsXml(): string {
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+const ROOT_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
 </Relationships>`;
-}
 
-function buildDocRelsXml(): string {
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-</Relationships>`;
-}
+const DOC_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`;
 
-// ─── PDF Generation ─────────────────────────────────────────────────────────
+// ─── DOCX Generation via Python zipfile (built-in, no pip) ──────
 
-/**
- * Generate a .pdf file buffer from text content.
- * Uses raw PDF 1.4 syntax — no external libraries needed.
- * Supports basic formatting: headings (larger/bold), body text, bullet lists.
- */
-export function generatePdf(content: string, title?: string): Buffer {
-  const lines = content.split('\n');
-  const pageWidth = 612; // Letter size in points
-  const pageHeight = 792;
-  const marginLeft = 72;
-  const marginRight = 72;
-  const marginTop = 72;
-  const marginBottom = 72;
-  const usableWidth = pageWidth - marginLeft - marginRight;
+function createDocxZip(files: Record<string, string>, outputPath: string): void {
+  // Write all XML files to a temp directory, then use Python's zipfile to package them
+  const tmpDir = path.join('/tmp', `linda_docx_${Date.now()}_${Math.round(Math.random() * 1e9)}`);
+  fs.mkdirSync(tmpDir, { recursive: true });
 
-  // Parse lines into styled entries
-  interface PdfLine {
-    text: string;
-    fontSize: number;
-    bold: boolean;
-    indent: number;
-    spacingAfter: number;
+  // Write the file map as JSON for Python to read
+  const manifest = path.join(tmpDir, 'manifest.json');
+  const fileEntries: Array<{ arcname: string; filepath: string }> = [];
+
+  for (const [arcname, content] of Object.entries(files)) {
+    const safeName = arcname.replace(/\//g, '__');
+    const filePath = path.join(tmpDir, safeName);
+    fs.writeFileSync(filePath, content, 'utf-8');
+    fileEntries.push({ arcname, filepath: filePath });
   }
 
-  const pdfLines: PdfLine[] = [];
+  fs.writeFileSync(manifest, JSON.stringify(fileEntries), 'utf-8');
 
-  if (title) {
-    pdfLines.push({ text: title, fontSize: 22, bold: true, indent: 0, spacingAfter: 16 });
-    pdfLines.push({ text: '', fontSize: 12, bold: false, indent: 0, spacingAfter: 8 });
+  // Use Python's built-in zipfile (no pip packages needed)
+  const pyScript = `
+import json, zipfile, sys
+with open(sys.argv[1]) as f:
+    entries = json.load(f)
+with zipfile.ZipFile(sys.argv[2], 'w', zipfile.ZIP_STORED) as zf:
+    for e in entries:
+        zf.write(e['filepath'], e['arcname'])
+print('OK')
+`;
+
+  const pyFile = path.join(tmpDir, 'mkzip.py');
+  fs.writeFileSync(pyFile, pyScript);
+
+  try {
+    const result = execSync(`python3 "${pyFile}" "${manifest}" "${outputPath}"`, {
+      timeout: 15000,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    if (!result.trim().startsWith('OK')) {
+      throw new Error(`ZIP creation failed: ${result}`);
+    }
+  } finally {
+    // Clean up temp files
+    try {
+      for (const entry of fileEntries) {
+        try { fs.unlinkSync(entry.filepath); } catch {}
+      }
+      try { fs.unlinkSync(manifest); } catch {}
+      try { fs.unlinkSync(pyFile); } catch {}
+      try { fs.rmdirSync(tmpDir); } catch {}
+    } catch {}
+  }
+}
+
+// ─── PDF Generation (pure Node.js) ──────────────────────────────
+
+function buildPdf(title: string, nodes: DocNode[]): Buffer {
+  const W = 612, H = 792, M = 72;
+  const usable = W - 2 * M;
+
+  interface PLine { text: string; x: number; fontSize: number; bold: boolean; italic: boolean; color: string; isHR?: boolean; _y?: number }
+  const allLines: PLine[] = [];
+
+  function addLine(text: string, fontSize: number, bold: boolean, italic: boolean, indent: number, color: string) {
+    const charsPerLine = Math.floor((usable - indent) / (fontSize * 0.52));
+    const wrapped = wordWrap(text, charsPerLine);
+    for (const wl of wrapped) {
+      allLines.push({ text: wl, x: M + indent, fontSize, bold, italic, color });
+    }
   }
 
-  for (const line of lines) {
-    const trimmed = line.trimEnd();
+  function wordWrap(text: string, max: number): string[] {
+    if (text.length <= max) return [text];
+    const words = text.split(' ');
+    const lines: string[] = [];
+    let cur = '';
+    for (const w of words) {
+      if (cur.length + w.length + 1 > max && cur) { lines.push(cur); cur = w; }
+      else { cur = cur ? cur + ' ' + w : w; }
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
 
-    if (!trimmed) {
-      pdfLines.push({ text: '', fontSize: 12, bold: false, indent: 0, spacingAfter: 6 });
+  // Title
+  addLine(title, 22, true, false, 0, '0.102 0.337 0.557');
+  allLines.push({ text: '___HR___', x: M, fontSize: 0, bold: false, italic: false, color: '0.102 0.337 0.557', isHR: true });
+
+  for (const n of nodes) {
+    const sizes: Record<number, number> = { 1: 18, 2: 16, 3: 14, 4: 13, 5: 12, 6: 11 };
+    switch (n.type) {
+      case 'heading': addLine(n.text, sizes[n.level || 1] || 14, true, false, 0, '0.102 0.337 0.557'); break;
+      case 'paragraph': addLine(n.text, 11, false, false, 0, '0.2 0.2 0.2'); break;
+      case 'bullet': addLine(`\u2022  ${n.text}`, 11, false, false, 18, '0.2 0.2 0.2'); break;
+      case 'numbered': addLine(`${n.index || 1}.  ${n.text}`, 11, false, false, 18, '0.2 0.2 0.2'); break;
+      case 'blockquote': addLine(`"${n.text}"`, 11, false, true, 28, '0.333 0.333 0.333'); break;
+      case 'hr': allLines.push({ text: '___HR___', x: M, fontSize: 0, bold: false, italic: false, color: '0.8 0.8 0.8', isHR: true }); break;
+    }
+    // Spacing
+    allLines.push({ text: '', x: 0, fontSize: 6, bold: false, italic: false, color: '0 0 0' });
+  }
+
+  // Paginate
+  const pages: PLine[][] = [[]];
+  let y = H - M;
+  for (const ln of allLines) {
+    if (ln.isHR) {
+      if (y - 12 < M) { pages.push([]); y = H - M; }
+      const hrLine = { ...ln, _y: y };
+      pages[pages.length - 1].push(hrLine);
+      y -= 12;
       continue;
     }
-
-    // Strip markdown bold/italic markers for PDF (we handle bold via font)
-    const cleanText = trimmed.replace(/\*\*(.+?)\*\*/g, '$1').replace(/\*(.+?)\*/g, '$1');
-
-    if (trimmed.startsWith('### ')) {
-      pdfLines.push({ text: cleanText.slice(4), fontSize: 14, bold: true, indent: 0, spacingAfter: 8 });
-    } else if (trimmed.startsWith('## ')) {
-      pdfLines.push({ text: cleanText.slice(3), fontSize: 16, bold: true, indent: 0, spacingAfter: 10 });
-    } else if (trimmed.startsWith('# ')) {
-      pdfLines.push({ text: cleanText.slice(2), fontSize: 20, bold: true, indent: 0, spacingAfter: 12 });
-    } else if (/^[-*•]\s+/.test(trimmed)) {
-      const text = '\u2022  ' + cleanText.replace(/^[-*•]\s+/, '');
-      pdfLines.push({ text, fontSize: 12, bold: false, indent: 20, spacingAfter: 4 });
-    } else if (/^\d+[.)]\s+/.test(trimmed)) {
-      pdfLines.push({ text: cleanText, fontSize: 12, bold: false, indent: 20, spacingAfter: 4 });
-    } else {
-      // Word-wrap long lines
-      const wrappedLines = wordWrap(cleanText, usableWidth, 12);
-      for (const wl of wrappedLines) {
-        pdfLines.push({ text: wl, fontSize: 12, bold: false, indent: 0, spacingAfter: 2 });
-      }
-      pdfLines.push({ text: '', fontSize: 12, bold: false, indent: 0, spacingAfter: 4 });
-    }
-  }
-
-  // Split into pages
-  const pages: PdfLine[][] = [[]];
-  let currentY = pageHeight - marginTop;
-
-  for (const pdfLine of pdfLines) {
-    const lineHeight = pdfLine.fontSize * 1.4 + pdfLine.spacingAfter;
-    if (currentY - lineHeight < marginBottom) {
-      pages.push([]);
-      currentY = pageHeight - marginTop;
-    }
-    pages[pages.length - 1].push(pdfLine);
-    currentY -= lineHeight;
+    if (ln.text === '' && ln.fontSize > 0) { y -= ln.fontSize; continue; }
+    if (ln.text === '') continue;
+    const lh = ln.fontSize * 1.5;
+    if (y - lh < M) { pages.push([]); y = H - M; }
+    ln._y = y;
+    pages[pages.length - 1].push(ln);
+    y -= lh;
   }
 
   // Build PDF
-  return buildPdfBuffer(pages, pageWidth, pageHeight, marginLeft, marginTop);
-}
+  const objs: string[] = [];
+  let objNum = 0;
+  function addObj(s: string): number { objNum++; objs.push(`${objNum} 0 obj\n${s}\nendobj\n`); return objNum; }
 
-function wordWrap(text: string, maxWidth: number, fontSize: number): string[] {
-  // Approximate: average char width ≈ fontSize * 0.5 for Helvetica
-  const avgCharWidth = fontSize * 0.5;
-  const maxChars = Math.floor(maxWidth / avgCharWidth);
+  addObj('<< /Type /Catalog /Pages 2 0 R >>');
+  addObj('PLACEHOLDER');
+  const f1 = addObj('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
+  const f2 = addObj('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+  const f3 = addObj('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique /Encoding /WinAnsiEncoding >>');
+  const f4 = addObj('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-BoldOblique /Encoding /WinAnsiEncoding >>');
 
-  if (text.length <= maxChars) return [text];
-
-  const words = text.split(' ');
-  const lines: string[] = [];
-  let currentLine = '';
-
-  for (const word of words) {
-    if ((currentLine + ' ' + word).trim().length > maxChars) {
-      if (currentLine) lines.push(currentLine.trim());
-      currentLine = word;
-    } else {
-      currentLine = currentLine ? currentLine + ' ' + word : word;
-    }
-  }
-  if (currentLine.trim()) lines.push(currentLine.trim());
-
-  return lines;
-}
-
-function escapePdfString(str: string): string {
-  return str
-    .replace(/\\/g, '\\\\')
-    .replace(/\(/g, '\\(')
-    .replace(/\)/g, '\\)')
-    // Replace common unicode with ASCII equivalents
-    .replace(/[\u2018\u2019]/g, "'")
-    .replace(/[\u201C\u201D]/g, '"')
-    .replace(/\u2013/g, '-')
-    .replace(/\u2014/g, '--')
-    .replace(/\u2022/g, '\\267') // bullet
-    .replace(/\u2026/g, '...')
-    // Remove any remaining non-ASCII
-    .replace(/[^\x00-\x7F]/g, '?');
-}
-
-interface PdfLine {
-  text: string;
-  fontSize: number;
-  bold: boolean;
-  indent: number;
-  spacingAfter: number;
-}
-
-function buildPdfBuffer(
-  pages: PdfLine[][],
-  pageWidth: number,
-  pageHeight: number,
-  marginLeft: number,
-  marginTop: number,
-): Buffer {
-  const objects: string[] = [];
-  const offsets: number[] = [];
-  let output = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n';
-
-  function addObject(content: string): number {
-    const objNum = objects.length + 1;
-    offsets.push(output.length);
-    const obj = `${objNum} 0 obj\n${content}\nendobj\n`;
-    output += obj;
-    objects.push(obj);
-    return objNum;
-  }
-
-  // Object 1: Catalog
-  const catalogObj = addObject('<< /Type /Catalog /Pages 2 0 R >>');
-
-  // Object 2: Pages (placeholder - we'll fix later)
-  const pagesObjNum = objects.length + 1;
-  offsets.push(0); // placeholder
-  objects.push(''); // placeholder
-  output += ''; // placeholder - we'll rebuild
-
-  // Object 3: Font - Helvetica
-  const fontObj = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
-
-  // Object 4: Font - Helvetica Bold
-  const fontBoldObj = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
-
-  // Build page objects
-  const pageObjNums: number[] = [];
+  const pageRefs: number[] = [];
   for (const page of pages) {
-    // Build content stream
     let stream = '';
-    stream += 'BT\n';
-
-    let y = pageHeight - marginTop;
-    for (const line of page) {
-      if (!line.text && !line.spacingAfter) continue;
-
-      if (line.text) {
-        const fontRef = line.bold ? '/F2' : '/F1';
-        stream += `${fontRef} ${line.fontSize} Tf\n`;
-        stream += `${marginLeft + line.indent} ${y.toFixed(1)} Td\n`;
-        stream += `(${escapePdfString(line.text)}) Tj\n`;
+    for (const ln of page) {
+      if (ln.isHR) {
+        const hrY = ln._y || (H - M);
+        stream += `${ln.color} RG 0.5 w ${M} ${hrY} m ${W - M} ${hrY} l S\n`;
+        continue;
       }
-
-      y -= line.fontSize * 1.4 + line.spacingAfter;
+      const py = ln._y || (H - M);
+      const fn = ln.bold && ln.italic ? 'F4' : ln.bold ? 'F2' : ln.italic ? 'F3' : 'F1';
+      const esc = ln.text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+      stream += `BT /${fn} ${ln.fontSize} Tf ${ln.color} rg ${ln.x} ${py} Td (${esc}) Tj ET\n`;
     }
+    const contentObj = addObj(`<< /Length ${stream.length} >>\nstream\n${stream}endstream`);
+    const pgObj = addObj(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${W} ${H}] /Contents ${contentObj} 0 R /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R /F3 ${f3} 0 R /F4 ${f4} 0 R >> >> >>`);
+    pageRefs.push(pgObj);
+  }
 
-    stream += 'ET\n';
+  // Fix pages placeholder
+  const kids = pageRefs.map(n => `${n} 0 R`).join(' ');
+  objs[1] = `2 0 obj\n<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>\nendobj\n`;
 
-    // Content stream object
-    const streamObj = addObject(`<< /Length ${stream.length} >>\nstream\n${stream}endstream`);
+  // Build file
+  const header = '%PDF-1.4\n%\xB5\xB5\xB5\xB5\n';
+  const body = objs.join('');
+  const offsets: number[] = [];
+  let pos = header.length;
+  for (const obj of objs) {
+    offsets.push(pos);
+    pos += obj.length;
+  }
 
-    // Page object
-    const pageObj = addObject(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] ` +
-      `/Contents ${streamObj} 0 R /Resources << /Font << /F1 ${fontObj} 0 R /F2 ${fontBoldObj} 0 R >> >> >>`
+  let xref = `xref\n0 ${objNum + 1}\n0000000000 65535 f \n`;
+  for (const o of offsets) xref += `${o.toString().padStart(10, '0')} 00000 n \n`;
+  xref += `trailer\n<< /Size ${objNum + 1} /Root 1 0 R >>\nstartxref\n${pos}\n%%EOF\n`;
+
+  return Buffer.from(header + body + xref, 'latin1');
+}
+
+// ─── Public API ──────────────────────────────────────────────────
+
+export function generateDocx(content: string, title?: string): Buffer {
+  const docTitle = title || 'Document';
+  const uid = `${Date.now()}_${Math.round(Math.random() * 1e9)}`;
+  const tmpContent = path.join('/tmp', `linda_content_${uid}.txt`);
+  const tmpOutput = path.join('/tmp', `linda_docx_${uid}.docx`);
+
+  // Path to the Python script that uses xml.etree.ElementTree for proper XML generation
+  // At runtime __dirname is dist/modules/linda/, so resolve back to src/modules/linda/
+  const backendRoot = path.resolve(__dirname, '..', '..', '..');
+  const scriptPath = path.join(backendRoot, 'src', 'modules', 'linda', 'generate_docx.py');
+
+  try {
+    // Write markdown content to temp file
+    fs.writeFileSync(tmpContent, content, 'utf-8');
+
+    // Call the Python script — uses xml.etree for valid OOXML and zipfile for proper ZIP
+    const result = execSync(
+      `python3 "${scriptPath}" --output "${tmpOutput}" --title "${docTitle.replace(/"/g, '\\"')}" --content-file "${tmpContent}"`,
+      { timeout: 30000, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
     );
-    pageObjNums.push(pageObj);
-  }
 
-  // Now rebuild the output with the correct Pages object
-  const pagesContent = `<< /Type /Pages /Kids [${pageObjNums.map(n => `${n} 0 R`).join(' ')}] /Count ${pageObjNums.length} >>`;
-
-  // Rebuild entire PDF
-  output = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n';
-  const finalOffsets: number[] = [];
-
-  // Re-serialize all objects with correct offsets
-  // Object 1: Catalog
-  finalOffsets.push(output.length);
-  output += `1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`;
-
-  // Object 2: Pages
-  finalOffsets.push(output.length);
-  output += `2 0 obj\n${pagesContent}\nendobj\n`;
-
-  // Object 3: Font
-  finalOffsets.push(output.length);
-  output += `3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n`;
-
-  // Object 4: Font Bold
-  finalOffsets.push(output.length);
-  output += `4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>\nendobj\n`;
-
-  // Remaining objects (streams and pages)
-  for (let i = 4; i < objects.length; i++) {
-    finalOffsets.push(output.length);
-    // Re-extract content from the object string
-    const origObj = objects[i];
-    const objContent = origObj.replace(/^\d+ 0 obj\n/, '').replace(/\nendobj\n$/, '');
-    output += `${i + 1} 0 obj\n${objContent}\nendobj\n`;
-  }
-
-  // Cross-reference table
-  const xrefOffset = output.length;
-  output += 'xref\n';
-  output += `0 ${finalOffsets.length + 1}\n`;
-  output += '0000000000 65535 f \n';
-  for (const offset of finalOffsets) {
-    output += `${offset.toString().padStart(10, '0')} 00000 n \n`;
-  }
-
-  // Trailer
-  output += 'trailer\n';
-  output += `<< /Size ${finalOffsets.length + 1} /Root 1 0 R >>\n`;
-  output += 'startxref\n';
-  output += `${xrefOffset}\n`;
-  output += '%%EOF\n';
-
-  return Buffer.from(output, 'binary');
-}
-
-// ─── ZIP Builder (for DOCX) ─────────────────────────────────────────────────
-
-function createZipBuffer(files: Array<{ path: string; content: string }>): Buffer {
-  const entries: Array<{
-    path: string;
-    compressed: Buffer;
-    uncompressed: Buffer;
-    crc32: number;
-    offset: number;
-  }> = [];
-
-  let offset = 0;
-  const localHeaders: Buffer[] = [];
-
-  for (const file of files) {
-    const uncompressed = Buffer.from(file.content, 'utf-8');
-    const compressed = zlib.deflateRawSync(uncompressed);
-    const crc = crc32(uncompressed);
-
-    const entry = {
-      path: file.path,
-      compressed,
-      uncompressed,
-      crc32: crc,
-      offset,
-    };
-
-    // Local file header
-    const pathBuf = Buffer.from(file.path, 'utf-8');
-    const localHeader = Buffer.alloc(30 + pathBuf.length);
-    localHeader.writeUInt32LE(0x04034b50, 0); // signature
-    localHeader.writeUInt16LE(20, 4); // version needed
-    localHeader.writeUInt16LE(0, 6); // flags
-    localHeader.writeUInt16LE(8, 8); // compression: deflate
-    localHeader.writeUInt16LE(0, 10); // mod time
-    localHeader.writeUInt16LE(0, 12); // mod date
-    localHeader.writeUInt32LE(crc, 14); // crc32
-    localHeader.writeUInt32LE(compressed.length, 18); // compressed size
-    localHeader.writeUInt32LE(uncompressed.length, 22); // uncompressed size
-    localHeader.writeUInt16LE(pathBuf.length, 26); // filename length
-    localHeader.writeUInt16LE(0, 28); // extra field length
-    pathBuf.copy(localHeader, 30);
-
-    localHeaders.push(Buffer.concat([localHeader, compressed]));
-    offset += localHeader.length + compressed.length;
-
-    entries.push(entry);
-  }
-
-  // Central directory
-  const centralEntries: Buffer[] = [];
-  for (const entry of entries) {
-    const pathBuf = Buffer.from(entry.path, 'utf-8');
-    const centralEntry = Buffer.alloc(46 + pathBuf.length);
-    centralEntry.writeUInt32LE(0x02014b50, 0); // signature
-    centralEntry.writeUInt16LE(20, 4); // version made by
-    centralEntry.writeUInt16LE(20, 6); // version needed
-    centralEntry.writeUInt16LE(0, 8); // flags
-    centralEntry.writeUInt16LE(8, 10); // compression
-    centralEntry.writeUInt16LE(0, 12); // mod time
-    centralEntry.writeUInt16LE(0, 14); // mod date
-    centralEntry.writeUInt32LE(entry.crc32, 16); // crc32
-    centralEntry.writeUInt32LE(entry.compressed.length, 20); // compressed size
-    centralEntry.writeUInt32LE(entry.uncompressed.length, 24); // uncompressed size
-    centralEntry.writeUInt16LE(pathBuf.length, 28); // filename length
-    centralEntry.writeUInt16LE(0, 30); // extra field length
-    centralEntry.writeUInt16LE(0, 32); // comment length
-    centralEntry.writeUInt16LE(0, 34); // disk number start
-    centralEntry.writeUInt16LE(0, 36); // internal file attributes
-    centralEntry.writeUInt32LE(0, 38); // external file attributes
-    centralEntry.writeUInt32LE(entry.offset, 42); // offset of local header
-    pathBuf.copy(centralEntry, 46);
-    centralEntries.push(centralEntry);
-  }
-
-  const centralDir = Buffer.concat(centralEntries);
-  const centralDirOffset = offset;
-
-  // End of central directory
-  const eocd = Buffer.alloc(22);
-  eocd.writeUInt32LE(0x06054b50, 0); // signature
-  eocd.writeUInt16LE(0, 4); // disk number
-  eocd.writeUInt16LE(0, 6); // central dir disk
-  eocd.writeUInt16LE(entries.length, 8); // entries on this disk
-  eocd.writeUInt16LE(entries.length, 10); // total entries
-  eocd.writeUInt32LE(centralDir.length, 12); // central dir size
-  eocd.writeUInt32LE(centralDirOffset, 16); // central dir offset
-  eocd.writeUInt16LE(0, 20); // comment length
-
-  return Buffer.concat([...localHeaders, centralDir, eocd]);
-}
-
-// Simple CRC32 implementation
-function crc32(buf: Buffer): number {
-  let crc = 0xFFFFFFFF;
-  for (let i = 0; i < buf.length; i++) {
-    crc ^= buf[i];
-    for (let j = 0; j < 8; j++) {
-      crc = (crc >>> 1) ^ (crc & 1 ? 0xEDB88320 : 0);
+    if (!result.trim().startsWith('OK')) {
+      throw new Error(`DOCX generation failed: ${result}`);
     }
+
+    return fs.readFileSync(tmpOutput);
+  } finally {
+    try { fs.unlinkSync(tmpContent); } catch {}
+    try { fs.unlinkSync(tmpOutput); } catch {}
   }
-  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+export function generatePdf(content: string, title?: string): Buffer {
+  const nodes = parseMarkdown(content);
+  return buildPdf(title || 'Document', nodes);
 }

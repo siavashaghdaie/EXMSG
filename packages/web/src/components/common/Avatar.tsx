@@ -113,8 +113,9 @@ export const Avatar: React.FC<AvatarProps> = ({
   const isLinda = isLindaBot(name, username);
 
   // Use store for presence if userId and showPresence are provided, otherwise fall back to online prop
+  // Linda bot is always online
   const isUserOnline = usePresenceStore((s) => userId ? s.onlineUsers.has(userId) : null);
-  const shouldShowOnline = showPresence && userId && isUserOnline !== null ? isUserOnline : online;
+  const shouldShowOnline = isLinda ? true : (showPresence && userId && isUserOnline !== null ? isUserOnline : online);
 
   return (
     <div className={`relative inline-flex flex-shrink-0 ${className}`}>

@@ -16,6 +16,7 @@ import { taskRoutes } from './modules/tasks/task.routes';
 import { adminRoutes } from './modules/admin/admin.routes';
 import { statusRoutes } from './modules/status/status.routes';
 import { announcementRoutes } from './modules/announcements/announcement.routes';
+import { initializeLinda } from './modules/linda/linda.controller';
 
 async function bootstrap() {
   const app = express();
@@ -68,6 +69,9 @@ async function bootstrap() {
 
   // Initialize WebSocket
   initializeSocketServer(httpServer);
+
+  // Initialize Linda bot (ensure she's online)
+  await initializeLinda();
 
   // Start server
   httpServer.listen(env.PORT, () => {

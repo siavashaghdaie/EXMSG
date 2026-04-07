@@ -6,6 +6,10 @@ import { cacheUtils } from '../config/redis';
 import { prisma } from '../config/database';
 import { AuthPayload } from '../middleware/auth';
 
+// Linda bot user ID — set by initializeLinda() to avoid circular imports
+let _lindaBotUserId: string | null = null;
+export function registerLindaBotUserId(id: string) { _lindaBotUserId = id; }
+
 interface AuthenticatedSocket extends Socket {
   userId?: string;
   username?: string;
@@ -65,6 +69,11 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
 
     // Broadcast online status
     socket.broadcast.emit('user:online', { userId });
+
+    // Tell the newly connected client that Linda bot is online
+    if (_lindaBotUserId) {
+      socket.emit('user:online', { userId: _lindaBotUserId });
+    }
 
     // --- EVENT HANDLERS ---
 

@@ -343,10 +343,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               ) : (
                 filteredConversations.map((conversation) => {
                   // Check if any participant (except current user) is online
-                  const otherUserId = conversation.participants.find(
+                  const otherParticipant = conversation.participants.find(
                     (p) => p.id !== user.id
-                  )?.id;
-                  const isOnline = otherUserId ? onlineUsers.has(otherUserId) : false;
+                  );
+                  const otherUserId = otherParticipant?.id;
+                  // Linda bot is always online
+                  const isLindaBot = otherParticipant?.username === 'linda' || (otherParticipant?.email && otherParticipant.email === 'linda@omnilink.system');
+                  const isOnline = isLindaBot ? true : (otherUserId ? onlineUsers.has(otherUserId) : false);
 
                   // Get typing users for this conversation (exclude current user)
                   const convTyping = typingIndicators.get(conversation.id) || [];

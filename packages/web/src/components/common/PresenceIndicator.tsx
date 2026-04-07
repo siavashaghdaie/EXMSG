@@ -5,10 +5,11 @@ interface PresenceIndicatorProps {
   userId: string;
   showText?: boolean;
   size?: 'sm' | 'md' | 'lg';
+  forceOnline?: boolean;
 }
 
-export default function PresenceIndicator({ userId, showText = false, size = 'sm' }: PresenceIndicatorProps) {
-  const isOnline = usePresenceStore((s) => s.onlineUsers.has(userId));
+export default function PresenceIndicator({ userId, showText = false, size = 'sm', forceOnline = false }: PresenceIndicatorProps) {
+  const isOnline = forceOnline || usePresenceStore((s) => s.onlineUsers.has(userId));
   const lastSeen = usePresenceStore((s) => s.lastSeen.get(userId));
 
   const dotSize = {
