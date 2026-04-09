@@ -8,14 +8,18 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
+  pendingVerificationEmail: string | null;
 
   // Actions
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, displayName: string, password: string) => Promise<void>;
+  verifyOtp: (email: string, code: string) => Promise<void>;
+  resendOtp: (email: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
   refreshToken: () => Promise<void>;
   clearError: () => void;
+  clearPendingVerification: () => void;
   updateUser: (updates: Partial<UserProfile>) => void;
 }
 
@@ -26,6 +30,7 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       isLoading: false,
       error: null,
+      pendingVerificationEmail: null,
 
       login: async (email: string, password: string) => {
         set({ isLoading: true, error: null });
@@ -35,6 +40,7 @@ export const useAuthStore = create<AuthState>()(
             user: response.user,
             isAuthenticated: true,
             isLoading: false,
+            pendingVerificationEmail: null,
           });
 
           // Connect socket after successful login (fire-and-forget, don't block auth)
@@ -45,6 +51,15 @@ export const useAuthStore = create<AuthState>()(
             });
           }
         } catch (error: any) {
+          // Check if the error response says verification is required
+          if (error.response?.data?.requiresVerification) {
+            set({
+              isLoading: false,
+              error: null,
+              pendingVerificationEmail: error.response.data.email || email,
+            });
+            throw error;
+          }
           const errorMessage = error.response?.data?.error || error.response?.data?.message || error.message || 'Login failed';
           set({
             isAuthenticated: false,
@@ -59,13 +74,23 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true, error: null });
         try {
           const response = await api.register(email, displayName, password);
+          // Check if verification is required (email OTP flow)
+          if ('requiresVerification' in response && response.requiresVerification) {
+            set({
+              isLoading: false,
+              pendingVerificationEmail: response.email,
+            });
+            return; // Don't throw — this is a success, just needs verification
+          }
+          // Direct auth (no email configured on backend)
+          const authResponse = response as { user: any; accessToken: string; refreshToken: string };
           set({
-            user: response.user,
+            user: authResponse.user,
             isAuthenticated: true,
             isLoading: false,
+            pendingVerificationEmail: null,
           });
 
-          // Connect socket after successful registration (fire-and-forget, don't block auth)
           const token = localStorage.getItem('accessToken');
           if (token) {
             socket.connect(token).catch((err: unknown) => {
@@ -73,6 +98,15 @@ export const useAuthStore = create<AuthState>()(
             });
           }
         } catch (error: any) {
+          // Also check error response for requiresVerification (409 duplicate but unverified)
+          if (error.response?.data?.requiresVerification) {
+            set({
+              isLoading: false,
+              error: null,
+              pendingVerificationEmail: error.response.data.email || email,
+            });
+            throw error;
+          }
           const errorMessage =
             error.response?.data?.error || error.response?.data?.message || error.message || 'Registration failed';
           set({
@@ -80,6 +114,42 @@ export const useAuthStore = create<AuthState>()(
             isLoading: false,
             error: errorMessage,
           });
+          throw error;
+        }
+      },
+
+      verifyOtp: async (email: string, code: string) => {
+        set({ isLoading: true, error: null });
+        try {
+          const response = await api.verifyOtp(email, code);
+          set({
+            user: response.user,
+            isAuthenticated: true,
+            isLoading: false,
+            pendingVerificationEmail: null,
+          });
+
+          const token = localStorage.getItem('accessToken');
+          if (token) {
+            socket.connect(token).catch((err: unknown) => {
+              console.warn('[Socket] Connection failed, will retry:', err);
+            });
+          }
+        } catch (error: any) {
+          const errorMessage = error.response?.data?.error || error.message || 'Verification failed';
+          set({ isLoading: false, error: errorMessage });
+          throw error;
+        }
+      },
+
+      resendOtp: async (email: string) => {
+        set({ isLoading: true, error: null });
+        try {
+          await api.resendOtp(email);
+          set({ isLoading: false });
+        } catch (error: any) {
+          const errorMessage = error.response?.data?.error || error.message || 'Failed to resend code';
+          set({ isLoading: false, error: errorMessage });
           throw error;
         }
       },
@@ -174,6 +244,10 @@ export const useAuthStore = create<AuthState>()(
 
       clearError: () => {
         set({ error: null });
+      },
+
+      clearPendingVerification: () => {
+        set({ pendingVerificationEmail: null });
       },
 
       updateUser: (updates: Partial<UserProfile>) => {

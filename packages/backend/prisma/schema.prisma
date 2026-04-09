@@ -37,6 +37,7 @@ model User {
   status       String?   @default("Hey, I'm using Exclusive Messenger!")
   isOnline     Boolean   @default(false) @map("is_online")
   lastSeenAt   DateTime? @map("last_seen_at")
+  emailVerified    Boolean   @default(false) @map("email_verified")
   twoFactorEnabled Boolean @default(false) @map("two_factor_enabled")
   twoFactorSecret  String? @map("two_factor_secret")
   createdAt    DateTime  @default(now()) @map("created_at")
@@ -63,6 +64,7 @@ model User {
   lindaActivitiesOrdered LindaActivity[] @relation("LindaActivitiesOrdered")
   lindaActivitiesTarget  LindaActivity[] @relation("LindaActivitiesTarget")
   lindaMemories      LindaMemory[]
+  otpCodes           OtpCode[]
 
   @@map("users")
 }
@@ -492,4 +494,26 @@ model LindaMemory {
 
   @@index([userId, category])
   @@map("linda_memories")
+}
+
+// ============================================
+// OTP / EMAIL VERIFICATION
+// ============================================
+
+model OtpCode {
+  id        String   @id @default(uuid())
+  email     String
+  code      String
+  purpose   String   // 'register', 'login', 'reset'
+  userId    String?  @map("user_id")
+  attempts  Int      @default(0) // brute-force protection
+  verified  Boolean  @default(false)
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([email, purpose])
+  @@index([code, email])
+  @@map("otp_codes")
 }

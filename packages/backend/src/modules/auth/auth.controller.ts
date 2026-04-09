@@ -3,14 +3,33 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '../../config/database';
 import { generateTokens, verifyRefreshToken } from '../../middleware/auth';
 import { RegisterInput, LoginInput } from './auth.validation';
+import { createAndSendOtp, verifyOtp } from '../../services/otp';
+import { sendWelcomeEmail, isEmailConfigured } from '../../services/email';
 
 const LINDA_EMAIL = 'linda@omnilink.system';
 
 /** Ensure a DM conversation exists between a user and Linda */
 async function ensureLindaDM(userId: string): Promise<void> {
   try {
-    const lindaUser = await prisma.user.findFirst({ where: { email: LINDA_EMAIL }, select: { id: true } });
-    if (!lindaUser || lindaUser.id === userId) return;
+    // Find or create the Linda bot user
+    let lindaUser = await prisma.user.findFirst({ where: { email: LINDA_EMAIL }, select: { id: true } });
+    if (!lindaUser) {
+      lindaUser = await prisma.user.create({
+        data: {
+          email: LINDA_EMAIL,
+          username: 'linda',
+          displayName: 'Linda AI',
+          passwordHash: 'BOT_ACCOUNT_NO_LOGIN',
+          bio: 'Hi! I\'m Linda, your AI assistant. I can help you with tasks, documents, and more.',
+          status: 'Always here to help!',
+          isOnline: true,
+          emailVerified: true,
+        },
+        select: { id: true },
+      });
+      console.log(`[Linda] Created bot user: ${lindaUser.id}`);
+    }
+    if (lindaUser.id === userId) return;
 
     // Check if DM already exists
     const existing = await prisma.conversation.findFirst({
@@ -53,10 +72,8 @@ export class AuthController {
       // Auto-generate username from email if not provided
       let username = rawUsername?.toLowerCase().trim() || '';
       if (!username) {
-        // Extract local part of email and sanitize to valid username chars
         const emailPrefix = email.split('@')[0].replace(/[^a-z0-9_]/g, '_');
         username = emailPrefix.slice(0, 30);
-        // Ensure minimum 3 characters
         if (username.length < 3) {
           username = username.padEnd(3, '_');
         }
@@ -74,21 +91,97 @@ export class AuthController {
 
       if (existing) {
         if (existing.email.toLowerCase() === email) {
+          // If they exist but aren't verified, resend OTP and tell them
+          if (!existing.emailVerified && isEmailConfigured()) {
+            await createAndSendOtp(email, 'register', existing.id);
+            res.status(409).json({
+              error: 'An account with this email already exists but is not verified. A new verification code has been sent.',
+              requiresVerification: true,
+              email,
+            });
+            return;
+          }
           res.status(409).json({ error: 'An account with this email already exists' });
+          return;
         } else {
-          // Username collision — append random digits and retry
           username = `${username.slice(0, 25)}_${Math.floor(Math.random() * 9999).toString().padStart(4, '0')}`;
         }
-        if (existing.email.toLowerCase() === email) return;
       }
 
       // Hash password
       const passwordHash = await bcrypt.hash(password, 12);
 
-      // Create user
+      // Create user (unverified if email is configured)
+      const emailEnabled = isEmailConfigured();
       const user = await prisma.user.create({
-        data: { email, username, displayName, passwordHash },
-        select: { id: true, email: true, username: true, displayName: true, createdAt: true },
+        data: { email, username, displayName, passwordHash, emailVerified: !emailEnabled },
+        select: { id: true, email: true, username: true, displayName: true, emailVerified: true, createdAt: true },
+      });
+
+      // If email is configured, send OTP and require verification
+      if (emailEnabled) {
+        const otpResult = await createAndSendOtp(email, 'register', user.id);
+        if (!otpResult.success) {
+          console.error('[Auth] Failed to send registration OTP:', otpResult.error);
+        }
+        res.status(201).json({
+          message: 'Account created. Please check your email for a verification code.',
+          requiresVerification: true,
+          email: user.email,
+          userId: user.id,
+        });
+        return;
+      }
+
+      // Email not configured — issue tokens immediately (dev mode)
+      const tokens = generateTokens({
+        userId: user.id,
+        email: user.email,
+        username: user.username,
+      });
+
+      await prisma.refreshToken.create({
+        data: {
+          token: tokens.refreshToken,
+          userId: user.id,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      ensureLindaDM(user.id).catch(() => {});
+
+      res.status(201).json({ user, ...tokens });
+    } catch (error) {
+      console.error('Register error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  /**
+   * Verify OTP code after registration — completes the signup flow.
+   */
+  async verifyRegistration(req: Request, res: Response): Promise<void> {
+    try {
+      const { email: rawEmail, code } = req.body;
+      const email = rawEmail?.toLowerCase().trim();
+
+      if (!email || !code) {
+        res.status(400).json({ error: 'Email and verification code are required' });
+        return;
+      }
+
+      // Verify the OTP
+      const result = await verifyOtp(email, code, 'register');
+      if (!result.valid) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+
+      // Mark user as verified
+      const user = await prisma.user.update({
+        where: { email },
+        data: { emailVerified: true },
+        select: { id: true, email: true, username: true, displayName: true, emailVerified: true, createdAt: true },
       });
 
       // Generate tokens
@@ -98,21 +191,48 @@ export class AuthController {
         username: user.username,
       });
 
-      // Store refresh token
       await prisma.refreshToken.create({
         data: {
           token: tokens.refreshToken,
           userId: user.id,
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         },
       });
 
-      // Ensure DM with Linda exists for new user
+      // Set up Linda DM and send welcome email
       ensureLindaDM(user.id).catch(() => {});
+      sendWelcomeEmail(email, user.displayName).catch(() => {});
 
-      res.status(201).json({ user, ...tokens });
+      res.json({ user, ...tokens });
     } catch (error) {
-      console.error('Register error:', error);
+      console.error('Verify registration error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  /**
+   * Resend OTP for registration or login.
+   */
+  async resendOtp(req: Request, res: Response): Promise<void> {
+    try {
+      const { email: rawEmail, purpose } = req.body;
+      const email = rawEmail?.toLowerCase().trim();
+      const otpPurpose = purpose === 'login' ? 'login' : 'register';
+
+      if (!email) {
+        res.status(400).json({ error: 'Email is required' });
+        return;
+      }
+
+      const result = await createAndSendOtp(email, otpPurpose as 'register' | 'login');
+      if (!result.success) {
+        res.status(429).json({ error: result.error });
+        return;
+      }
+
+      res.json({ message: 'Verification code sent. Please check your email.' });
+    } catch (error) {
+      console.error('Resend OTP error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }
@@ -131,6 +251,7 @@ export class AuthController {
           displayName: true,
           passwordHash: true,
           avatarUrl: true,
+          emailVerified: true,
         },
       });
 
@@ -142,6 +263,17 @@ export class AuthController {
       const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
       if (!isPasswordValid) {
         res.status(401).json({ error: 'Invalid email or password' });
+        return;
+      }
+
+      // Block unverified users — resend OTP
+      if (!user.emailVerified && isEmailConfigured()) {
+        await createAndSendOtp(email, 'register', user.id);
+        res.status(403).json({
+          error: 'Please verify your email before logging in. A new code has been sent.',
+          requiresVerification: true,
+          email: user.email,
+        });
         return;
       }
 
@@ -160,7 +292,7 @@ export class AuthController {
         },
       });
 
-      const { passwordHash: _, ...userWithoutPassword } = user;
+      const { passwordHash: _, emailVerified: __, ...userWithoutPassword } = user;
 
       // Ensure DM with Linda exists (fire-and-forget)
       ensureLindaDM(user.id).catch(() => {});

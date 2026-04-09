@@ -44,6 +44,10 @@ export const env = {
     return '';
   })(),
 
+  // Resend Email
+  RESEND_API_KEY: process.env.RESEND_API_KEY || '',
+  EMAIL_FROM: process.env.EMAIL_FROM || 'linda@theomnilink.io',
+
   // S3 / MinIO
   S3_ENDPOINT: process.env.S3_ENDPOINT || 'http://localhost:9000',
   S3_ACCESS_KEY: process.env.S3_ACCESS_KEY || '',

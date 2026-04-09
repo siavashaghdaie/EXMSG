@@ -100,9 +100,11 @@ export const LoginPage: React.FC = () => {
       await login(formData.email, formData.password);
       navigate('/chat');
     } catch (err: any) {
-      // If login succeeded but socket failed, still navigate
-      const { isAuthenticated } = useAuthStore.getState();
-      if (isAuthenticated) {
+      // If verification required, redirect to OTP page
+      const { pendingVerificationEmail, isAuthenticated } = useAuthStore.getState();
+      if (pendingVerificationEmail) {
+        navigate('/verify');
+      } else if (isAuthenticated) {
         navigate('/chat');
       } else {
         console.error('Login failed:', err);

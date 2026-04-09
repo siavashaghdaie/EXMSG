@@ -21,7 +21,7 @@ interface PasswordStrength {
 
 export const RegisterPage: React.FC = () => {
   const navigate = useNavigate();
-  const { register, isLoading, error, clearError } = useAuthStore();
+  const { register, isLoading, error, clearError, pendingVerificationEmail } = useAuthStore();
 
   // Clear any stale error when page loads
   useEffect(() => {
@@ -150,12 +150,19 @@ export const RegisterPage: React.FC = () => {
         formData.displayName,
         formData.password
       );
-      // Navigate to chat after successful registration
-      navigate('/chat');
+      // Check if we need OTP verification
+      const { pendingVerificationEmail, isAuthenticated } = useAuthStore.getState();
+      if (pendingVerificationEmail) {
+        navigate('/verify');
+      } else if (isAuthenticated) {
+        navigate('/chat');
+      }
     } catch (err: any) {
-      // If registration succeeded but socket failed, still navigate
-      const { isAuthenticated } = useAuthStore.getState();
-      if (isAuthenticated) {
+      // If verification is required (e.g. 409 unverified duplicate), redirect
+      const { pendingVerificationEmail, isAuthenticated } = useAuthStore.getState();
+      if (pendingVerificationEmail) {
+        navigate('/verify');
+      } else if (isAuthenticated) {
         navigate('/chat');
       } else {
         console.error('Registration failed:', err);

@@ -35,5 +35,19 @@ export const refreshSchema = z.object({
   }),
 });
 
+export const verifyOtpSchema = z.object({
+  body: z.object({
+    email: z.string().email('Invalid email address'),
+    code: z.string().length(6, 'Verification code must be 6 digits').regex(/^\d{6}$/, 'Code must be numeric'),
+  }),
+});
+
+export const resendOtpSchema = z.object({
+  body: z.object({
+    email: z.string().email('Invalid email address'),
+    purpose: z.enum(['register', 'login', 'reset']).optional().default('register'),
+  }),
+});
+
 export type RegisterInput = z.infer<typeof registerSchema>['body'];
 export type LoginInput = z.infer<typeof loginSchema>['body'];

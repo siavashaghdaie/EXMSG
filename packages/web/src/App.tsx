@@ -4,6 +4,7 @@ import { useAuthStore } from '@/store/authStore';
 import { setupPresenceSocketListeners } from '@/store/presenceStore';
 import { LoginPage } from '@/components/auth/LoginPage';
 import { RegisterPage } from '@/components/auth/RegisterPage';
+import { VerifyOtpPage } from '@/components/auth/VerifyOtpPage';
 import ChatLayout from '@/components/layout/ChatLayout';
 import ChatView from '@/components/chat/ChatView';
 
@@ -45,6 +46,10 @@ function App() {
       <Route
         path="/register"
         element={isAuthenticated ? <Navigate to="/chat" replace /> : <RegisterPage />}
+      />
+      <Route
+        path="/verify"
+        element={isAuthenticated ? <Navigate to="/chat" replace /> : <VerifyOtpPage />}
       />
 
       {/* Protected chat routes */}

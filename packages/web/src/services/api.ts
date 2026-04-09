@@ -13,6 +13,22 @@ interface AuthResponse {
   refreshToken: string;
 }
 
+interface VerificationRequiredResponse {
+  requiresVerification: true;
+  email: string;
+  message?: string;
+  error?: string;
+  userId?: string;
+}
+
+interface OtpVerifyResponse extends AuthResponse {}
+
+type RegisterResponse = AuthResponse | VerificationRequiredResponse;
+
+function isVerificationRequired(data: any): data is VerificationRequiredResponse {
+  return data && data.requiresVerification === true;
+}
+
 interface MessageAttachment {
   id: string;
   fileName: string;
@@ -297,15 +313,18 @@ class APIClient {
   }
 
   // Auth API
-  async register(email: string, displayName: string, password: string): Promise<AuthResponse> {
-    const response = await this.client.post<AuthResponse>('/auth/register', {
+  async register(email: string, displayName: string, password: string): Promise<RegisterResponse> {
+    const response = await this.client.post<RegisterResponse>('/auth/register', {
       email,
       displayName,
       password,
     });
-    const { accessToken, refreshToken } = response.data;
-    this.setTokens(accessToken, refreshToken);
-    return response.data;
+    if (isVerificationRequired(response.data)) {
+      return response.data;
+    }
+    const data = response.data as AuthResponse;
+    this.setTokens(data.accessToken, data.refreshToken);
+    return data;
   }
 
   async login(email: string, password: string): Promise<AuthResponse> {
@@ -315,6 +334,24 @@ class APIClient {
     });
     const { accessToken, refreshToken } = response.data;
     this.setTokens(accessToken, refreshToken);
+    return response.data;
+  }
+
+  async verifyOtp(email: string, code: string): Promise<OtpVerifyResponse> {
+    const response = await this.client.post<OtpVerifyResponse>('/auth/verify', {
+      email,
+      code,
+    });
+    const { accessToken, refreshToken } = response.data;
+    this.setTokens(accessToken, refreshToken);
+    return response.data;
+  }
+
+  async resendOtp(email: string, purpose: 'register' | 'login' = 'register'): Promise<{ message: string }> {
+    const response = await this.client.post<{ message: string }>('/auth/resend-otp', {
+      email,
+      purpose,
+    });
     return response.data;
   }
 
