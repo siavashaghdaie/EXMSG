@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldCheck, MessageSquare, ArrowLeft } from 'lucide-react';
+import { ShieldCheck, ArrowLeft } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { Button } from '../common/Button';
 import { Toast } from '../common/Toast';
@@ -9,7 +9,9 @@ export const VerifyOtpPage: React.FC = () => {
   const navigate = useNavigate();
   const {
     pendingVerificationEmail,
+    pendingOtpPurpose,
     verifyOtp,
+    verifyLoginOtp,
     resendOtp,
     isLoading,
     error,
@@ -17,22 +19,19 @@ export const VerifyOtpPage: React.FC = () => {
     clearPendingVerification,
   } = useAuthStore();
 
+  const isLoginFlow = pendingOtpPurpose === 'login';
+
   const [digits, setDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resendMessage, setResendMessage] = useState('');
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  // Redirect if no pending email
+  // Redirect if no pending email — send the user back to the right starting page
   useEffect(() => {
     if (!pendingVerificationEmail) {
-      navigate('/register');
+      navigate(isLoginFlow ? '/login' : '/register');
     }
-  }, [pendingVerificationEmail, navigate]);
-
-  // Clear errors on mount
-  useEffect(() => {
-    clearError();
-  }, [clearError]);
+  }, [pendingVerificationEmail, isLoginFlow, navigate]);
 
   // Resend cooldown timer
   useEffect(() => {
@@ -99,7 +98,11 @@ export const VerifyOtpPage: React.FC = () => {
     if (otpCode.length !== 6 || !pendingVerificationEmail) return;
 
     try {
-      await verifyOtp(pendingVerificationEmail, otpCode);
+      if (isLoginFlow) {
+        await verifyLoginOtp(pendingVerificationEmail, otpCode);
+      } else {
+        await verifyOtp(pendingVerificationEmail, otpCode);
+      }
       navigate('/chat');
     } catch {
       // Error is set in store
@@ -112,7 +115,7 @@ export const VerifyOtpPage: React.FC = () => {
     if (resendCooldown > 0 || !pendingVerificationEmail) return;
 
     try {
-      await resendOtp(pendingVerificationEmail);
+      await resendOtp(pendingVerificationEmail, isLoginFlow ? 'login' : 'register');
       setResendCooldown(60);
       setResendMessage('A new code has been sent to your email.');
       setTimeout(() => setResendMessage(''), 5000);
@@ -123,7 +126,7 @@ export const VerifyOtpPage: React.FC = () => {
 
   const handleBack = () => {
     clearPendingVerification();
-    navigate('/register');
+    navigate(isLoginFlow ? '/login' : '/register');
   };
 
   const maskedEmail = pendingVerificationEmail
@@ -150,11 +153,18 @@ export const VerifyOtpPage: React.FC = () => {
             </div>
           </div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-            Verify Your Email
+            {isLoginFlow ? 'Two-Step Sign In' : 'Verify Your Email'}
           </h1>
           <p className="text-gray-600 dark:text-gray-400">
-            We sent a 6-digit code to <strong className="text-gray-800 dark:text-gray-200">{maskedEmail}</strong>
+            {isLoginFlow
+              ? 'Enter the code we just emailed you to finish signing in.'
+              : <>We sent a 6-digit code to <strong className="text-gray-800 dark:text-gray-200">{maskedEmail}</strong></>}
           </p>
+          {isLoginFlow && (
+            <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+              Sent to <strong className="text-gray-700 dark:text-gray-300">{maskedEmail}</strong>
+            </p>
+          )}
         </div>
 
         {/* Error/Success Toast */}
@@ -230,7 +240,7 @@ export const VerifyOtpPage: React.FC = () => {
             className="flex items-center justify-center gap-2 w-full text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back to registration
+            {isLoginFlow ? 'Back to sign in' : 'Back to registration'}
           </button>
         </div>
       </div>

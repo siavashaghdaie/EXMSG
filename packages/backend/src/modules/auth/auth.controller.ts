@@ -266,7 +266,7 @@ export class AuthController {
         return;
       }
 
-      // Block unverified users — resend OTP
+      // Block unverified users — resend registration OTP
       if (!user.emailVerified && isEmailConfigured()) {
         await createAndSendOtp(email, 'register', user.id);
         res.status(403).json({
@@ -277,13 +277,36 @@ export class AuthController {
         return;
       }
 
+      // ---------------------------------------------------------------------
+      // Two-factor via email OTP on every login
+      // ---------------------------------------------------------------------
+      // When email is configured we NEVER issue tokens from /auth/login directly.
+      // Instead we generate a 6-digit code, email it to the user, and require
+      // them to complete the flow by calling /auth/verify-login. Only the
+      // follow-up call returns access+refresh tokens.
+      if (isEmailConfigured()) {
+        const otpResult = await createAndSendOtp(email, 'login', user.id);
+        if (!otpResult.success) {
+          console.error('[Auth] Failed to send login OTP:', otpResult.error);
+          res.status(500).json({ error: otpResult.error || 'Failed to send verification code' });
+          return;
+        }
+        res.json({
+          requiresOtp: true,
+          purpose: 'login',
+          email: user.email,
+          message: 'A verification code has been sent to your email.',
+        });
+        return;
+      }
+
+      // Email is not configured (dev mode) — issue tokens immediately
       const tokens = generateTokens({
         userId: user.id,
         email: user.email,
         username: user.username,
       });
 
-      // Store refresh token
       await prisma.refreshToken.create({
         data: {
           token: tokens.refreshToken,
@@ -300,6 +323,69 @@ export class AuthController {
       res.json({ user: userWithoutPassword, ...tokens });
     } catch (error) {
       console.error('Login error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  /**
+   * Complete a login flow by verifying the 6-digit code sent to the user's email.
+   * Returns access + refresh tokens on success.
+   */
+  async verifyLogin(req: Request, res: Response): Promise<void> {
+    try {
+      const { email: rawEmail, code } = req.body;
+      const email = rawEmail?.toLowerCase().trim();
+
+      if (!email || !code) {
+        res.status(400).json({ error: 'Email and verification code are required' });
+        return;
+      }
+
+      const result = await verifyOtp(email, code, 'login');
+      if (!result.valid) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+
+      const user = await prisma.user.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' } },
+        select: {
+          id: true,
+          email: true,
+          username: true,
+          displayName: true,
+          avatarUrl: true,
+          bio: true,
+          status: true,
+          role: true,
+        },
+      });
+
+      if (!user) {
+        res.status(404).json({ error: 'User not found' });
+        return;
+      }
+
+      const tokens = generateTokens({
+        userId: user.id,
+        email: user.email,
+        username: user.username,
+      });
+
+      await prisma.refreshToken.create({
+        data: {
+          token: tokens.refreshToken,
+          userId: user.id,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      // Ensure DM with Linda exists (fire-and-forget)
+      ensureLindaDM(user.id).catch(() => {});
+
+      res.json({ user, ...tokens });
+    } catch (error) {
+      console.error('Verify login error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }

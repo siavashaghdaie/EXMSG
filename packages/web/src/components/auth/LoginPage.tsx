@@ -15,11 +15,6 @@ export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const { login, isLoading, error, clearError } = useAuthStore();
 
-  // Clear any stale error when page loads
-  useEffect(() => {
-    clearError();
-  }, [clearError]);
-
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -98,7 +93,13 @@ export const LoginPage: React.FC = () => {
       }
 
       await login(formData.email, formData.password);
-      navigate('/chat');
+      // After login, either we're authenticated OR the server wants an OTP.
+      const { pendingVerificationEmail, isAuthenticated } = useAuthStore.getState();
+      if (pendingVerificationEmail) {
+        navigate('/verify');
+      } else if (isAuthenticated) {
+        navigate('/chat');
+      }
     } catch (err: any) {
       // If verification required, redirect to OTP page
       const { pendingVerificationEmail, isAuthenticated } = useAuthStore.getState();

@@ -38,6 +38,7 @@ model User {
   isOnline     Boolean   @default(false) @map("is_online")
   lastSeenAt   DateTime? @map("last_seen_at")
   emailVerified    Boolean   @default(false) @map("email_verified")
+  role             String    @default("USER") // "USER", "ORG_ADMIN", "SUPER_ADMIN"
   twoFactorEnabled Boolean @default(false) @map("two_factor_enabled")
   twoFactorSecret  String? @map("two_factor_secret")
   createdAt    DateTime  @default(now()) @map("created_at")

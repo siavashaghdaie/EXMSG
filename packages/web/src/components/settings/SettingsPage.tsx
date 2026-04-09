@@ -5,7 +5,7 @@ import { api } from '@/services/api';
 import Avatar from '@/components/common/Avatar';
 import AvatarCropModal from './AvatarCropModal';
 import AgentsPage from '@/components/agents/AgentsPage';
-import AdminDashboard from '@/components/admin/AdminDashboard';
+import OrgAdminDashboard from '@/components/org-admin/OrgAdminDashboard';
 
 interface SettingsPageProps {
   onBack: () => void;
@@ -528,7 +528,7 @@ export default function SettingsPage({ onBack }: SettingsPageProps) {
           )}
 
           {activeTab === 'dashboard' && (
-            <AdminDashboard isEmbedded={true} />
+            <OrgAdminDashboard onBack={onBack} />
           )}
 
           {activeTab === 'about' && (

@@ -1,20 +1,30 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { api, UserProfile } from '../services/api';
+import { api, UserProfile, isLoginOtpRequired } from '../services/api';
 import { socket } from '../services/socket';
+
+/**
+ * What kind of OTP flow is currently pending.
+ *  - 'register' → user just signed up, needs to verify their email for the first time
+ *  - 'login'    → user logged in with correct password, needs to enter the 2FA code
+ */
+export type PendingOtpPurpose = 'register' | 'login' | null;
 
 interface AuthState {
   user: UserProfile | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  hasCheckedAuth: boolean;
   error: string | null;
   pendingVerificationEmail: string | null;
+  pendingOtpPurpose: PendingOtpPurpose;
 
   // Actions
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, displayName: string, password: string) => Promise<void>;
   verifyOtp: (email: string, code: string) => Promise<void>;
-  resendOtp: (email: string) => Promise<void>;
+  verifyLoginOtp: (email: string, code: string) => Promise<void>;
+  resendOtp: (email: string, purpose?: 'register' | 'login') => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
   refreshToken: () => Promise<void>;
@@ -29,18 +39,34 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       isAuthenticated: false,
       isLoading: false,
+      hasCheckedAuth: false,
       error: null,
       pendingVerificationEmail: null,
+      pendingOtpPurpose: null,
 
       login: async (email: string, password: string) => {
         set({ isLoading: true, error: null });
         try {
           const response = await api.login(email, password);
+
+          // Two-factor path: server is asking for an OTP before it hands out tokens
+          if (isLoginOtpRequired(response)) {
+            set({
+              isLoading: false,
+              error: null,
+              pendingVerificationEmail: response.email,
+              pendingOtpPurpose: 'login',
+            });
+            return;
+          }
+
           set({
             user: response.user,
             isAuthenticated: true,
             isLoading: false,
+            hasCheckedAuth: true,
             pendingVerificationEmail: null,
+            pendingOtpPurpose: null,
           });
 
           // Connect socket after successful login (fire-and-forget, don't block auth)
@@ -79,6 +105,7 @@ export const useAuthStore = create<AuthState>()(
             set({
               isLoading: false,
               pendingVerificationEmail: response.email,
+              pendingOtpPurpose: 'register',
             });
             return; // Don't throw — this is a success, just needs verification
           }
@@ -89,6 +116,7 @@ export const useAuthStore = create<AuthState>()(
             isAuthenticated: true,
             isLoading: false,
             pendingVerificationEmail: null,
+            pendingOtpPurpose: null,
           });
 
           const token = localStorage.getItem('accessToken');
@@ -104,6 +132,7 @@ export const useAuthStore = create<AuthState>()(
               isLoading: false,
               error: null,
               pendingVerificationEmail: error.response.data.email || email,
+              pendingOtpPurpose: 'register',
             });
             throw error;
           }
@@ -126,7 +155,9 @@ export const useAuthStore = create<AuthState>()(
             user: response.user,
             isAuthenticated: true,
             isLoading: false,
+            hasCheckedAuth: true,
             pendingVerificationEmail: null,
+            pendingOtpPurpose: null,
           });
 
           const token = localStorage.getItem('accessToken');
@@ -142,10 +173,36 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      resendOtp: async (email: string) => {
+      verifyLoginOtp: async (email: string, code: string) => {
         set({ isLoading: true, error: null });
         try {
-          await api.resendOtp(email);
+          const response = await api.verifyLoginOtp(email, code);
+          set({
+            user: response.user,
+            isAuthenticated: true,
+            isLoading: false,
+            hasCheckedAuth: true,
+            pendingVerificationEmail: null,
+            pendingOtpPurpose: null,
+          });
+
+          const token = localStorage.getItem('accessToken');
+          if (token) {
+            socket.connect(token).catch((err: unknown) => {
+              console.warn('[Socket] Connection failed, will retry:', err);
+            });
+          }
+        } catch (error: any) {
+          const errorMessage = error.response?.data?.error || error.message || 'Verification failed';
+          set({ isLoading: false, error: errorMessage });
+          throw error;
+        }
+      },
+
+      resendOtp: async (email: string, purpose: 'register' | 'login' = 'register') => {
+        set({ isLoading: true, error: null });
+        try {
+          await api.resendOtp(email, purpose);
           set({ isLoading: false });
         } catch (error: any) {
           const errorMessage = error.response?.data?.error || error.message || 'Failed to resend code';
@@ -187,6 +244,7 @@ export const useAuthStore = create<AuthState>()(
               isAuthenticated: false,
               user: null,
               isLoading: false,
+              hasCheckedAuth: true,
             });
             return;
           }
@@ -197,6 +255,7 @@ export const useAuthStore = create<AuthState>()(
             user,
             isAuthenticated: true,
             isLoading: false,
+            hasCheckedAuth: true,
           });
 
           // Connect socket with valid token (fire-and-forget)
@@ -211,6 +270,7 @@ export const useAuthStore = create<AuthState>()(
             isAuthenticated: false,
             user: null,
             isLoading: false,
+            hasCheckedAuth: true,
             error: null,
           });
         }
@@ -247,7 +307,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       clearPendingVerification: () => {
-        set({ pendingVerificationEmail: null });
+        set({ pendingVerificationEmail: null, pendingOtpPurpose: null });
       },
 
       updateUser: (updates: Partial<UserProfile>) => {

@@ -29,7 +29,7 @@ export default function LindaChat({ onClose }: LindaChatProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('chat');
 
   // Monitor conversations state
-  const [conversations, setConversations] = useState<LindaConversationSummary[]>([]);
+  const [conversations] = useState<LindaConversationSummary[]>([]);
   const [allConversations, setAllConversations] = useState<LindaConversationSummary[]>([]);
   const [isManager, setIsManager] = useState(false);
   const [loadingConversations, setLoadingConversations] = useState(false);
@@ -111,18 +111,6 @@ export default function LindaChat({ onClose }: LindaChatProps) {
         sender: 'linda',
         timestamp: new Date(),
       }]);
-    }
-  };
-
-  const loadConversations = async () => {
-    setLoadingConversations(true);
-    try {
-      const data = await api.getLindaConversations();
-      setConversations(data.conversations);
-    } catch (err) {
-      console.error('Failed to load Linda conversations:', err);
-    } finally {
-      setLoadingConversations(false);
     }
   };
 
@@ -798,20 +786,20 @@ export default function LindaChat({ onClose }: LindaChatProps) {
               loadActivities();
               setViewMode('activities');
             }}
-            className={`p-2 hover:bg-white/50 dark:hover:bg-slate-800 rounded-lg transition ${viewMode === 'activities' ? 'bg-white/30 dark:bg-slate-700' : ''}`}
+            className={`p-2 hover:bg-white/50 dark:hover:bg-slate-800 rounded-lg transition ${(viewMode as ViewMode) === 'activities' ? 'bg-white/30 dark:bg-slate-700' : ''}`}
             title="Linda's Activities"
           >
-            <Eye size={16} className={viewMode === 'activities' ? 'text-blue-500' : 'text-slate-400'} />
+            <Eye size={16} className={(viewMode as ViewMode) === 'activities' ? 'text-blue-500' : 'text-slate-400'} />
           </button>
         )}
         {/* Settings button — tuning/faders icon */}
         {isOwnConversation && (
           <button
             onClick={() => setViewMode('settings')}
-            className={`p-2 hover:bg-white/50 dark:hover:bg-slate-800 rounded-lg transition ${viewMode === 'settings' ? 'bg-white/30 dark:bg-slate-700' : ''}`}
+            className={`p-2 hover:bg-white/50 dark:hover:bg-slate-800 rounded-lg transition ${(viewMode as ViewMode) === 'settings' ? 'bg-white/30 dark:bg-slate-700' : ''}`}
             title="Linda settings"
           >
-            <SlidersHorizontal size={16} className={viewMode === 'settings' ? 'text-blue-500' : 'text-slate-400'} />
+            <SlidersHorizontal size={16} className={(viewMode as ViewMode) === 'settings' ? 'text-blue-500' : 'text-slate-400'} />
           </button>
         )}
         <button

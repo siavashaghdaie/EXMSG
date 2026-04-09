@@ -42,6 +42,9 @@ export const verifyOtpSchema = z.object({
   }),
 });
 
+// Same shape as verifyOtpSchema, separate export for clarity at the route level
+export const verifyLoginSchema = verifyOtpSchema;
+
 export const resendOtpSchema = z.object({
   body: z.object({
     email: z.string().email('Invalid email address'),

@@ -1,20 +1,29 @@
 import { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
+import { useSuperAdminStore } from '@/store/superAdminStore';
 import { setupPresenceSocketListeners } from '@/store/presenceStore';
 import { LoginPage } from '@/components/auth/LoginPage';
 import { RegisterPage } from '@/components/auth/RegisterPage';
 import { VerifyOtpPage } from '@/components/auth/VerifyOtpPage';
+import { SuperAdminLogin } from '@/components/super-admin/SuperAdminLogin';
+import SuperAdminLayout from '@/components/super-admin/SuperAdminLayout';
 import ChatLayout from '@/components/layout/ChatLayout';
 import ChatView from '@/components/chat/ChatView';
 
 function App() {
-  const { checkAuth, isAuthenticated, isLoading } = useAuthStore();
+  const { checkAuth, isAuthenticated, hasCheckedAuth } = useAuthStore();
+  const {
+    checkAuth: checkSuperAdminAuth,
+    isAuthenticated: isSuperAdminAuthenticated,
+    hasCheckedAuth: hasCheckedSuperAdminAuth,
+  } = useSuperAdminStore();
 
   // Check auth status on app startup
   useEffect(() => {
     checkAuth();
-  }, [checkAuth]);
+    checkSuperAdminAuth();
+  }, [checkAuth, checkSuperAdminAuth]);
 
   // Initialize presence socket listeners
   useEffect(() => {
@@ -24,8 +33,9 @@ function App() {
     }
   }, [isAuthenticated]);
 
-  // Show loading spinner while checking auth
-  if (isLoading) {
+  // Only show the global spinner during the *initial* auth check.
+  // After that, per-page loading states handle login/register/etc.
+  if (!hasCheckedAuth || !hasCheckedSuperAdminAuth) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-surface-950">
         <div className="text-center">
@@ -38,7 +48,17 @@ function App() {
 
   return (
     <Routes>
-      {/* Public routes */}
+      {/* Super Admin routes */}
+      <Route
+        path="/admin/login"
+        element={isSuperAdminAuthenticated ? <Navigate to="/admin" replace /> : <SuperAdminLogin />}
+      />
+      <Route
+        path="/admin/*"
+        element={isSuperAdminAuthenticated ? <SuperAdminLayout /> : <Navigate to="/admin/login" replace />}
+      />
+
+      {/* Public auth routes */}
       <Route
         path="/login"
         element={isAuthenticated ? <Navigate to="/chat" replace /> : <LoginPage />}
@@ -55,7 +75,7 @@ function App() {
       {/* Protected chat routes */}
       <Route
         path="/chat"
-        element={isAuthenticated && !isLoading ? <ChatLayout /> : <Navigate to="/login" replace />}
+        element={isAuthenticated ? <ChatLayout /> : <Navigate to="/login" replace />}
       >
         <Route index element={<ChatEmptyState />} />
         <Route path=":conversationId" element={<ChatView />} />

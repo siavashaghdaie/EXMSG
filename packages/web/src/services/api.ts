@@ -21,12 +21,24 @@ interface VerificationRequiredResponse {
   userId?: string;
 }
 
+interface LoginOtpRequiredResponse {
+  requiresOtp: true;
+  purpose: 'login';
+  email: string;
+  message?: string;
+}
+
 interface OtpVerifyResponse extends AuthResponse {}
 
 type RegisterResponse = AuthResponse | VerificationRequiredResponse;
+export type LoginResponse = AuthResponse | LoginOtpRequiredResponse;
 
 function isVerificationRequired(data: any): data is VerificationRequiredResponse {
   return data && data.requiresVerification === true;
+}
+
+export function isLoginOtpRequired(data: any): data is LoginOtpRequiredResponse {
+  return data && data.requiresOtp === true;
 }
 
 interface MessageAttachment {
@@ -243,7 +255,15 @@ class APIClient {
       async (error: AxiosError) => {
         const originalRequest = error.config as any;
 
-        const isAuthEndpoint = originalRequest?.url?.includes('/auth/login') || originalRequest?.url?.includes('/auth/register') || originalRequest?.url?.includes('/auth/refresh');
+        const isAuthEndpoint =
+          originalRequest?.url?.includes('/auth/login') ||
+          originalRequest?.url?.includes('/auth/register') ||
+          originalRequest?.url?.includes('/auth/refresh') ||
+          originalRequest?.url?.includes('/auth/verify') ||
+          originalRequest?.url?.includes('/auth/verify-login') ||
+          originalRequest?.url?.includes('/auth/resend-otp') ||
+          originalRequest?.url?.includes('/super-admin/login') ||
+          originalRequest?.url?.includes('/super-admin/verify-login');
         if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
           originalRequest._retry = true;
 
@@ -327,18 +347,33 @@ class APIClient {
     return data;
   }
 
-  async login(email: string, password: string): Promise<AuthResponse> {
-    const response = await this.client.post<AuthResponse>('/auth/login', {
+  async login(email: string, password: string): Promise<LoginResponse> {
+    const response = await this.client.post<LoginResponse>('/auth/login', {
       email,
       password,
+    });
+    // If the server requires OTP, do NOT store tokens — the client must
+    // complete /auth/verify-login first.
+    if (isLoginOtpRequired(response.data)) {
+      return response.data;
+    }
+    const data = response.data as AuthResponse;
+    this.setTokens(data.accessToken, data.refreshToken);
+    return data;
+  }
+
+  async verifyOtp(email: string, code: string): Promise<OtpVerifyResponse> {
+    const response = await this.client.post<OtpVerifyResponse>('/auth/verify', {
+      email,
+      code,
     });
     const { accessToken, refreshToken } = response.data;
     this.setTokens(accessToken, refreshToken);
     return response.data;
   }
 
-  async verifyOtp(email: string, code: string): Promise<OtpVerifyResponse> {
-    const response = await this.client.post<OtpVerifyResponse>('/auth/verify', {
+  async verifyLoginOtp(email: string, code: string): Promise<AuthResponse> {
+    const response = await this.client.post<AuthResponse>('/auth/verify-login', {
       email,
       code,
     });
@@ -741,7 +776,7 @@ class APIClient {
     return res.data.tasks || [];
   }
 
-  async createTask(data: { title: string; description?: string; assignedToId?: string; deadline?: string; priority?: string; labels?: string[] }): Promise<any> {
+  async createTask(data: { title: string; description?: string; assignedToId?: string; deadline?: string; priority?: string; labels?: string[]; lindaFollowing?: boolean; lindaFollowInterval?: string }): Promise<any> {
     const res = await this.client.post('/tasks', data);
     return res.data.task;
   }
@@ -769,6 +804,77 @@ class APIClient {
   async getAdminUsers(search?: string, page = 1, limit = 20): Promise<any> {
     const res = await this.client.get('/admin/users', { params: { search, page, limit } });
     return res.data;
+  }
+
+  // Org Admin API
+  async getOrgAdminDashboard(orgId?: string): Promise<any> {
+    const res = await this.client.get('/org-admin/dashboard', { params: { orgId } });
+    return res.data;
+  }
+
+  async getOrgAdminMembers(search?: string, page = 1, limit = 20, orgId?: string): Promise<any> {
+    const res = await this.client.get('/org-admin/members', { params: { search, page, limit, orgId } });
+    return res.data;
+  }
+
+  async getOrgAdminMemberActivity(userId: string, orgId?: string): Promise<any> {
+    const res = await this.client.get(`/org-admin/member/${userId}/activity`, { params: { orgId } });
+    return res.data;
+  }
+
+  async getOrgAdminMessages(page?: number, memberId?: string, search?: string, limit?: number, orgId?: string): Promise<any> {
+    const res = await this.client.get('/org-admin/messages', {
+      params: { page: page || 1, limit: limit || 20, memberId, search, orgId },
+    });
+    return res.data;
+  }
+
+  async getOrgAdminDailyReport(date?: string, orgId?: string): Promise<any> {
+    const res = await this.client.get('/org-admin/reports/daily', { params: { date, orgId } });
+    return res.data;
+  }
+
+  async getOrgAdminTaskReport(orgId?: string): Promise<any> {
+    const res = await this.client.get('/org-admin/reports/tasks', { params: { orgId } });
+    return res.data;
+  }
+
+  async getOrgAdminOrganization(orgId?: string): Promise<any> {
+    const res = await this.client.get('/org-admin/organization', { params: { orgId } });
+    return res.data;
+  }
+
+  async listOrgAdminOrganizations(): Promise<{ organizations: any[] }> {
+    const res = await this.client.get('/org-admin/organizations');
+    return res.data;
+  }
+
+  async createOrgAdminOrganization(data: { name: string; slug?: string; description?: string }): Promise<any> {
+    const res = await this.client.post('/org-admin/organizations', data);
+    return res.data;
+  }
+
+  async addOrgAdminMember(
+    data: {
+      email: string;
+      displayName?: string;
+      username?: string;
+      password?: string;
+      role?: 'OWNER' | 'ADMIN' | 'MEMBER';
+    },
+    orgId?: string
+  ): Promise<any> {
+    const res = await this.client.post('/org-admin/members', data, { params: { orgId } });
+    return res.data;
+  }
+
+  async updateOrgAdminMemberRole(userId: string, role: 'OWNER' | 'ADMIN' | 'MEMBER', orgId?: string): Promise<any> {
+    const res = await this.client.patch(`/org-admin/members/${userId}`, { role }, { params: { orgId } });
+    return res.data;
+  }
+
+  async removeOrgAdminMember(userId: string, orgId?: string): Promise<void> {
+    await this.client.delete(`/org-admin/members/${userId}`, { params: { orgId } });
   }
 
   // Status/Stories API
@@ -882,6 +988,53 @@ class APIClient {
 
   async deleteAnnouncementComment(announcementId: string, commentId: string): Promise<void> {
     await this.client.delete(`/announcements/${announcementId}/comments/${commentId}`);
+  }
+
+  // Super Admin API
+  async superAdminLogin(email: string, password: string): Promise<LoginResponse> {
+    const res = await this.client.post<LoginResponse>('/super-admin/login', { email, password });
+    // If OTP is required, don't store any tokens yet
+    if (isLoginOtpRequired(res.data)) {
+      return res.data;
+    }
+    const data = res.data as AuthResponse;
+    this.setTokens(data.accessToken, data.refreshToken);
+    return data;
+  }
+
+  async verifySuperAdminLoginOtp(email: string, code: string): Promise<AuthResponse> {
+    const res = await this.client.post<AuthResponse>('/super-admin/verify-login', { email, code });
+    this.setTokens(res.data.accessToken, res.data.refreshToken);
+    return res.data;
+  }
+
+  async getSuperAdminDashboard(): Promise<any> {
+    const res = await this.client.get('/super-admin/dashboard');
+    return res.data;
+  }
+
+  async getSuperAdminOrganizations(search?: string, page = 1, limit = 20): Promise<any> {
+    const res = await this.client.get('/super-admin/organizations', {
+      params: { search, page, limit },
+    });
+    return res.data;
+  }
+
+  async getSuperAdminUsers(search?: string, page = 1, limit = 20, role?: string): Promise<any> {
+    const res = await this.client.get('/super-admin/users', {
+      params: { search, page, limit, role },
+    });
+    return res.data;
+  }
+
+  async getSuperAdminActivity(): Promise<any> {
+    const res = await this.client.get('/super-admin/activity-log');
+    return res.data;
+  }
+
+  async getSuperAdminFinancial(): Promise<any> {
+    const res = await this.client.get('/super-admin/financial');
+    return res.data;
   }
 }
 

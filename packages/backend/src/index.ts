@@ -14,7 +14,9 @@ import { userRoutes } from './modules/user/user.routes';
 import { lindaRoutes } from './modules/linda/linda.routes';
 import { taskRoutes } from './modules/tasks/task.routes';
 import { adminRoutes } from './modules/admin/admin.routes';
+import { orgAdminRoutes } from './modules/org-admin/orgAdmin.routes';
 import { statusRoutes } from './modules/status/status.routes';
+import { superAdminRoutes } from './modules/super-admin/superAdmin.routes';
 import { announcementRoutes } from './modules/announcements/announcement.routes';
 import { initializeLinda } from './modules/linda/linda.controller';
 
@@ -49,12 +51,19 @@ async function bootstrap() {
   });
 
   // API Routes
+  // IMPORTANT: The super-admin router must be registered BEFORE any router
+  // that applies a global `authenticate` middleware (e.g. messagingRoutes
+  // uses `router.use(authenticate)`). Otherwise a public endpoint like
+  // POST /api/super-admin/login gets blocked by the earlier router's
+  // auth middleware before it can reach its own handler.
   app.use('/api/auth', authRoutes);
+  app.use('/api', superAdminRoutes);
   app.use('/api', messagingRoutes);
   app.use('/api/users', userRoutes);
   app.use('/api', lindaRoutes);
   app.use('/api', taskRoutes);
   app.use('/api', adminRoutes);
+  app.use('/api', orgAdminRoutes);
   app.use('/api', statusRoutes);
   app.use('/api', announcementRoutes);
 

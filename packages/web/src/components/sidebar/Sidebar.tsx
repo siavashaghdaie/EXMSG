@@ -24,7 +24,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isMobile = false,
   onNavigateChat,
   onSettingsClick,
-  onDashboardClick,
   onClose,
   onAnnouncementsClick,
   onTasksClick

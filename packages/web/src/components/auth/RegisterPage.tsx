@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Mail, Lock, User, MessageSquare } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
@@ -21,12 +21,7 @@ interface PasswordStrength {
 
 export const RegisterPage: React.FC = () => {
   const navigate = useNavigate();
-  const { register, isLoading, error, clearError, pendingVerificationEmail } = useAuthStore();
-
-  // Clear any stale error when page loads
-  useEffect(() => {
-    clearError();
-  }, [clearError]);
+  const { register, isLoading, error, clearError } = useAuthStore();
 
   const [formData, setFormData] = useState({
     email: '',
