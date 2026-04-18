@@ -4,21 +4,41 @@ import { prisma } from '../../config/database';
 // Type-safe accessors for new Prisma models (available after running `npx prisma generate`)
 const db = prisma as any;
 
-// In-memory fallback for DB availability check
+// In-memory DB availability check — retries every 30 seconds if previously unavailable
 let dbAvailable: boolean | null = null;
-// Cache whether StatusLike table is available (avoids repeated Prisma errors)
+let dbCheckTimestamp = 0;
+const DB_RETRY_INTERVAL_MS = 30_000; // Re-check every 30s after a failure
+
+// Cache whether StatusLike table is available (retries periodically)
 let likesTableAvailable: boolean | null = null;
+let likesCheckTimestamp = 0;
 
 async function isDbAvailable(): Promise<boolean> {
-  if (dbAvailable !== null) return dbAvailable;
+  // If previously available, trust the cache
+  if (dbAvailable === true) return true;
+  // If previously unavailable, retry after interval
+  if (dbAvailable === false && Date.now() - dbCheckTimestamp < DB_RETRY_INTERVAL_MS) {
+    return false;
+  }
   try {
     await db.userStatus.findFirst({ take: 1 });
     dbAvailable = true;
-  } catch {
+    console.log('[Status] Status DB tables available ✓');
+  } catch (err: any) {
     console.warn('[Status] Status DB tables not available — using fallback. Run: npx prisma migrate dev --name add-user-statuses');
+    console.warn('[Status] Error:', err?.message || err);
     dbAvailable = false;
+    dbCheckTimestamp = Date.now();
   }
   return dbAvailable;
+}
+
+function shouldRetryLikesTable(): boolean {
+  if (likesTableAvailable === true) return false;
+  if (likesTableAvailable === false && Date.now() - likesCheckTimestamp < DB_RETRY_INTERVAL_MS) {
+    return false; // still in cooldown
+  }
+  return true; // null (never checked) or cooldown expired
 }
 
 export class StatusController {
@@ -27,6 +47,7 @@ export class StatusController {
     try {
       const userId = req.user!.userId;
       const { content, bgColor } = req.body;
+      console.log(`[Status] createTextStatus called by userId=${userId}`);
 
       if (!content || typeof content !== 'string') {
         res.status(400).json({ error: 'Content is required' });
@@ -35,7 +56,8 @@ export class StatusController {
 
       const useDb = await isDbAvailable();
       if (!useDb) {
-        res.status(503).json({ error: 'Status service is temporarily unavailable' });
+        console.warn(`[Status] createTextStatus: DB unavailable for userId=${userId}`);
+        res.status(503).json({ error: 'Status service is temporarily unavailable. Please ask your admin to run database migrations.' });
         return;
       }
 
@@ -76,6 +98,7 @@ export class StatusController {
       const userId = req.user!.userId;
       const file = req.file;
       const { caption } = req.body;
+      console.log(`[Status] createMediaStatus called by userId=${userId}, file=${file?.filename || 'none'}`);
 
       if (!file) {
         res.status(400).json({ error: 'No file uploaded' });
@@ -84,7 +107,8 @@ export class StatusController {
 
       const useDb = await isDbAvailable();
       if (!useDb) {
-        res.status(503).json({ error: 'Status service is temporarily unavailable' });
+        console.warn(`[Status] createMediaStatus: DB unavailable for userId=${userId}`);
+        res.status(503).json({ error: 'Status service is temporarily unavailable. Please ask your admin to run database migrations.' });
         return;
       }
 
@@ -132,9 +156,11 @@ export class StatusController {
   async getMyStatuses(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.user!.userId;
+      console.log(`[Status] getMyStatuses called by userId=${userId}`);
 
       const useDb = await isDbAvailable();
       if (!useDb) {
+        console.warn(`[Status] getMyStatuses: DB unavailable for userId=${userId}`);
         res.json({ statuses: [] });
         return;
       }
@@ -143,8 +169,8 @@ export class StatusController {
 
       // Try with likes, fallback without if table doesn't exist yet
       let statuses: any[];
-      const hasLikesTable = likesTableAvailable !== false;
-      if (hasLikesTable) {
+      const tryLikes = shouldRetryLikesTable() || likesTableAvailable === true;
+      if (tryLikes) {
         try {
           statuses = await db.userStatus.findMany({
             where: { userId, expiresAt: { gt: now } },
@@ -157,6 +183,7 @@ export class StatusController {
           likesTableAvailable = true;
         } catch {
           likesTableAvailable = false;
+          likesCheckTimestamp = Date.now();
           statuses = await db.userStatus.findMany({
             where: { userId, expiresAt: { gt: now } },
             include: { views: { select: { viewerId: true } } },
@@ -171,6 +198,8 @@ export class StatusController {
         });
       }
 
+      console.log(`[Status] getMyStatuses: found ${statuses.length} active statuses for userId=${userId}`);
+
       const result = statuses.map((status: any) => ({
         id: status.id,
         userId: status.userId,
@@ -181,8 +210,8 @@ export class StatusController {
         expiresAt: status.expiresAt,
         createdAt: status.createdAt,
         viewCount: status.views.length,
-        likeCount: hasLikesTable ? (status.likes?.length || 0) : 0,
-        likedByMe: hasLikesTable ? (status.likes?.some((l: any) => l.userId === userId) || false) : false,
+        likeCount: likesTableAvailable ? (status.likes?.length || 0) : 0,
+        likedByMe: likesTableAvailable ? (status.likes?.some((l: any) => l.userId === userId) || false) : false,
         viewers: status.views.map((v: any) => v.viewerId),
       }));
 
@@ -197,22 +226,59 @@ export class StatusController {
   async getContactStatuses(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.user!.userId;
+      console.log(`[Status] getContactStatuses called by userId=${userId}`);
 
       const useDb = await isDbAvailable();
       if (!useDb) {
+        console.warn(`[Status] getContactStatuses: DB unavailable for userId=${userId}`);
         res.json({ users: [] });
         return;
       }
 
       const now = new Date();
 
-      // Get all active statuses from other users — try with likes, fallback without
+      // ── Resolve org-mates ─────────────────────────────────────
+      // Find every organization the current user belongs to, then
+      // collect all the member user IDs from those orgs. Stories are
+      // only visible within the same organization(s).
+      const myMemberships = await prisma.organizationMember.findMany({
+        where: { userId },
+        select: { organizationId: true },
+      });
+      const orgIds = myMemberships.map((m) => m.organizationId);
+      console.log(`[Status] getContactStatuses: userId=${userId} belongs to ${orgIds.length} org(s): [${orgIds.join(', ')}]`);
+
+      let orgMateIds: string[] = [];
+      if (orgIds.length > 0) {
+        const orgMembers = await prisma.organizationMember.findMany({
+          where: {
+            organizationId: { in: orgIds },
+            userId: { not: userId },
+          },
+          select: { userId: true },
+        });
+        orgMateIds = [...new Set(orgMembers.map((m) => m.userId))];
+      }
+
+      console.log(`[Status] getContactStatuses: userId=${userId} has ${orgMateIds.length} org-mate(s)`);
+
+      if (orgMateIds.length === 0) {
+        // No org-mates → no stories to show
+        res.json({ users: [] });
+        return;
+      }
+
+      // Get active statuses only from org members
       let statuses: any[];
-      const hasLikesTable = likesTableAvailable !== false;
-      if (hasLikesTable) {
+      const statusWhere = {
+        userId: { in: orgMateIds },
+        expiresAt: { gt: now },
+      };
+      const tryLikes = shouldRetryLikesTable() || likesTableAvailable === true;
+      if (tryLikes) {
         try {
           statuses = await db.userStatus.findMany({
-            where: { userId: { not: userId }, expiresAt: { gt: now } },
+            where: statusWhere,
             include: {
               user: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
               views: { where: { viewerId: userId }, select: { viewedAt: true } },
@@ -223,8 +289,9 @@ export class StatusController {
           likesTableAvailable = true;
         } catch {
           likesTableAvailable = false;
+          likesCheckTimestamp = Date.now();
           statuses = await db.userStatus.findMany({
-            where: { userId: { not: userId }, expiresAt: { gt: now } },
+            where: statusWhere,
             include: {
               user: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
               views: { where: { viewerId: userId }, select: { viewedAt: true } },
@@ -234,7 +301,7 @@ export class StatusController {
         }
       } else {
         statuses = await db.userStatus.findMany({
-          where: { userId: { not: userId }, expiresAt: { gt: now } },
+          where: statusWhere,
           include: {
             user: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
             views: { where: { viewerId: userId }, select: { viewedAt: true } },
@@ -242,6 +309,8 @@ export class StatusController {
           orderBy: { createdAt: 'desc' },
         });
       }
+
+      console.log(`[Status] getContactStatuses: found ${statuses.length} active stories from org-mates for userId=${userId}`);
 
       // Group statuses by user
       const groupedByUser = new Map<
@@ -275,8 +344,8 @@ export class StatusController {
           expiresAt: status.expiresAt,
           createdAt: status.createdAt,
           viewCount: 0, // Will be calculated per-status
-          likeCount: hasLikesTable ? (status.likes?.length || 0) : 0,
-          likedByMe: hasLikesTable ? (status.likes?.some((l: any) => l.userId === userId) || false) : false,
+          likeCount: likesTableAvailable ? (status.likes?.length || 0) : 0,
+          likedByMe: likesTableAvailable ? (status.likes?.some((l: any) => l.userId === userId) || false) : false,
           hasViewed,
           viewedAt: hasViewed ? status.views[0].viewedAt : null,
         });

@@ -110,8 +110,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (user?.id) {
       loadInitialData();
 
-      // Poll task and announcement counts every 15 seconds
+      // Poll task/announcement counts every 15 seconds and stories every 30s
       const interval = setInterval(refreshCounts, 15000);
+      const storyInterval = setInterval(async () => {
+        try {
+          const r = await api.getContactStatuses();
+          setContactStories(r?.users || []);
+          const myR = await api.getMyStatuses();
+          setHasActiveStory((myR?.statuses || []).length > 0);
+        } catch (_e) { /* ignore */ }
+      }, 30000);
 
       // Listen for instant badge refresh events from AnnouncementBoard / TaskWall
       const handleBadgeRefresh = () => refreshCounts();
@@ -119,6 +127,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       return () => {
         clearInterval(interval);
+        clearInterval(storyInterval);
         window.removeEventListener('badges:refresh', handleBadgeRefresh);
       };
     }
@@ -300,7 +309,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </div>
 
-          {/* Contact stories are shown as rings on conversation avatars — no separate row needed */}
         </div>
 
         {/* Search bar */}
@@ -408,6 +416,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onStoryCreated={() => {
             setHasActiveStory(true);
             setShowStoryCreation(false);
+            // Refresh contact stories so the new story appears
+            api.getContactStatuses().then(r => setContactStories(r?.users || [])).catch(() => {});
           }}
         />
       )}
@@ -452,6 +462,7 @@ const StoryCreationModal: React.FC<StoryCreationModalProps> = ({ isOpen, onClose
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoCaption, setPhotoCaption] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F'];
 
@@ -459,6 +470,7 @@ const StoryCreationModal: React.FC<StoryCreationModalProps> = ({ isOpen, onClose
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
+    setError(null);
     try {
       if (activeTab === 'text') {
         if (textContent.trim()) {
@@ -471,8 +483,12 @@ const StoryCreationModal: React.FC<StoryCreationModalProps> = ({ isOpen, onClose
           onStoryCreated();
         }
       }
-    } catch (error) {
-      console.error('Error creating story:', error);
+    } catch (err: any) {
+      console.error('Error creating story:', err);
+      const msg =
+        err?.response?.data?.error ||
+        (err?.code === 'ERR_NETWORK' ? 'Network error. Please try again.' : 'Failed to create story. Please try again.');
+      setError(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -588,6 +604,9 @@ const StoryCreationModal: React.FC<StoryCreationModalProps> = ({ isOpen, onClose
             {isSubmitting ? 'Creating...' : 'Post Story'}
           </button>
         </div>
+        {error && (
+          <p className="text-sm text-red-600 dark:text-red-400 text-center">{error}</p>
+        )}
       </div>
     </div>
   );

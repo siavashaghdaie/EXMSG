@@ -63,9 +63,14 @@ async function bootstrap() {
   app.use('/api', lindaRoutes);
   app.use('/api', taskRoutes);
   app.use('/api', adminRoutes);
-  app.use('/api', orgAdminRoutes);
+  // IMPORTANT: orgAdminRoutes MUST be scoped to /api/org-admin so its
+  // router.use(requireOrgAdmin) middleware does not leak to subsequent
+  // routers (like status and announcements).  The individual routes inside
+  // orgAdminRoutes already include the /org-admin prefix in their paths,
+  // so we strip it here to avoid double-prefixing.
   app.use('/api', statusRoutes);
   app.use('/api', announcementRoutes);
+  app.use('/api', orgAdminRoutes);
 
   // Error handler
   app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
