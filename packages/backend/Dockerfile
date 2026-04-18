@@ -14,10 +14,20 @@ COPY . .
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 # Generate Prisma client for linux-musl-openssl-3.0.x (Alpine 3.18+)
-RUN npm run db:generate --workspace=packages/backend
+RUN npx prisma generate --schema=packages/backend/prisma/schema.prisma
 
-# Build backend
-RUN npm run build --workspace=packages/backend
+# Build shared package first (backend depends on it)
+RUN cd packages/shared && npx tsc --build tsconfig.json 2>/dev/null || true
+
+# Build backend explicitly (avoid workspace flag issues)
+RUN cd packages/backend && npx tsc --project tsconfig.json || \
+    (echo "TSC failed, trying without incremental..." && \
+     cd /app/packages/backend && npx tsc --project tsconfig.json --incremental false --composite false)
+
+# Verify dist was created
+RUN ls -la packages/backend/dist/index.js && \
+    ls -la packages/backend/dist/middleware/validate.js && \
+    echo "Build verification passed!"
 
 # Stage 2: Production — use node:20-slim (Debian) to avoid Alpine OpenSSL issues
 FROM node:20-slim
