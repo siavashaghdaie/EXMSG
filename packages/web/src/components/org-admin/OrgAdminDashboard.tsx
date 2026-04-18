@@ -16,8 +16,10 @@ import {
   Trash2,
   Building2,
   Plus,
-  Copy,
   ChevronDown,
+  Mail,
+  Clock,
+  Send,
 } from 'lucide-react';
 import { api } from '@/services/api';
 import Avatar from '@/components/common/Avatar';
@@ -77,7 +79,7 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
   const [addMemberError, setAddMemberError] = useState<string | null>(null);
   const [addMemberSuccess, setAddMemberSuccess] = useState<{
     email: string;
-    tempPassword?: string;
+    inviteSent?: boolean;
   } | null>(null);
 
   // --- Create Organization modal ------------------------------------------
@@ -223,7 +225,7 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
       );
       setAddMemberSuccess({
         email: result?.member?.email || addMemberEmail,
-        tempPassword: result?.temporaryPassword,
+        inviteSent: result?.inviteSent ?? false,
       });
       // Reset the form fields but keep the success panel visible
       setAddMemberEmail('');
@@ -252,6 +254,15 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
     try {
       await api.updateOrgAdminMemberRole(userId, newRole, currentOrgId || undefined);
       await loadMembers(page);
+    } catch (err) {
+      alert(extractError(err));
+    }
+  };
+
+  const handleResendInvite = async (userId: string, email: string) => {
+    try {
+      const result = await api.resendOrgAdminInvite(userId, currentOrgId || undefined);
+      alert(result.message || `Invitation resent to ${email}`);
     } catch (err) {
       alert(extractError(err));
     }
@@ -736,20 +747,27 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
                               </span>
                             </td>
                             <td className="px-4 py-3 text-sm">
-                              <span
-                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
-                                  member.isOnline
-                                    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                                    : 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-400'
-                                }`}
-                              >
-                                <div
-                                  className={`w-2 h-2 rounded-full ${
-                                    member.isOnline ? 'bg-green-500' : 'bg-slate-400'
+                              {member.invitePending ? (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                  <Clock size={10} />
+                                  Invite Pending
+                                </span>
+                              ) : (
+                                <span
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+                                    member.isOnline
+                                      ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                                      : 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-400'
                                   }`}
-                                />
-                                {member.isOnline ? 'Online' : 'Offline'}
-                              </span>
+                                >
+                                  <div
+                                    className={`w-2 h-2 rounded-full ${
+                                      member.isOnline ? 'bg-green-500' : 'bg-slate-400'
+                                    }`}
+                                  />
+                                  {member.isOnline ? 'Online' : 'Offline'}
+                                </span>
+                              )}
                             </td>
                             <td className="px-4 py-3 text-sm text-right text-slate-600 dark:text-slate-400 font-medium">
                               {member.messagesToday}
@@ -759,6 +777,16 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-2 flex-wrap">
+                                {member.invitePending && (
+                                  <button
+                                    onClick={() => handleResendInvite(member.id, member.email)}
+                                    className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 hover:underline"
+                                    title="Resend invitation email"
+                                  >
+                                    <Send size={12} />
+                                    Resend Invite
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => loadMemberActivity(member.id)}
                                   className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
@@ -1207,28 +1235,20 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
                     <p>{addMemberSuccess.email} is now part of this organization.</p>
                   </div>
                 </div>
-                {addMemberSuccess.tempPassword && (
-                  <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
-                    <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-2">
-                      Temporary password
-                    </p>
-                    <p className="text-xs text-amber-700 dark:text-amber-400 mb-2">
-                      Share this password with the new member. They can change it after logging in.
-                      This is the only time it will be shown.
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <code className="flex-1 px-3 py-2 bg-white dark:bg-slate-900 rounded border border-amber-300 dark:border-amber-700 text-sm font-mono text-slate-900 dark:text-white break-all">
-                        {addMemberSuccess.tempPassword}
-                      </code>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(addMemberSuccess.tempPassword || '');
-                        }}
-                        className="p-2 rounded bg-amber-100 dark:bg-amber-800/40 text-amber-800 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-800/60 transition"
-                        title="Copy password"
-                      >
-                        <Copy size={14} />
-                      </button>
+                {addMemberSuccess.inviteSent ? (
+                  <div className="flex items-start gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                    <Mail className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+                    <div className="text-sm text-blue-800 dark:text-blue-300">
+                      <p className="font-semibold mb-1">Invitation email sent</p>
+                      <p>An email with a one-time invitation link has been sent to {addMemberSuccess.email}. The link expires in 72 hours.</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                    <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                    <div className="text-sm text-amber-800 dark:text-amber-300">
+                      <p className="font-semibold mb-1">Invitation email not sent</p>
+                      <p>The email service may not be configured. Check the RESEND_API_KEY in your backend .env file. You can resend the invitation from the Members tab later.</p>
                     </div>
                   </div>
                 )}

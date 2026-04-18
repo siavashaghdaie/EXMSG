@@ -100,10 +100,18 @@ export const VerifyOtpPage: React.FC = () => {
     try {
       if (isLoginFlow) {
         await verifyLoginOtp(pendingVerificationEmail, otpCode);
+        navigate('/chat');
       } else {
-        await verifyOtp(pendingVerificationEmail, otpCode);
+        const result = await verifyOtp(pendingVerificationEmail, otpCode);
+        // Panel Owner flow: spec 2.3.5 says newcomers return to /login after
+        // verifying their email. verifyOtp() in the store already set the
+        // justVerified* flags and skipped authentication.
+        if (result?.requiresLogin) {
+          navigate('/login');
+        } else {
+          navigate('/chat');
+        }
       }
-      navigate('/chat');
     } catch {
       // Error is set in store
       setDigits(['', '', '', '', '', '']);
@@ -136,9 +144,9 @@ export const VerifyOtpPage: React.FC = () => {
   if (!pendingVerificationEmail) return null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950 flex items-start justify-center py-8 px-4">
       {/* Background decoration */}
-      <div className="absolute inset-0 overflow-hidden">
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-20 left-10 w-72 h-72 bg-blue-200 dark:bg-blue-900/20 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob"></div>
         <div className="absolute top-40 right-10 w-72 h-72 bg-green-200 dark:bg-green-900/20 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
         <div className="absolute -bottom-8 left-20 w-72 h-72 bg-purple-200 dark:bg-purple-900/20 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-4000"></div>

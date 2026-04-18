@@ -19,6 +19,8 @@ interface VerificationRequiredResponse {
   message?: string;
   error?: string;
   userId?: string;
+  /** True when the server created an Organization alongside the user. */
+  isPanelOwner?: boolean;
 }
 
 interface LoginOtpRequiredResponse {
@@ -28,10 +30,23 @@ interface LoginOtpRequiredResponse {
   message?: string;
 }
 
+/**
+ * Returned by /auth/verify when the user is a Panel Owner newcomer. Per
+ * spec 2.3.5, Panel Owners are NOT auto-logged-in after email verification;
+ * they must complete a fresh login. This response contains no tokens.
+ */
+interface VerifiedRequiresLoginResponse {
+  requiresLogin: true;
+  email: string;
+  message?: string;
+  user?: { id: string; email: string; username: string };
+}
+
 interface OtpVerifyResponse extends AuthResponse {}
 
 type RegisterResponse = AuthResponse | VerificationRequiredResponse;
 export type LoginResponse = AuthResponse | LoginOtpRequiredResponse;
+export type VerifyOtpResponse = OtpVerifyResponse | VerifiedRequiresLoginResponse;
 
 function isVerificationRequired(data: any): data is VerificationRequiredResponse {
   return data && data.requiresVerification === true;
@@ -39,6 +54,35 @@ function isVerificationRequired(data: any): data is VerificationRequiredResponse
 
 export function isLoginOtpRequired(data: any): data is LoginOtpRequiredResponse {
   return data && data.requiresOtp === true;
+}
+
+export function isVerifiedRequiresLogin(data: any): data is VerifiedRequiresLoginResponse {
+  return data && data.requiresLogin === true;
+}
+
+// Subscription plan catalog types (mirror of backend plans.ts).
+export type PlanId = 'starter' | 'professional' | 'business' | 'enterprise';
+
+export interface PlanDefinition {
+  id: PlanId;
+  name: string;
+  tagline: string;
+  priceMonthly: number;
+  priceAnnual: number;
+  seatLimit: number;
+  storageGb: number;
+  aiAgentHours: number;
+  prioritySupport: boolean;
+  ssoEnabled: boolean;
+  features: string[];
+  publiclySelfServable: boolean;
+  recommended: boolean;
+  ctaLabel: string;
+}
+
+export interface RegisterOptions {
+  companyName?: string;
+  plan?: PlanId;
 }
 
 interface MessageAttachment {
@@ -262,6 +306,9 @@ class APIClient {
           originalRequest?.url?.includes('/auth/verify') ||
           originalRequest?.url?.includes('/auth/verify-login') ||
           originalRequest?.url?.includes('/auth/resend-otp') ||
+          originalRequest?.url?.includes('/auth/plans') ||
+          originalRequest?.url?.includes('/auth/accept-invite') ||
+          originalRequest?.url?.includes('/auth/set-password') ||
           originalRequest?.url?.includes('/super-admin/login') ||
           originalRequest?.url?.includes('/super-admin/verify-login');
         if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
@@ -271,11 +318,16 @@ class APIClient {
             const newToken = await this.refreshAccessToken();
             originalRequest.headers.Authorization = `Bearer ${newToken}`;
             return this.client(originalRequest);
-          } catch (refreshError) {
-            // Refresh failed, trigger logout
+          } catch (_refreshError) {
+            // Refresh failed — silently log the user out. Never propagate
+            // raw internal errors like "Session expired" to callers;
+            // instead, the auth:logout event triggers a clean redirect.
             this.clearTokens();
             window.dispatchEvent(new CustomEvent('auth:logout'));
-            return Promise.reject(refreshError);
+            // Reject with the ORIGINAL 401 error (not the refresh error)
+            // so callers see a clean "Unauthorized" response, not an
+            // internal "No refresh token" message.
+            return Promise.reject(error);
           }
         }
 
@@ -309,12 +361,12 @@ class APIClient {
     }
 
     this.refreshPromise = (async () => {
-      const refreshToken = this.getRefreshToken();
-      if (!refreshToken) {
-        throw new Error('No refresh token available');
-      }
-
       try {
+        const refreshToken = this.getRefreshToken();
+        if (!refreshToken) {
+          throw new Error('Session expired');
+        }
+
         const response = await axios.post<AuthResponse>(
           `${import.meta.env.VITE_API_URL || '/api'}/auth/refresh`,
           { refreshToken },
@@ -325,6 +377,7 @@ class APIClient {
         this.setTokens(accessToken, newRefreshToken);
         return accessToken;
       } finally {
+        // Always clear the cached promise so future calls get a fresh attempt
         this.refreshPromise = null;
       }
     })();
@@ -333,18 +386,57 @@ class APIClient {
   }
 
   // Auth API
-  async register(email: string, displayName: string, password: string): Promise<RegisterResponse> {
-    const response = await this.client.post<RegisterResponse>('/auth/register', {
+  async register(
+    email: string,
+    displayName: string,
+    password: string,
+    options?: RegisterOptions
+  ): Promise<RegisterResponse> {
+    const payload: Record<string, unknown> = {
       email,
       displayName,
       password,
-    });
+    };
+    if (options?.companyName) payload.companyName = options.companyName;
+    if (options?.plan) payload.plan = options.plan;
+    const response = await this.client.post<RegisterResponse>('/auth/register', payload);
     if (isVerificationRequired(response.data)) {
       return response.data;
     }
     const data = response.data as AuthResponse;
     this.setTokens(data.accessToken, data.refreshToken);
     return data;
+  }
+
+  async getPlans(): Promise<{ plans: PlanDefinition[] }> {
+    const response = await this.client.get<{ plans: PlanDefinition[] }>('/auth/plans');
+    return response.data;
+  }
+
+  // ─── Invite Flow ───────────────────────────────────────────────
+
+  async acceptInvite(token: string): Promise<{
+    valid: boolean;
+    invite?: {
+      email: string;
+      orgName: string;
+      displayName: string | null;
+      inviterName: string;
+      role: string;
+    };
+    error?: string;
+  }> {
+    const response = await this.client.get('/auth/accept-invite', { params: { token } });
+    return response.data;
+  }
+
+  async setPassword(token: string, password: string): Promise<{
+    success: boolean;
+    email: string;
+    message: string;
+  }> {
+    const response = await this.client.post('/auth/set-password', { token, password });
+    return response.data;
   }
 
   async login(email: string, password: string): Promise<LoginResponse> {
@@ -362,14 +454,19 @@ class APIClient {
     return data;
   }
 
-  async verifyOtp(email: string, code: string): Promise<OtpVerifyResponse> {
-    const response = await this.client.post<OtpVerifyResponse>('/auth/verify', {
+  async verifyOtp(email: string, code: string): Promise<VerifyOtpResponse> {
+    const response = await this.client.post<VerifyOtpResponse>('/auth/verify', {
       email,
       code,
     });
-    const { accessToken, refreshToken } = response.data;
-    this.setTokens(accessToken, refreshToken);
-    return response.data;
+    // Panel Owners are NOT auto-logged-in (spec 2.3.5). They must return
+    // to the login page. Do not attempt to read/store tokens in this case.
+    if (isVerifiedRequiresLogin(response.data)) {
+      return response.data;
+    }
+    const data = response.data as OtpVerifyResponse;
+    this.setTokens(data.accessToken, data.refreshToken);
+    return data;
   }
 
   async verifyLoginOtp(email: string, code: string): Promise<AuthResponse> {
@@ -875,6 +972,11 @@ class APIClient {
 
   async removeOrgAdminMember(userId: string, orgId?: string): Promise<void> {
     await this.client.delete(`/org-admin/members/${userId}`, { params: { orgId } });
+  }
+
+  async resendOrgAdminInvite(userId: string, orgId?: string): Promise<{ success: boolean; message: string; email: string }> {
+    const res = await this.client.post(`/org-admin/members/${userId}/resend-invite`, {}, { params: { orgId } });
+    return res.data;
   }
 
   // Status/Stories API

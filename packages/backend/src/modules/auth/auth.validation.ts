@@ -19,6 +19,18 @@ export const registerSchema = z.object({
       .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
       .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
       .regex(/[0-9]/, 'Password must contain at least one number'),
+    // Panel Owner newcomer fields (section 2.3 of the spec).
+    // When companyName is provided, the backend treats the signup as a
+    // Panel Owner flow: it creates an Organization and attaches the new
+    // user as OWNER. When it is absent, the endpoint behaves exactly
+    // like the existing "create a chat account" flow used by invited
+    // members and returning users on the legacy register page.
+    companyName: z
+      .string()
+      .min(2, 'Company name must be at least 2 characters')
+      .max(100, 'Company name must be at most 100 characters')
+      .optional(),
+    plan: z.enum(['starter', 'professional', 'business', 'enterprise']).optional(),
   }),
 });
 
@@ -49,6 +61,20 @@ export const resendOtpSchema = z.object({
   body: z.object({
     email: z.string().email('Invalid email address'),
     purpose: z.enum(['register', 'login', 'reset']).optional().default('register'),
+  }),
+});
+
+// ─── Invite Flow Schemas ───────────────────────────────────────
+
+export const setPasswordSchema = z.object({
+  body: z.object({
+    token: z.string().min(1, 'Invitation token is required'),
+    password: z
+      .string()
+      .min(8, 'Password must be at least 8 characters')
+      .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+      .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
+      .regex(/[0-9]/, 'Password must contain at least one number'),
   }),
 });
 

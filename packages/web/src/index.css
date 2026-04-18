@@ -8,9 +8,11 @@
   html, body, #root {
     height: 100dvh;
     height: 100vh; /* fallback */
-    overflow: hidden;
     margin: 0;
     padding: 0;
+    /* NOTE: overflow is NOT set here. Full-page scroll is allowed by default
+       (needed by landing, plans, register, login pages). The chat layout
+       applies its own overflow-hidden to contain its internal scroll areas. */
   }
 
   * {

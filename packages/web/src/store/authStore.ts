@@ -1,6 +1,12 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { api, UserProfile, isLoginOtpRequired } from '../services/api';
+import {
+  api,
+  UserProfile,
+  isLoginOtpRequired,
+  isVerifiedRequiresLogin,
+  RegisterOptions,
+} from '../services/api';
 import { socket } from '../services/socket';
 
 /**
@@ -18,11 +24,23 @@ interface AuthState {
   error: string | null;
   pendingVerificationEmail: string | null;
   pendingOtpPurpose: PendingOtpPurpose;
+  /**
+   * True when the last successful /auth/verify was for a Panel Owner and the
+   * user must now return to the login page to complete sign-in (spec 2.3.5).
+   * Consumed and cleared by the LoginPage banner.
+   */
+  justVerifiedRequiresLogin: boolean;
+  justVerifiedEmail: string | null;
 
   // Actions
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, displayName: string, password: string) => Promise<void>;
-  verifyOtp: (email: string, code: string) => Promise<void>;
+  register: (
+    email: string,
+    displayName: string,
+    password: string,
+    options?: RegisterOptions
+  ) => Promise<void>;
+  verifyOtp: (email: string, code: string) => Promise<{ requiresLogin: boolean }>;
   verifyLoginOtp: (email: string, code: string) => Promise<void>;
   resendOtp: (email: string, purpose?: 'register' | 'login') => Promise<void>;
   logout: () => Promise<void>;
@@ -30,6 +48,7 @@ interface AuthState {
   refreshToken: () => Promise<void>;
   clearError: () => void;
   clearPendingVerification: () => void;
+  clearJustVerified: () => void;
   updateUser: (updates: Partial<UserProfile>) => void;
 }
 
@@ -43,6 +62,8 @@ export const useAuthStore = create<AuthState>()(
       error: null,
       pendingVerificationEmail: null,
       pendingOtpPurpose: null,
+      justVerifiedRequiresLogin: false,
+      justVerifiedEmail: null,
 
       login: async (email: string, password: string) => {
         set({ isLoading: true, error: null });
@@ -96,10 +117,15 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      register: async (email: string, displayName: string, password: string) => {
+      register: async (
+        email: string,
+        displayName: string,
+        password: string,
+        options?: RegisterOptions
+      ) => {
         set({ isLoading: true, error: null });
         try {
-          const response = await api.register(email, displayName, password);
+          const response = await api.register(email, displayName, password, options);
           // Check if verification is required (email OTP flow)
           if ('requiresVerification' in response && response.requiresVerification) {
             set({
@@ -151,6 +177,22 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true, error: null });
         try {
           const response = await api.verifyOtp(email, code);
+
+          // Panel Owner newcomers must return to the login page after
+          // verification (spec 2.3.5). No tokens were issued.
+          if (isVerifiedRequiresLogin(response)) {
+            set({
+              isAuthenticated: false,
+              isLoading: false,
+              hasCheckedAuth: true,
+              pendingVerificationEmail: null,
+              pendingOtpPurpose: null,
+              justVerifiedRequiresLogin: true,
+              justVerifiedEmail: response.email,
+            });
+            return { requiresLogin: true };
+          }
+
           set({
             user: response.user,
             isAuthenticated: true,
@@ -158,6 +200,8 @@ export const useAuthStore = create<AuthState>()(
             hasCheckedAuth: true,
             pendingVerificationEmail: null,
             pendingOtpPurpose: null,
+            justVerifiedRequiresLogin: false,
+            justVerifiedEmail: null,
           });
 
           const token = localStorage.getItem('accessToken');
@@ -166,6 +210,7 @@ export const useAuthStore = create<AuthState>()(
               console.warn('[Socket] Connection failed, will retry:', err);
             });
           }
+          return { requiresLogin: false };
         } catch (error: any) {
           const errorMessage = error.response?.data?.error || error.message || 'Verification failed';
           set({ isLoading: false, error: errorMessage });
@@ -308,6 +353,10 @@ export const useAuthStore = create<AuthState>()(
 
       clearPendingVerification: () => {
         set({ pendingVerificationEmail: null, pendingOtpPurpose: null });
+      },
+
+      clearJustVerified: () => {
+        set({ justVerifiedRequiresLogin: false, justVerifiedEmail: null });
       },
 
       updateUser: (updates: Partial<UserProfile>) => {

@@ -5,8 +5,37 @@ import { generateTokens, verifyRefreshToken } from '../../middleware/auth';
 import { RegisterInput, LoginInput } from './auth.validation';
 import { createAndSendOtp, verifyOtp } from '../../services/otp';
 import { sendWelcomeEmail, isEmailConfigured } from '../../services/email';
+import { validateInviteToken, consumeInviteToken } from '../../services/invite';
+import { PLAN_ORDER, PLANS, PlanId, canSelfRegisterOn, isValidPlan } from './plans';
 
 const LINDA_EMAIL = 'linda@omnilink.system';
+
+/**
+ * Derive a URL-friendly slug from a company name. Collisions are resolved
+ * by appending a short random suffix.
+ */
+function slugifyCompanyName(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40) || 'org';
+}
+
+async function generateUniqueOrgSlug(companyName: string): Promise<string> {
+  const base = slugifyCompanyName(companyName);
+  // Try the plain slug first, then progressively append random suffixes.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const candidate = attempt === 0
+      ? base
+      : `${base}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+    const existing = await prisma.organization.findUnique({ where: { slug: candidate } });
+    if (!existing) return candidate;
+  }
+  // Extremely unlikely fallback: append a timestamp.
+  return `${base}-${Date.now().toString(36)}`;
+}
 
 /** Ensure a DM conversation exists between a user and Linda */
 async function ensureLindaDM(userId: string): Promise<void> {
@@ -62,12 +91,57 @@ async function ensureLindaDM(userId: string): Promise<void> {
 }
 
 export class AuthController {
+  /**
+   * Public catalog endpoint for plans. Feeds the landing page and plan
+   * selection screen so the frontend has a single source of truth.
+   */
+  async listPlans(_req: Request, res: Response): Promise<void> {
+    try {
+      const plans = PLAN_ORDER.map((id) => PLANS[id]);
+      res.json({ plans });
+    } catch (error) {
+      console.error('List plans error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
   async register(req: Request, res: Response): Promise<void> {
     try {
-      const { email: rawEmail, username: rawUsername, displayName, password } = req.body as RegisterInput;
+      const {
+        email: rawEmail,
+        username: rawUsername,
+        displayName,
+        password,
+        companyName: rawCompanyName,
+        plan: rawPlan,
+      } = req.body as RegisterInput;
 
       // Normalize email to lowercase for case-insensitive handling
       const email = rawEmail.toLowerCase().trim();
+
+      // Panel Owner newcomer detection — per section 2.3 of the spec, supplying
+      // a company name means "this person is creating a new org and will become
+      // its OWNER". Without it, we fall back to the legacy "chat account only"
+      // flow used for invited members and casual sign-ups.
+      const companyName = rawCompanyName?.trim();
+      const isPanelOwnerSignup = !!companyName;
+
+      let selectedPlanId: PlanId = 'starter';
+      if (isPanelOwnerSignup) {
+        if (rawPlan && !isValidPlan(rawPlan)) {
+          res.status(400).json({ error: 'Unknown plan' });
+          return;
+        }
+        selectedPlanId = (rawPlan as PlanId | undefined) ?? 'starter';
+        if (!canSelfRegisterOn(selectedPlanId)) {
+          res.status(400).json({
+            error:
+              'The selected plan is not available for self-serve signup yet. Please pick Starter or contact sales for Enterprise plans.',
+            availablePlans: PLAN_ORDER.filter((id) => canSelfRegisterOn(id)),
+          });
+          return;
+        }
+      }
 
       // Auto-generate username from email if not provided
       let username = rawUsername?.toLowerCase().trim() || '';
@@ -113,10 +187,63 @@ export class AuthController {
 
       // Create user (unverified if email is configured)
       const emailEnabled = isEmailConfigured();
-      const user = await prisma.user.create({
-        data: { email, username, displayName, passwordHash, emailVerified: !emailEnabled },
-        select: { id: true, email: true, username: true, displayName: true, emailVerified: true, createdAt: true },
-      });
+
+      // For Panel Owner signups we create User + Organization + OrganizationMember
+      // atomically so a failure anywhere rolls everything back. We also promote
+      // the user's role to ORG_ADMIN so they see the Panel Owner dashboard on
+      // first login.
+      let user;
+      if (isPanelOwnerSignup && companyName) {
+        const slug = await generateUniqueOrgSlug(companyName);
+        const txResult = await prisma.$transaction(async (tx) => {
+          const createdUser = await tx.user.create({
+            data: {
+              email,
+              username,
+              displayName,
+              passwordHash,
+              emailVerified: !emailEnabled,
+              role: 'ORG_ADMIN',
+            },
+            select: { id: true, email: true, username: true, displayName: true, emailVerified: true, createdAt: true, role: true },
+          });
+
+          // The `plan` / `planStatus` fields were added to the Organization model
+          // at the same time as this code. Until `prisma generate` runs on the
+          // developer's machine, TypeScript may not see them yet, so we cast
+          // the `data` object to `any` for those two fields only.
+          const orgData: any = {
+            name: companyName,
+            slug,
+            description: `Organization owned by ${displayName}`,
+            plan: selectedPlanId,
+            planStatus: 'active',
+          };
+          const createdOrg = await tx.organization.create({
+            data: orgData,
+            select: { id: true, name: true, slug: true },
+          });
+
+          await tx.organizationMember.create({
+            data: {
+              organizationId: createdOrg.id,
+              userId: createdUser.id,
+              role: 'OWNER',
+            },
+          });
+
+          return { createdUser, createdOrg };
+        });
+        user = txResult.createdUser;
+        console.log(
+          `[Auth] Panel Owner signup: user=${user.id} org=${txResult.createdOrg.id} plan=${selectedPlanId}`
+        );
+      } else {
+        user = await prisma.user.create({
+          data: { email, username, displayName, passwordHash, emailVerified: !emailEnabled },
+          select: { id: true, email: true, username: true, displayName: true, emailVerified: true, createdAt: true, role: true },
+        });
+      }
 
       // If email is configured, send OTP and require verification
       if (emailEnabled) {
@@ -129,6 +256,7 @@ export class AuthController {
           requiresVerification: true,
           email: user.email,
           userId: user.id,
+          isPanelOwner: isPanelOwnerSignup,
         });
         return;
       }
@@ -150,7 +278,7 @@ export class AuthController {
 
       ensureLindaDM(user.id).catch(() => {});
 
-      res.status(201).json({ user, ...tokens });
+      res.status(201).json({ user, ...tokens, isPanelOwner: isPanelOwnerSignup });
     } catch (error) {
       console.error('Register error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -159,6 +287,15 @@ export class AuthController {
 
   /**
    * Verify OTP code after registration — completes the signup flow.
+   *
+   * Two behaviors:
+   *   - Panel Owner signups (user is OWNER of an Organization) → mark email
+   *     verified, do NOT issue tokens, return { requiresLogin: true, email }.
+   *     This matches section 2.3.5 of the spec: newcomers land on the login
+   *     page with a success banner and sign in with their password + login OTP.
+   *   - All other signups (invited members, legacy chat accounts) → keep the
+   *     existing behavior and issue tokens immediately to avoid regressing the
+   *     non-newcomer flow.
    */
   async verifyRegistration(req: Request, res: Response): Promise<void> {
     try {
@@ -177,14 +314,43 @@ export class AuthController {
         return;
       }
 
-      // Mark user as verified
+      // Mark user as verified and check whether they own an organization.
       const user = await prisma.user.update({
         where: { email },
         data: { emailVerified: true },
-        select: { id: true, email: true, username: true, displayName: true, emailVerified: true, createdAt: true },
+        select: {
+          id: true,
+          email: true,
+          username: true,
+          displayName: true,
+          emailVerified: true,
+          createdAt: true,
+          organizations: {
+            where: { role: 'OWNER' },
+            select: { organizationId: true },
+            take: 1,
+          },
+        },
       });
 
-      // Generate tokens
+      const isPanelOwner = user.organizations.length > 0;
+      // Strip the relation before sending the user back to the client.
+      const { organizations, ...userPayload } = user;
+
+      if (isPanelOwner) {
+        // Send the welcome email but withhold tokens — the spec requires the
+        // Panel Owner to sign in on the login page with password + login OTP.
+        sendWelcomeEmail(email, user.displayName).catch(() => {});
+        res.json({
+          requiresLogin: true,
+          email: user.email,
+          message: 'Your email has been verified. Sign in to open your panel.',
+          user: userPayload,
+        });
+        return;
+      }
+
+      // Legacy non-Panel-Owner flow: issue tokens immediately.
       const tokens = generateTokens({
         userId: user.id,
         email: user.email,
@@ -203,7 +369,7 @@ export class AuthController {
       ensureLindaDM(user.id).catch(() => {});
       sendWelcomeEmail(email, user.displayName).catch(() => {});
 
-      res.json({ user, ...tokens });
+      res.json({ user: userPayload, ...tokens });
     } catch (error) {
       console.error('Verify registration error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -472,6 +638,128 @@ export class AuthController {
       res.json({ user });
     } catch (error) {
       console.error('Me error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // ─── Invite Flow ──────────────────────────────────────────────
+
+  /**
+   * GET /auth/accept-invite?token=xxx
+   *
+   * Called when the invitee clicks the email link. Validates the token
+   * and returns invite metadata (org name, email, etc.) so the frontend
+   * can show the "Set your password" page.
+   *
+   * This endpoint does NOT consume the token — that happens in set-password.
+   */
+  async acceptInvite(req: Request, res: Response): Promise<void> {
+    try {
+      const token = req.query.token as string;
+      if (!token) {
+        res.status(400).json({ error: 'Invitation token is required.' });
+        return;
+      }
+
+      const result = await validateInviteToken(token);
+      if (!result.valid || !result.invite) {
+        res.status(400).json({ error: result.error || 'Invalid invitation.' });
+        return;
+      }
+
+      // Mark the user's email as verified (clicking the link IS verification)
+      await prisma.user.updateMany({
+        where: {
+          email: { equals: result.invite.email, mode: 'insensitive' },
+          emailVerified: false,
+        },
+        data: { emailVerified: true },
+      });
+
+      res.json({
+        valid: true,
+        invite: {
+          email: result.invite.email,
+          orgName: result.invite.orgName,
+          displayName: result.invite.displayName,
+          inviterName: result.invite.inviterName,
+          role: result.invite.role,
+        },
+      });
+    } catch (error) {
+      console.error('Accept invite error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  /**
+   * POST /auth/set-password
+   *
+   * Sets a new password for an invited user. The token is consumed
+   * (marked as used) after success. The user is NOT auto-logged-in;
+   * they must go through the normal login + OTP flow.
+   *
+   * Body: { token: string, password: string }
+   */
+  async setPassword(req: Request, res: Response): Promise<void> {
+    try {
+      const { token, password } = req.body || {};
+
+      if (!token || typeof token !== 'string') {
+        res.status(400).json({ error: 'Invitation token is required.' });
+        return;
+      }
+      if (!password || typeof password !== 'string' || password.length < 8) {
+        res.status(400).json({ error: 'Password must be at least 8 characters.' });
+        return;
+      }
+
+      // Validate the token again (it could have expired since acceptInvite)
+      const result = await validateInviteToken(token);
+      if (!result.valid || !result.invite) {
+        res.status(400).json({ error: result.error || 'Invalid invitation.' });
+        return;
+      }
+
+      const email = result.invite.email;
+
+      // Find the user (should exist — addMember created them)
+      const user = await prisma.user.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' } },
+      });
+
+      if (!user) {
+        res.status(404).json({ error: 'User account not found. Please contact your administrator.' });
+        return;
+      }
+
+      // Hash the new password and update the user
+      const passwordHash = await bcrypt.hash(password, 12);
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          passwordHash,
+          emailVerified: true, // belt-and-suspenders — also set in acceptInvite
+        },
+      });
+
+      // Consume the token (one-time use)
+      await consumeInviteToken(token);
+
+      // Send a welcome email
+      if (isEmailConfigured()) {
+        sendWelcomeEmail(email, user.displayName).catch((err) => {
+          console.error('[Invite] Welcome email failed:', err);
+        });
+      }
+
+      res.json({
+        success: true,
+        email,
+        message: 'Password set successfully. You can now sign in.',
+      });
+    } catch (error) {
+      console.error('Set password error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }

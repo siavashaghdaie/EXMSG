@@ -2,6 +2,9 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { prisma } from '../../config/database';
+import { createInviteToken, INVITE_EXPIRY_HOURS } from '../../services/invite';
+import { sendInviteEmail, isEmailConfigured } from '../../services/email';
+import { env } from '../../config/env';
 
 // Reserved role names accepted from the client
 type IncomingOrgRole = 'OWNER' | 'ADMIN' | 'MEMBER';
@@ -113,6 +116,8 @@ export class OrgAdminController {
                 avatarUrl: true,
                 isOnline: true,
                 lastSeenAt: true,
+                emailVerified: true,
+                passwordHash: true,
               },
             },
           },
@@ -146,6 +151,10 @@ export class OrgAdminController {
             }),
           ]);
 
+          // Derive invite status from emailVerified + passwordHash
+          const invitePending = !member.user.emailVerified ||
+            member.user.passwordHash.startsWith('INVITE_PENDING_');
+
           return {
             id: member.user.id,
             email: member.user.email,
@@ -155,6 +164,8 @@ export class OrgAdminController {
             role: member.role,
             isOnline: member.user.isOnline,
             lastSeenAt: member.user.lastSeenAt,
+            emailVerified: member.user.emailVerified,
+            invitePending,
             messagesToday,
             taskCount,
           };
@@ -490,7 +501,11 @@ export class OrgAdminController {
   }
 
   // POST /api/org-admin/members — add an existing user by email, or create a brand new user
-  // Body: { email: string, displayName?: string, username?: string, password?: string, role?: 'OWNER'|'ADMIN'|'MEMBER' }
+  // Body: { email: string, displayName?: string, username?: string, role?: 'OWNER'|'ADMIN'|'MEMBER' }
+  //
+  // When a new user is created, an invitation email is sent with a one-time
+  // link. The invitee clicks the link to verify their email and set a password.
+  // No temporary password is generated.
   async addMember(req: Request, res: Response): Promise<void> {
     try {
       const orgId = req.orgId;
@@ -499,7 +514,7 @@ export class OrgAdminController {
         return;
       }
 
-      const { email, displayName, username, password, role } = req.body || {};
+      const { email, displayName, username, role } = req.body || {};
 
       if (!email || typeof email !== 'string' || !email.includes('@')) {
         res.status(400).json({ error: 'A valid email is required' });
@@ -515,12 +530,10 @@ export class OrgAdminController {
       let user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
       let createdNewUser = false;
-      let tempPassword: string | null = null;
 
       if (!user) {
-        // Create a brand new user. Use the caller-provided password if any,
-        // otherwise generate a one-time strong password and return it to the caller
-        // so they can share it with the invitee (since there's no email invite pipeline yet).
+        // Create a brand new user with a placeholder password hash. The
+        // invitee will set their real password via the invite link.
         const finalDisplayName = (displayName && String(displayName).trim()) || normalizedEmail.split('@')[0];
         const baseUsername = (username && String(username).trim()) || normalizedEmail.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '');
         let finalUsername = baseUsername || `user${Date.now()}`;
@@ -536,22 +549,17 @@ export class OrgAdminController {
           }
         }
 
-        if (password && typeof password === 'string' && password.length >= 8) {
-          tempPassword = password;
-        } else {
-          // 12-char URL-safe random password
-          tempPassword = crypto.randomBytes(9).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) + 'A1!';
-        }
-
-        const passwordHash = await bcrypt.hash(tempPassword, 12);
+        // Placeholder hash — the user cannot log in until they set a
+        // password via the invite link.
+        const placeholderHash = `INVITE_PENDING_${crypto.randomBytes(16).toString('hex')}`;
 
         user = await prisma.user.create({
           data: {
             email: normalizedEmail,
             username: finalUsername,
             displayName: finalDisplayName,
-            passwordHash,
-            emailVerified: true, // Org admin added them, skip email verification
+            passwordHash: placeholderHash,
+            emailVerified: false, // Will be verified when they click the invite link
           },
         });
         createdNewUser = true;
@@ -583,6 +591,54 @@ export class OrgAdminController {
         },
       });
 
+      // ── Send invitation email ─────────────────────────────────
+      // Send the invite for new users, and also for existing users who
+      // haven't set a password yet (placeholder hash starts with INVITE_PENDING_).
+      // Always send an invite email when a member is added to the org.
+      // For brand-new users this is their activation link (set password).
+      // For existing users this serves as a welcome/notification that
+      // they've been added to a new organization.
+      let inviteSent = false;
+      const emailConfigured = isEmailConfigured();
+      console.log(`[OrgAdmin] addMember: email=${normalizedEmail} createdNewUser=${createdNewUser} emailVerified=${user.emailVerified} emailConfigured=${emailConfigured}`);
+      if (emailConfigured) {
+        const inviteResult = await createInviteToken(
+          normalizedEmail,
+          orgId,
+          req.user!.userId,
+          requestedRole,
+          (displayName && String(displayName).trim()) || null
+        );
+
+        if (inviteResult.success && inviteResult.token) {
+          const inviteUrl = `${env.FRONTEND_URL}/invite?token=${inviteResult.token}`;
+
+          // Look up org name + inviter name for the email
+          const org = await prisma.organization.findUnique({
+            where: { id: orgId },
+            select: { name: true },
+          });
+          const inviter = await prisma.user.findUnique({
+            where: { id: req.user!.userId },
+            select: { displayName: true },
+          });
+
+          const emailResult = await sendInviteEmail(
+            normalizedEmail,
+            inviter?.displayName || 'Your administrator',
+            org?.name || 'your organization',
+            inviteUrl,
+            INVITE_EXPIRY_HOURS
+          );
+          inviteSent = emailResult.success;
+          if (!emailResult.success) {
+            console.error('[OrgAdmin] Invite email failed:', emailResult.error);
+          }
+        }
+      }
+
+      console.log(`[OrgAdmin] addMember result: email=${normalizedEmail} createdNewUser=${createdNewUser} inviteSent=${inviteSent}`);
+
       res.status(201).json({
         member: {
           id: user.id,
@@ -597,10 +653,99 @@ export class OrgAdminController {
           taskCount: 0,
         },
         createdNewUser,
-        temporaryPassword: createdNewUser ? tempPassword : undefined,
+        inviteSent,
       });
     } catch (error) {
       console.error('Add member error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // POST /api/org-admin/members/:userId/resend-invite — resend the invitation email
+  async resendInvite(req: Request, res: Response): Promise<void> {
+    try {
+      const orgId = req.orgId;
+      const { userId } = req.params;
+
+      if (!orgId) {
+        res.status(400).json({ error: 'Organization ID required' });
+        return;
+      }
+
+      if (!isEmailConfigured()) {
+        res.status(503).json({ error: 'Email service is not configured. Set RESEND_API_KEY in your .env file.' });
+        return;
+      }
+
+      // Find the member in this org
+      const membership = await prisma.organizationMember.findUnique({
+        where: { organizationId_userId: { organizationId: orgId, userId } },
+        include: {
+          user: { select: { email: true, displayName: true, emailVerified: true, passwordHash: true } },
+        },
+      });
+
+      if (!membership) {
+        res.status(404).json({ error: 'Member not found in this organization' });
+        return;
+      }
+
+      // Only resend for users who haven't set up yet
+      const needsInvite = !membership.user.emailVerified ||
+        membership.user.passwordHash.startsWith('INVITE_PENDING_');
+
+      if (!needsInvite) {
+        res.status(400).json({ error: 'This member has already accepted their invitation.' });
+        return;
+      }
+
+      // Create a fresh invite token (invalidates old ones)
+      const inviteResult = await createInviteToken(
+        membership.user.email,
+        orgId,
+        req.user!.userId,
+        membership.role,
+        membership.user.displayName || null
+      );
+
+      if (!inviteResult.success || !inviteResult.token) {
+        console.error('[OrgAdmin] Resend invite token failed:', inviteResult.error);
+        res.status(500).json({ error: 'Failed to generate invite link. Please try again.' });
+        return;
+      }
+
+      const inviteUrl = `${env.FRONTEND_URL}/invite?token=${inviteResult.token}`;
+
+      const org = await prisma.organization.findUnique({
+        where: { id: orgId },
+        select: { name: true },
+      });
+      const inviter = await prisma.user.findUnique({
+        where: { id: req.user!.userId },
+        select: { displayName: true },
+      });
+
+      const emailResult = await sendInviteEmail(
+        membership.user.email,
+        inviter?.displayName || 'Your administrator',
+        org?.name || 'your organization',
+        inviteUrl,
+        INVITE_EXPIRY_HOURS
+      );
+
+      if (!emailResult.success) {
+        console.error('[OrgAdmin] Resend invite email failed:', emailResult.error);
+        res.status(500).json({ error: `Failed to send email: ${emailResult.error}` });
+        return;
+      }
+
+      res.json({
+        success: true,
+        message: `Invitation resent to ${membership.user.email}`,
+        email: membership.user.email,
+      });
+    } catch (error) {
+      console.error('Resend invite error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }

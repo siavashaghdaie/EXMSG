@@ -6,6 +6,11 @@ import { setupPresenceSocketListeners } from '@/store/presenceStore';
 import { LoginPage } from '@/components/auth/LoginPage';
 import { RegisterPage } from '@/components/auth/RegisterPage';
 import { VerifyOtpPage } from '@/components/auth/VerifyOtpPage';
+import { LandingPage } from '@/components/auth/LandingPage';
+import { PlanSelectionPage } from '@/components/auth/PlanSelectionPage';
+import { AcceptInvitePage } from '@/components/auth/AcceptInvitePage';
+import { SetPasswordPage } from '@/components/auth/SetPasswordPage';
+import { WelcomeOnboardingPage } from '@/components/auth/WelcomeOnboardingPage';
 import { SuperAdminLogin } from '@/components/super-admin/SuperAdminLogin';
 import SuperAdminLayout from '@/components/super-admin/SuperAdminLayout';
 import ChatLayout from '@/components/layout/ChatLayout';
@@ -58,6 +63,26 @@ function App() {
         element={isSuperAdminAuthenticated ? <SuperAdminLayout /> : <Navigate to="/admin/login" replace />}
       />
 
+      {/* Public marketing + onboarding routes (spec 2.3) */}
+      <Route
+        path="/"
+        element={isAuthenticated ? <Navigate to="/chat" replace /> : <LandingPage />}
+      />
+      <Route
+        path="/plans"
+        element={isAuthenticated ? <Navigate to="/chat" replace /> : <PlanSelectionPage />}
+      />
+
+      {/* Invite flow routes (always public — invitees aren't logged in yet) */}
+      <Route path="/invite" element={<AcceptInvitePage />} />
+      <Route path="/set-password" element={<SetPasswordPage />} />
+
+      {/* Post-login welcome onboarding (protected) */}
+      <Route
+        path="/welcome"
+        element={isAuthenticated ? <WelcomeOnboardingPage /> : <Navigate to="/login" replace />}
+      />
+
       {/* Public auth routes */}
       <Route
         path="/login"
@@ -75,14 +100,14 @@ function App() {
       {/* Protected chat routes */}
       <Route
         path="/chat"
-        element={isAuthenticated ? <ChatLayout /> : <Navigate to="/login" replace />}
+        element={isAuthenticated ? <ChatLayout /> : <Navigate to="/" replace />}
       >
         <Route index element={<ChatEmptyState />} />
         <Route path=":conversationId" element={<ChatView />} />
       </Route>
 
       {/* Catch-all redirect */}
-      <Route path="*" element={<Navigate to={isAuthenticated ? '/chat' : '/login'} replace />} />
+      <Route path="*" element={<Navigate to={isAuthenticated ? '/chat' : '/'} replace />} />
     </Routes>
   );
 }

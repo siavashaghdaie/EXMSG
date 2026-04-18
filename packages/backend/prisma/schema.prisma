@@ -17,11 +17,21 @@ model Organization {
   slug        String   @unique
   avatarUrl   String?  @map("avatar_url")
   description String?
+  // Subscription plan selected at signup time: "starter" | "professional" | "business" | "enterprise"
+  // In v1 only "starter" is reachable through the public signup flow; the other tiers
+  // are exposed on the landing page for marketing but route to "Contact Sales" or a
+  // coming-soon state until billing is wired up.
+  plan        String   @default("starter")
+  // Lifecycle of the plan: "trial" | "active" | "past_due" | "canceled". Free Starter
+  // orgs stay in "active" forever. Once checkout is wired up this will be driven by
+  // the billing provider webhooks.
+  planStatus  String   @default("active") @map("plan_status")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  members  OrganizationMember[]
-  channels Channel[]
+  members      OrganizationMember[]
+  channels     Channel[]
+  inviteTokens InviteToken[]
 
   @@map("organizations")
 }
@@ -66,6 +76,7 @@ model User {
   lindaActivitiesTarget  LindaActivity[] @relation("LindaActivitiesTarget")
   lindaMemories      LindaMemory[]
   otpCodes           OtpCode[]
+  sentInvites        InviteToken[]    @relation("InvitedByUser")
 
   @@map("users")
 }
@@ -495,6 +506,30 @@ model LindaMemory {
 
   @@index([userId, category])
   @@map("linda_memories")
+}
+
+// ============================================
+// INVITATION TOKENS
+// ============================================
+
+model InviteToken {
+  id             String   @id @default(uuid())
+  token          String   @unique // crypto-random URL-safe token
+  email          String // invitee email address
+  organizationId String   @map("organization_id")
+  role           String   @default("MEMBER") // org role: OWNER, ADMIN, MEMBER
+  invitedById    String   @map("invited_by_id") // admin who sent the invite
+  displayName    String?  @map("display_name") // optional pre-set display name
+  usedAt         DateTime? @map("used_at") // null until the invitee clicks the link
+  expiresAt      DateTime @map("expires_at") // 72 hours from creation
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy    User         @relation("InvitedByUser", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([email])
+  @@map("invite_tokens")
 }
 
 // ============================================

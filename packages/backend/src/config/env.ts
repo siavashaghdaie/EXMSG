@@ -23,6 +23,7 @@ export const env = {
   PORT: parseInt(process.env.PORT || '3001', 10),
   NODE_ENV: process.env.NODE_ENV || 'development',
   CORS_ORIGIN: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  FRONTEND_URL: process.env.FRONTEND_URL || process.env.CORS_ORIGIN || 'http://localhost:5173',
 
   // Database
   DATABASE_URL: process.env.DATABASE_URL!,

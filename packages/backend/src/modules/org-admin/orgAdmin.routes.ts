@@ -45,6 +45,10 @@ router.delete('/org-admin/members/:userId', (req, res) =>
   controller.removeMember(req, res)
 );
 
+router.post('/org-admin/members/:userId/resend-invite', (req, res) =>
+  controller.resendInvite(req, res)
+);
+
 router.get('/org-admin/member/:userId/activity', (req, res) =>
   controller.getMemberActivity(req, res)
 );

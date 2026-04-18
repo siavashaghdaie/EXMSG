@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { Mail, Lock, MessageSquare } from 'lucide-react';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
+import { Mail, Lock, MessageSquare, CheckCircle2, X } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { Button } from '../common/Button';
 import { Input } from '../common/Input';
@@ -13,7 +13,19 @@ interface FormErrors {
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
-  const { login, isLoading, error, clearError } = useAuthStore();
+  const location = useLocation();
+  const {
+    login,
+    isLoading,
+    error,
+    clearError,
+    justVerifiedRequiresLogin,
+    justVerifiedEmail,
+    clearJustVerified,
+  } = useAuthStore();
+
+  // SetPasswordPage passes inviteEmail via location state after a successful password set.
+  const inviteEmail = (location.state as any)?.inviteEmail as string | undefined;
 
   const [formData, setFormData] = useState({
     email: '',
@@ -23,6 +35,7 @@ export const LoginPage: React.FC = () => {
 
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [touched, setTouched] = useState({ email: false, password: false });
+  const [showVerifiedBanner, setShowVerifiedBanner] = useState(false);
 
   // Load remember me data on mount
   useEffect(() => {
@@ -31,6 +44,28 @@ export const LoginPage: React.FC = () => {
       setFormData(prev => ({ ...prev, email: savedEmail, rememberMe: true }));
     }
   }, []);
+
+  // Handle the "just verified, please sign in" banner that the Panel Owner
+  // register → verify → login flow hands us via the auth store.
+  useEffect(() => {
+    if (justVerifiedRequiresLogin) {
+      setShowVerifiedBanner(true);
+      if (justVerifiedEmail) {
+        setFormData(prev => ({ ...prev, email: justVerifiedEmail }));
+      }
+      // Clear the flag right away so refreshing doesn't keep showing it.
+      clearJustVerified();
+    }
+  }, [justVerifiedRequiresLogin, justVerifiedEmail, clearJustVerified]);
+
+  // Handle the invite flow: SetPasswordPage passes inviteEmail after
+  // the invitee successfully sets their password.
+  useEffect(() => {
+    if (inviteEmail) {
+      setShowVerifiedBanner(true);
+      setFormData(prev => ({ ...prev, email: inviteEmail }));
+    }
+  }, [inviteEmail]);
 
   const validateEmail = (email: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -114,9 +149,9 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950 flex items-start justify-center py-8 px-4">
       {/* Background decoration */}
-      <div className="absolute inset-0 overflow-hidden">
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-20 left-10 w-72 h-72 bg-blue-200 dark:bg-blue-900/20 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob"></div>
         <div className="absolute top-40 right-10 w-72 h-72 bg-purple-200 dark:bg-purple-900/20 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
         <div className="absolute -bottom-8 left-20 w-72 h-72 bg-pink-200 dark:bg-pink-900/20 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-4000"></div>
@@ -137,6 +172,28 @@ export const LoginPage: React.FC = () => {
             Sign in to your OmniLink account
           </p>
         </div>
+
+        {/* Post-verification success banner (Panel Owner flow, spec 2.3.5) */}
+        {showVerifiedBanner && (
+          <div className="mb-4 rounded-xl border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 p-4 flex items-start gap-3">
+            <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-green-800 dark:text-green-200">
+                Your email is verified
+              </p>
+              <p className="text-xs text-green-700 dark:text-green-300 mt-0.5">
+                Sign in with your new password to open your workspace panel.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowVerifiedBanner(false)}
+              className="text-green-700 dark:text-green-300 hover:text-green-900 dark:hover:text-green-100 flex-shrink-0"
+              aria-label="Dismiss"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
 
         {/* Login Card */}
         {/* Error Toast Popup */}

@@ -8,19 +8,26 @@ import {
   verifyOtpSchema,
   verifyLoginSchema,
   resendOtpSchema,
+  setPasswordSchema,
 } from './auth.validation';
 import { authenticate } from '../../middleware/auth';
 
 const router = Router();
 const controller = new AuthController();
 
-router.post('/register', validate(registerSchema), controller.register);
-router.post('/verify', validate(verifyOtpSchema), controller.verifyRegistration);
-router.post('/resend-otp', validate(resendOtpSchema), controller.resendOtp);
-router.post('/login', validate(loginSchema), controller.login);
-router.post('/verify-login', validate(verifyLoginSchema), controller.verifyLogin);
-router.post('/refresh', validate(refreshSchema), controller.refresh);
-router.post('/logout', authenticate, controller.logout);
-router.get('/me', authenticate, controller.me);
+// Public plan catalog (used by landing page + plan selection screen)
+router.get('/plans', (req, res) => controller.listPlans(req, res));
+router.post('/register', validate(registerSchema), (req, res) => controller.register(req, res));
+router.post('/verify', validate(verifyOtpSchema), (req, res) => controller.verifyRegistration(req, res));
+router.post('/resend-otp', validate(resendOtpSchema), (req, res) => controller.resendOtp(req, res));
+router.post('/login', validate(loginSchema), (req, res) => controller.login(req, res));
+router.post('/verify-login', validate(verifyLoginSchema), (req, res) => controller.verifyLogin(req, res));
+router.post('/refresh', validate(refreshSchema), (req, res) => controller.refresh(req, res));
+router.post('/logout', authenticate, (req, res) => controller.logout(req, res));
+router.get('/me', authenticate, (req, res) => controller.me(req, res));
+
+// ─── Invite Flow ───────────────────────────────────────────────
+router.get('/accept-invite', (req, res) => controller.acceptInvite(req, res));
+router.post('/set-password', validate(setPasswordSchema), (req, res) => controller.setPassword(req, res));
 
 export { router as authRoutes };

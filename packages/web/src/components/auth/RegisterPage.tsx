@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { Mail, Lock, User, MessageSquare } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { Mail, Lock, User, MessageSquare, Building2 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
+import { api, PlanDefinition, PlanId } from '@/services/api';
 import { Button } from '../common/Button';
 import { Input } from '../common/Input';
 import { Toast } from '../common/Toast';
@@ -11,6 +12,14 @@ interface FormErrors {
   displayName?: string;
   password?: string;
   confirmPassword?: string;
+  companyName?: string;
+}
+
+const VALID_PLAN_IDS: readonly PlanId[] = ['starter', 'professional', 'business', 'enterprise'] as const;
+
+function parsePlanId(value: string | null): PlanId | null {
+  if (!value) return null;
+  return (VALID_PLAN_IDS as readonly string[]).includes(value) ? (value as PlanId) : null;
 }
 
 interface PasswordStrength {
@@ -21,13 +30,61 @@ interface PasswordStrength {
 
 export const RegisterPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { register, isLoading, error, clearError } = useAuthStore();
+
+  // Panel Owner flow is triggered either explicitly (?panelOwner=1) or
+  // implicitly by landing here with a ?plan=<id> query param. The flag is
+  // derived from the URL — it never changes within a single mount, but we
+  // recompute if the user somehow navigates with new query params.
+  const initialPlanId = useMemo(
+    () => parsePlanId(searchParams.get('plan')),
+    [searchParams]
+  );
+  const isPanelOwner = useMemo(
+    () => searchParams.get('panelOwner') === '1' || initialPlanId !== null,
+    [searchParams, initialPlanId]
+  );
+
+  const [selectedPlanId] = useState<PlanId>(initialPlanId ?? 'starter');
+  const [selectedPlan, setSelectedPlan] = useState<PlanDefinition | null>(null);
+  const [plansLoadError, setPlansLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Only Panel Owner registrations need the plan metadata. The legacy
+    // "create a chat account" flow is unaffected.
+    if (!isPanelOwner) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.getPlans();
+        if (cancelled) return;
+        const match = res.plans.find((p) => p.id === selectedPlanId) ?? res.plans[0];
+        setSelectedPlan(match || null);
+        // If the plan in the URL is not self-servable (e.g. user deep-linked
+        // to ?plan=professional), bounce them back to plan selection.
+        if (match && !match.publiclySelfServable) {
+          navigate(`/plans?highlight=${match.id}`, { replace: true });
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setPlansLoadError(
+            err?.response?.data?.error || err?.message || 'Could not load plan details'
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isPanelOwner, selectedPlanId, navigate]);
 
   const [formData, setFormData] = useState({
     email: '',
     displayName: '',
     password: '',
     confirmPassword: '',
+    companyName: '',
     agreeToTerms: false,
   });
 
@@ -37,6 +94,7 @@ export const RegisterPage: React.FC = () => {
     displayName: false,
     password: false,
     confirmPassword: false,
+    companyName: false,
   });
 
   const calculatePasswordStrength = (password: string): PasswordStrength => {
@@ -84,6 +142,17 @@ export const RegisterPage: React.FC = () => {
       errors.displayName = 'Display name is required';
     } else if (formData.displayName.length < 2) {
       errors.displayName = 'Display name must be at least 2 characters';
+    }
+
+    // Company name — only required for the Panel Owner flow
+    if (isPanelOwner) {
+      if (!formData.companyName.trim()) {
+        errors.companyName = 'Company or team name is required';
+      } else if (formData.companyName.trim().length < 2) {
+        errors.companyName = 'Company name must be at least 2 characters';
+      } else if (formData.companyName.trim().length > 100) {
+        errors.companyName = 'Company name must be at most 100 characters';
+      }
     }
 
     // Password validation
@@ -143,7 +212,13 @@ export const RegisterPage: React.FC = () => {
       await register(
         formData.email,
         formData.displayName,
-        formData.password
+        formData.password,
+        isPanelOwner
+          ? {
+              companyName: formData.companyName.trim(),
+              plan: selectedPlanId,
+            }
+          : undefined
       );
       // Check if we need OTP verification
       const { pendingVerificationEmail, isAuthenticated } = useAuthStore.getState();
@@ -166,9 +241,9 @@ export const RegisterPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950 flex items-start justify-center py-8 px-4">
       {/* Background decoration */}
-      <div className="absolute inset-0 overflow-hidden">
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-20 left-10 w-72 h-72 bg-blue-200 dark:bg-blue-900/20 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob"></div>
         <div className="absolute top-40 right-10 w-72 h-72 bg-purple-200 dark:bg-purple-900/20 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
         <div className="absolute -bottom-8 left-20 w-72 h-72 bg-pink-200 dark:bg-pink-900/20 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-4000"></div>
@@ -183,12 +258,47 @@ export const RegisterPage: React.FC = () => {
             </div>
           </div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-            Join OmniLink
+            {isPanelOwner ? 'Create your workspace' : 'Join OmniLink'}
           </h1>
           <p className="text-gray-600 dark:text-gray-400">
-            Create your account to get started
+            {isPanelOwner
+              ? "You'll be the owner of your new OmniLink panel"
+              : 'Create your account to get started'}
           </p>
         </div>
+
+        {/* Selected plan banner — Panel Owner flow only */}
+        {isPanelOwner && (
+          <div className="mb-4 bg-white dark:bg-gray-900 rounded-xl border border-blue-200 dark:border-blue-800 p-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex-shrink-0">
+                <Building2 className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Selected plan</p>
+                <p className="text-sm font-bold text-gray-900 dark:text-white truncate">
+                  {selectedPlan ? selectedPlan.name : selectedPlanId}
+                  {selectedPlan && selectedPlan.priceMonthly === 0
+                    ? ' — Free'
+                    : selectedPlan && selectedPlan.priceMonthly > 0
+                    ? ` — $${selectedPlan.priceMonthly}/user/mo`
+                    : ''}
+                </p>
+              </div>
+            </div>
+            <Link
+              to="/plans"
+              className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline flex-shrink-0"
+            >
+              Change
+            </Link>
+          </div>
+        )}
+        {isPanelOwner && plansLoadError && (
+          <p className="mb-3 text-xs text-red-600 dark:text-red-400 text-center">
+            {plansLoadError}
+          </p>
+        )}
 
         {/* Registration Card */}
         {/* Error Toast Popup */}
@@ -198,6 +308,23 @@ export const RegisterPage: React.FC = () => {
 
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl p-8 space-y-6 border border-gray-200 dark:border-gray-800">
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Company name — Panel Owner flow only */}
+            {isPanelOwner && (
+              <Input
+                type="text"
+                name="companyName"
+                label="Company or team name"
+                placeholder="Acme Inc."
+                value={formData.companyName}
+                onChange={handleChange}
+                onBlur={handleBlur}
+                error={touched.companyName ? formErrors.companyName : undefined}
+                icon={<Building2 className="h-5 w-5" />}
+                autoComplete="organization"
+                disabled={isLoading}
+              />
+            )}
+
             {/* Email Input */}
             <Input
               type="email"
