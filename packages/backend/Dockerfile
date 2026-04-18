@@ -16,18 +16,19 @@ RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 # Generate Prisma client for linux-musl-openssl-3.0.x (Alpine 3.18+)
 RUN npx prisma generate --schema=packages/backend/prisma/schema.prisma
 
-# Build shared package first (backend depends on it)
-RUN cd packages/shared && npx tsc --build tsconfig.json 2>/dev/null || true
+# Debug: show what we have
+RUN echo "=== Checking source files ===" && \
+    ls packages/backend/src/index.ts && \
+    ls packages/backend/src/middleware/validate.ts && \
+    cat packages/backend/tsconfig.json
 
-# Build backend explicitly (avoid workspace flag issues)
-RUN cd packages/backend && npx tsc --project tsconfig.json || \
-    (echo "TSC failed, trying without incremental..." && \
-     cd /app/packages/backend && npx tsc --project tsconfig.json --incremental false --composite false)
-
-# Verify dist was created
-RUN ls -la packages/backend/dist/index.js && \
-    ls -la packages/backend/dist/middleware/validate.js && \
-    echo "Build verification passed!"
+# Build backend - capture all output
+RUN cd packages/backend && \
+    npx tsc --project tsconfig.json --incremental false --composite false 2>&1; \
+    echo "=== TSC exit code: $? ===" && \
+    echo "=== Checking dist ===" && \
+    find dist -name "*.js" 2>/dev/null | head -20 || echo "NO DIST FOUND" && \
+    ls -la dist/ 2>/dev/null || echo "dist/ does not exist"
 
 # Stage 2: Production — use node:20-slim (Debian) to avoid Alpine OpenSSL issues
 FROM node:20-slim
