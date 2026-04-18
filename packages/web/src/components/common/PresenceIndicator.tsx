@@ -9,8 +9,10 @@ interface PresenceIndicatorProps {
 }
 
 export default function PresenceIndicator({ userId, showText = false, size = 'sm', forceOnline = false }: PresenceIndicatorProps) {
-  const isOnline = forceOnline || usePresenceStore((s) => s.onlineUsers.has(userId));
+  // Always call hooks unconditionally (Rules of Hooks)
+  const storeOnline = usePresenceStore((s) => s.onlineUsers.has(userId));
   const lastSeen = usePresenceStore((s) => s.lastSeen.get(userId));
+  const isOnline = forceOnline || storeOnline;
 
   const dotSize = {
     sm: 'w-2.5 h-2.5',

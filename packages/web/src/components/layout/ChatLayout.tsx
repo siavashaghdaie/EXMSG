@@ -34,6 +34,17 @@ export const ChatLayout: React.FC = () => {
   const [, setAnnouncementCount] = useState(0);
   const [taskCount, setTaskCount] = useState(0);
 
+  // Helper: close ALL sub-pages so that <Outlet/> (ChatView) can render.
+  // Call this before opening any sub-page or navigating to a chat.
+  const closeAllSubPages = () => {
+    setShowSettings(false);
+    setShowTaskWall(false);
+    setShowAdminDashboard(false);
+    setShowAnnouncements(false);
+    setShowAgents(false);
+    setShowOrgDashboard(false);
+  };
+
   // Check whether to show the welcome wizard on first login (ALL users)
   useEffect(() => {
     if (!user?.id) return;
@@ -204,47 +215,27 @@ export const ChatLayout: React.FC = () => {
           <Sidebar
             isMobile={isMobile}
             onNavigateChat={() => {
-              setShowSettings(false);
-
-              setShowTaskWall(false);
-              setShowAdminDashboard(false);
-              setShowAnnouncements(false);
-              setShowAgents(false);
+              closeAllSubPages();
               if (isMobile) setShowSidebar(false);
             }}
             onSettingsClick={() => {
+              closeAllSubPages();
               setShowSettings(true);
-
-              setShowTaskWall(false);
-              setShowAdminDashboard(false);
-              setShowAnnouncements(false);
-              setShowAgents(false);
               if (isMobile) setShowSidebar(false);
             }}
             onDashboardClick={() => {
+              closeAllSubPages();
               setShowOrgDashboard(true);
-              setShowAdminDashboard(false);
-              setShowSettings(false);
-              setShowTaskWall(false);
-              setShowAnnouncements(false);
-              setShowAgents(false);
               if (isMobile) setShowSidebar(false);
             }}
             onAnnouncementsClick={() => {
+              closeAllSubPages();
               setShowAnnouncements(true);
-              setShowSettings(false);
-
-              setShowTaskWall(false);
-              setShowAdminDashboard(false);
               if (isMobile) setShowSidebar(false);
             }}
             onTasksClick={() => {
+              closeAllSubPages();
               setShowTaskWall(true);
-              setShowSettings(false);
-
-              setShowAdminDashboard(false);
-              setShowAnnouncements(false);
-              setShowAgents(false);
               if (isMobile) setShowSidebar(false);
             }}
           />
@@ -315,43 +306,26 @@ export const ChatLayout: React.FC = () => {
           taskCount={taskCount}
           activeTab={getActiveBottomTab()}
           onAgentsClick={() => {
+            closeAllSubPages();
             setShowAgents(true);
-            setShowSettings(false);
-            setShowTaskWall(false);
-            setShowAdminDashboard(false);
-            setShowAnnouncements(false);
             setShowSidebar(false);
           }}
           onTasksClick={() => {
+            closeAllSubPages();
             setShowTaskWall(true);
-            setShowSettings(false);
-            setShowAdminDashboard(false);
-            setShowAnnouncements(false);
-            setShowAgents(false);
             setShowSidebar(false);
           }}
           onSettingsClick={() => {
+            closeAllSubPages();
             setShowSettings(true);
-            setShowTaskWall(false);
-            setShowAdminDashboard(false);
-            setShowAnnouncements(false);
-            setShowAgents(false);
             setShowSidebar(false);
           }}
           onChatsClick={() => {
-            setShowSettings(false);
-            setShowTaskWall(false);
-            setShowAdminDashboard(false);
-            setShowAnnouncements(false);
-            setShowAgents(false);
+            closeAllSubPages();
             setShowSidebar(true);
           }}
           onContactsClick={() => {
-            setShowSettings(false);
-            setShowTaskWall(false);
-            setShowAdminDashboard(false);
-            setShowAnnouncements(false);
-            setShowAgents(false);
+            closeAllSubPages();
             navigate('/contacts');
           }}
         />
@@ -369,12 +343,8 @@ export const ChatLayout: React.FC = () => {
             setShowWizard(false);
           }}
           onOpenDashboard={() => {
+            closeAllSubPages();
             setShowOrgDashboard(true);
-            setShowSettings(false);
-            setShowTaskWall(false);
-            setShowAdminDashboard(false);
-            setShowAnnouncements(false);
-            setShowAgents(false);
             if (isMobile) setShowSidebar(false);
             // Also mark dashboard button as seen
             if (user.id) {

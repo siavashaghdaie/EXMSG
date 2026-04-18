@@ -216,7 +216,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ isSending: true, error: null });
     try {
       const message = await api.sendMessage(conversationId, content, replyToId);
-      // Add message to store immediately from API response
+      // Add message to store and update conversation list immediately
       set((state) => {
         const messages = new Map(state.messages);
         const conversationMessages = messages.get(conversationId) || [];
@@ -224,7 +224,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (!conversationMessages.some((m) => m.id === message.id)) {
           messages.set(conversationId, [...conversationMessages, message]);
         }
-        return { messages, isSending: false };
+
+        // Move conversation to top and update lastMessage preview
+        const conversations = [...state.conversations];
+        const convIndex = conversations.findIndex((c) => c.id === conversationId);
+        if (convIndex >= 0) {
+          const conv = { ...conversations[convIndex] };
+          conv.lastMessage = {
+            id: message.id,
+            content: message.content,
+            senderId: message.senderId,
+            conversationId: message.conversationId,
+            createdAt: message.createdAt,
+            reactions: {},
+          };
+          conv.updatedAt = message.createdAt;
+          conversations.splice(convIndex, 1);
+          conversations.unshift(conv);
+        }
+
+        return { messages, conversations, isSending: false };
       });
       return message;
     } catch (error: any) {
@@ -317,10 +336,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         conversations.unshift(conv);
       }
 
-      // Increment unread count if not the active conversation
+      // Increment unread count if not the active conversation AND not our own message
       const unreadCounts = new Map(state.unreadCounts);
       const activeConvId = state.activeConversation?.id;
-      if (message.conversationId !== activeConvId) {
+      const currentUserId = useAuthStore.getState().user?.id;
+      if (message.conversationId !== activeConvId && message.senderId !== currentUserId) {
         const current = unreadCounts.get(message.conversationId) || 0;
         unreadCounts.set(message.conversationId, current + 1);
       }

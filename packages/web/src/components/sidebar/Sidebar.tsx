@@ -179,8 +179,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setShowStoryCreation(true);
   };
 
-  // Filter conversations based on search query
-  const filteredConversations = conversations.filter((conv) => {
+  // Sort conversations by most recent activity, then filter by search query
+  const sortedConversations = [...conversations].sort((a, b) => {
+    const aTime = a.lastMessage?.createdAt || a.updatedAt || a.createdAt;
+    const bTime = b.lastMessage?.createdAt || b.updatedAt || b.createdAt;
+    return new Date(bTime).getTime() - new Date(aTime).getTime();
+  });
+
+  const filteredConversations = sortedConversations.filter((conv) => {
     if (!searchQuery.trim()) return true;
     const query = searchQuery.toLowerCase();
 

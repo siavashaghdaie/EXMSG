@@ -526,14 +526,11 @@ export class MessagingController {
         });
 
         // Emit read receipt event so sender sees blue ticks in real-time
-        const io = req.app.get('io');
-        if (io) {
-          io.to(`conversation:${conversationId}`).emit('messagesRead', {
-            conversationId,
-            readByUserId: userId,
-            messageIds: unreadMessages.map((m) => m.id),
-          });
-        }
+        emitToConversation(conversationId, 'messagesRead', {
+          conversationId,
+          readByUserId: userId,
+          messageIds: unreadMessages.map((m) => m.id),
+        });
       }
 
       // Always update last read timestamp on the conversation membership
