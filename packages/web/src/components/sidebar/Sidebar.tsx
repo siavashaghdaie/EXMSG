@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Search, Settings, Plus, Bell, Clipboard } from 'lucide-react';
+import { Search, Settings, Plus, Bell, Clipboard, LayoutDashboard } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { usePresenceStore } from '@/store/presenceStore';
@@ -24,6 +24,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isMobile = false,
   onNavigateChat,
   onSettingsClick,
+  onDashboardClick,
   onClose,
   onAnnouncementsClick,
   onTasksClick
@@ -42,6 +43,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [contactStories, setContactStories] = useState<UserStatusGroup[]>([]);
   const [announcementCount, setAnnouncementCount] = useState(0);
   const [taskCount, setTaskCount] = useState(0);
+  const [dashboardBlink, setDashboardBlink] = useState(false);
 
   const {
     conversations,
@@ -51,6 +53,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
     unreadCounts,
   } = useChatStore();
   const { user } = useAuthStore();
+
+  // Check if user is an admin/owner (show dashboard button)
+  const isOrgAdmin = user?.role === 'SUPER_ADMIN' || user?.orgRole === 'OWNER' || user?.orgRole === 'ADMIN';
+
+  // Blink the dashboard button if the user hasn't dismissed it yet
+  useEffect(() => {
+    if (isOrgAdmin && user?.id) {
+      const key = `omnilink_dashboard_seen_${user.id}`;
+      if (!localStorage.getItem(key)) {
+        setDashboardBlink(true);
+      }
+    }
+  }, [isOrgAdmin, user?.id]);
+
+  const handleDashboardClick = () => {
+    // Mark as seen so it stops blinking
+    if (user?.id) {
+      localStorage.setItem(`omnilink_dashboard_seen_${user.id}`, '1');
+    }
+    setDashboardBlink(false);
+    if (onDashboardClick) onDashboardClick();
+  };
 
   // Subscribe to presence store updates
   const presenceOnlineUsers = usePresenceStore((s) => s.onlineUsers);
@@ -198,22 +222,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <h1 className="text-xl font-bold text-gray-900 dark:text-white">
                   OMNILINK
                 </h1>
-                <button
-                  onClick={() => {
-                    if (onAnnouncementsClick) {
-                      onAnnouncementsClick();
-                    }
-                  }}
-                  className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative"
-                  title="Announcements"
-                >
-                  <Bell className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-                  {announcementCount > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] flex items-center justify-center bg-red-500 text-white text-[9px] font-bold rounded-full px-1 leading-none shadow-sm border-2 border-white dark:border-surface-900">
-                      {announcementCount > 9 ? '9+' : announcementCount}
-                    </span>
+                <div className="flex items-center gap-1">
+                  {isOrgAdmin && (
+                    <button
+                      onClick={handleDashboardClick}
+                      className={`p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative ${dashboardBlink ? 'animate-pulse' : ''}`}
+                      title="Admin Dashboard"
+                    >
+                      <LayoutDashboard className={`w-5 h-5 ${dashboardBlink ? 'text-primary-600 dark:text-primary-400' : 'text-gray-600 dark:text-gray-400'}`} />
+                      {dashboardBlink && (
+                        <span className="absolute top-0.5 right-0.5 w-2.5 h-2.5 bg-primary-500 rounded-full animate-ping" />
+                      )}
+                      {dashboardBlink && (
+                        <span className="absolute top-0.5 right-0.5 w-2.5 h-2.5 bg-primary-500 rounded-full" />
+                      )}
+                    </button>
                   )}
-                </button>
+                  <button
+                    onClick={() => {
+                      if (onAnnouncementsClick) {
+                        onAnnouncementsClick();
+                      }
+                    }}
+                    className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative"
+                    title="Announcements"
+                  >
+                    <Bell className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                    {announcementCount > 0 && (
+                      <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] flex items-center justify-center bg-red-500 text-white text-[9px] font-bold rounded-full px-1 leading-none shadow-sm border-2 border-white dark:border-surface-900">
+                        {announcementCount > 9 ? '9+' : announcementCount}
+                      </span>
+                    )}
+                  </button>
+                </div>
               </>
             ) : (
               <>
@@ -221,6 +262,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   OMNILINK
                 </h1>
                 <div className="flex items-center gap-2">
+                  {isOrgAdmin && (
+                    <button
+                      onClick={handleDashboardClick}
+                      className={`p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative ${dashboardBlink ? 'animate-pulse' : ''}`}
+                      title="Admin Dashboard"
+                    >
+                      <LayoutDashboard className={`w-5 h-5 ${dashboardBlink ? 'text-primary-600 dark:text-primary-400' : 'text-gray-600 dark:text-gray-400'}`} />
+                      {dashboardBlink && (
+                        <span className="absolute top-0.5 right-0.5 w-2.5 h-2.5 bg-primary-500 rounded-full animate-ping" />
+                      )}
+                      {dashboardBlink && (
+                        <span className="absolute top-0.5 right-0.5 w-2.5 h-2.5 bg-primary-500 rounded-full" />
+                      )}
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       if (onAnnouncementsClick) {

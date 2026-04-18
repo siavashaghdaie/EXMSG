@@ -160,6 +160,9 @@ interface UserProfile {
   avatarUrl?: string;
   bio?: string;
   status?: string;
+  role?: string;               // System role: 'SUPER_ADMIN' | 'USER'
+  orgRole?: string | null;     // Org membership role: 'OWNER' | 'ADMIN' | 'MEMBER'
+  organizationId?: string | null;
   createdAt?: string;
 }
 

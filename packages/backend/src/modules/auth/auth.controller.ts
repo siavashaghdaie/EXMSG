@@ -90,6 +90,28 @@ async function ensureLindaDM(userId: string): Promise<void> {
   }
 }
 
+/**
+ * Enrich a plain user object with org membership info (orgRole, organizationId).
+ * Used in login/register/verifyLogin responses so the frontend knows the
+ * user's role immediately without a separate /auth/me call.
+ */
+async function enrichUserWithOrgInfo(user: { id: string; [key: string]: any }) {
+  try {
+    const membership = await prisma.organizationMember.findFirst({
+      where: { userId: user.id },
+      orderBy: { joinedAt: 'asc' },
+      select: { role: true, organizationId: true },
+    });
+    return {
+      ...user,
+      orgRole: membership?.role || null,
+      organizationId: membership?.organizationId || null,
+    };
+  } catch {
+    return { ...user, orgRole: null, organizationId: null };
+  }
+}
+
 export class AuthController {
   /**
    * Public catalog endpoint for plans. Feeds the landing page and plan
@@ -278,7 +300,8 @@ export class AuthController {
 
       ensureLindaDM(user.id).catch(() => {});
 
-      res.status(201).json({ user, ...tokens, isPanelOwner: isPanelOwnerSignup });
+      const enrichedUser = await enrichUserWithOrgInfo(user);
+      res.status(201).json({ user: enrichedUser, ...tokens, isPanelOwner: isPanelOwnerSignup });
     } catch (error) {
       console.error('Register error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -369,7 +392,8 @@ export class AuthController {
       ensureLindaDM(user.id).catch(() => {});
       sendWelcomeEmail(email, user.displayName).catch(() => {});
 
-      res.json({ user: userPayload, ...tokens });
+      const enrichedPayload = await enrichUserWithOrgInfo(userPayload);
+      res.json({ user: enrichedPayload, ...tokens });
     } catch (error) {
       console.error('Verify registration error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -486,7 +510,8 @@ export class AuthController {
       // Ensure DM with Linda exists (fire-and-forget)
       ensureLindaDM(user.id).catch(() => {});
 
-      res.json({ user: userWithoutPassword, ...tokens });
+      const enrichedUser = await enrichUserWithOrgInfo(userWithoutPassword as any);
+      res.json({ user: enrichedUser, ...tokens });
     } catch (error) {
       console.error('Login error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -549,7 +574,8 @@ export class AuthController {
       // Ensure DM with Linda exists (fire-and-forget)
       ensureLindaDM(user.id).catch(() => {});
 
-      res.json({ user, ...tokens });
+      const enrichedUser = await enrichUserWithOrgInfo(user);
+      res.json({ user: enrichedUser, ...tokens });
     } catch (error) {
       console.error('Verify login error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -625,6 +651,7 @@ export class AuthController {
           avatarUrl: true,
           bio: true,
           status: true,
+          role: true,
           isOnline: true,
           createdAt: true,
         },
@@ -635,7 +662,20 @@ export class AuthController {
         return;
       }
 
-      res.json({ user });
+      // Also fetch the user's org membership role (OWNER / ADMIN / MEMBER)
+      const orgMembership = await prisma.organizationMember.findFirst({
+        where: { userId: user.id },
+        orderBy: { joinedAt: 'asc' },
+        select: { role: true, organizationId: true },
+      });
+
+      res.json({
+        user: {
+          ...user,
+          orgRole: orgMembership?.role || null,
+          organizationId: orgMembership?.organizationId || null,
+        },
+      });
     } catch (error) {
       console.error('Me error:', error);
       res.status(500).json({ error: 'Internal server error' });

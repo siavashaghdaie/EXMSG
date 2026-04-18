@@ -12,6 +12,8 @@ import BottomNav from '@/components/layout/BottomNav';
 import AdminDashboard from '@/components/admin/AdminDashboard';
 import AnnouncementBoard from '@/components/announcements/AnnouncementBoard';
 import AgentsPage from '@/components/agents/AgentsPage';
+import PanelOwnerWizard from '@/components/auth/PanelOwnerWizard';
+import OrgAdminDashboard from '@/components/org-admin/OrgAdminDashboard';
 
 export const ChatLayout: React.FC = () => {
   const navigate = useNavigate();
@@ -27,8 +29,19 @@ export const ChatLayout: React.FC = () => {
   const [showAdminDashboard, setShowAdminDashboard] = useState(false);
   const [showAnnouncements, setShowAnnouncements] = useState(false);
   const [showAgents, setShowAgents] = useState(false);
+  const [showOrgDashboard, setShowOrgDashboard] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
   const [, setAnnouncementCount] = useState(0);
   const [taskCount, setTaskCount] = useState(0);
+
+  // Check whether to show the welcome wizard on first login (ALL users)
+  useEffect(() => {
+    if (!user?.id) return;
+    const wizardKey = `omnilink_wizard_completed_${user.id}`;
+    if (!localStorage.getItem(wizardKey)) {
+      setShowWizard(true);
+    }
+  }, [user?.id]);
 
   // Reusable function to refresh task count
   const refreshTaskCount = async () => {
@@ -171,7 +184,7 @@ export const ChatLayout: React.FC = () => {
   const shouldShowContent = isMobile ? !showSidebar : true;
 
   // Determine if a sub-page (settings, agents, tasks, etc.) is open — these should keep BottomNav visible
-  const isSubPageOpen = showSettings || showAgents || showTaskWall || showAdminDashboard || showAnnouncements;
+  const isSubPageOpen = showSettings || showAgents || showTaskWall || showAdminDashboard || showAnnouncements || showOrgDashboard;
   // On mobile, show BottomNav when: sidebar is visible OR a sub-page is open (not in a conversation)
   const showBottomNav = isMobile && (shouldShowSidebar || isSubPageOpen);
 
@@ -209,9 +222,9 @@ export const ChatLayout: React.FC = () => {
               if (isMobile) setShowSidebar(false);
             }}
             onDashboardClick={() => {
-              setShowAdminDashboard(true);
+              setShowOrgDashboard(true);
+              setShowAdminDashboard(false);
               setShowSettings(false);
-
               setShowTaskWall(false);
               setShowAnnouncements(false);
               setShowAgents(false);
@@ -270,6 +283,13 @@ export const ChatLayout: React.FC = () => {
             ) : showAnnouncements ? (
               <AnnouncementBoard onClose={() => {
                 setShowAnnouncements(false);
+                if (isMobile) {
+                  setShowSidebar(true);
+                }
+              }} />
+            ) : showOrgDashboard ? (
+              <OrgAdminDashboard onBack={() => {
+                setShowOrgDashboard(false);
                 if (isMobile) {
                   setShowSidebar(true);
                 }
@@ -333,6 +353,33 @@ export const ChatLayout: React.FC = () => {
             setShowAnnouncements(false);
             setShowAgents(false);
             navigate('/contacts');
+          }}
+        />
+      )}
+
+      {/* Welcome Wizard — shown once on first login for ALL users */}
+      {showWizard && user && (
+        <PanelOwnerWizard
+          displayName={user.displayName || user.username || user.email?.split('@')[0] || ''}
+          isAdmin={user.role === 'SUPER_ADMIN' || user.orgRole === 'OWNER' || user.orgRole === 'ADMIN'}
+          onComplete={() => {
+            if (user.id) {
+              localStorage.setItem(`omnilink_wizard_completed_${user.id}`, '1');
+            }
+            setShowWizard(false);
+          }}
+          onOpenDashboard={() => {
+            setShowOrgDashboard(true);
+            setShowSettings(false);
+            setShowTaskWall(false);
+            setShowAdminDashboard(false);
+            setShowAnnouncements(false);
+            setShowAgents(false);
+            if (isMobile) setShowSidebar(false);
+            // Also mark dashboard button as seen
+            if (user.id) {
+              localStorage.setItem(`omnilink_dashboard_seen_${user.id}`, '1');
+            }
           }}
         />
       )}
