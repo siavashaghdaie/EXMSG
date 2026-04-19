@@ -657,13 +657,11 @@ class APIClient {
     const formData = new FormData();
     formData.append('file', file);
 
+    // Don't set Content-Type manually — axios sets the correct multipart boundary automatically
     const response = await this.client.post(
       `/conversations/${conversationId}/upload`,
       formData,
       {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
         onUploadProgress: (progressEvent) => {
           if (progressEvent.total && onProgress) {
             const progress = Math.round((progressEvent.loaded / progressEvent.total) * 100);
@@ -746,9 +744,8 @@ class APIClient {
   async uploadAvatar(file: File): Promise<{ avatarUrl: string }> {
     const formData = new FormData();
     formData.append('avatar', file);
-    const response = await this.client.post<{ avatarUrl: string }>('/users/avatar', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    // Don't set Content-Type manually — axios sets the correct multipart boundary automatically
+    const response = await this.client.post<{ avatarUrl: string }>('/users/avatar', formData);
     return response.data;
   }
 
@@ -822,7 +819,6 @@ class APIClient {
     if (message) formData.append('message', message);
     if (conversationId) formData.append('conversationId', conversationId);
     const res = await this.client.post('/linda/chat/file', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 60000,
     });
     return res.data;
@@ -992,9 +988,8 @@ class APIClient {
     const formData = new FormData();
     formData.append('file', file);
     if (caption) formData.append('caption', caption);
-    const { data } = await this.client.post('/status/media', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    // Don't set Content-Type manually — axios sets the correct multipart boundary automatically
+    const { data } = await this.client.post('/status/media', formData);
     return data;
   }
 

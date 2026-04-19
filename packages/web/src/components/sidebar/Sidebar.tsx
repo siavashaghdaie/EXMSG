@@ -541,7 +541,10 @@ const StoryCreationModal: React.FC<StoryCreationModalProps> = ({ isOpen, onClose
         }
       } else {
         if (photoFile) {
-          await api.createMediaStatus(photoFile, photoCaption);
+          // Compress image before uploading
+          const { compressMedia } = await import('@/utils/mediaCompressor');
+          const compressed = await compressMedia(photoFile);
+          await api.createMediaStatus(compressed, photoCaption);
           onStoryCreated();
         }
       }

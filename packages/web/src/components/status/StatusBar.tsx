@@ -427,7 +427,10 @@ export default function StatusBar({ onStatusClick }: StatusBarProps) {
       if ('content' in data) {
         await api.createTextStatus(data.content, data.bgColor);
       } else {
-        await api.createMediaStatus(data.file, data.caption);
+        // Compress image before uploading
+        const { compressMedia } = await import('@/utils/mediaCompressor');
+        const compressed = await compressMedia(data.file);
+        await api.createMediaStatus(compressed, data.caption);
       }
       // Refresh statuses
       const myResponse = await api.getMyStatuses();
