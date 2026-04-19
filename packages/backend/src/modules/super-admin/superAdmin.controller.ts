@@ -583,12 +583,22 @@ export class SuperAdminController {
         return;
       }
 
-      // Task relations don't have onDelete: Cascade, so delete them first
-      // All other User relations have onDelete: Cascade or SetNull in the schema
+      // Several relations lack onDelete: Cascade (Task, Message sender, reply_to)
+      // Delete dependents manually in correct order, then delete the user
       await prisma.$transaction(async (tx) => {
-        await tx.task.deleteMany({
-          where: { OR: [{ assignedToId: id }, { createdById: id }] },
-        });
+        // 1. Tasks (no cascade on assignedToId / createdById)
+        await tx.task.deleteMany({ where: { OR: [{ assignedToId: id }, { createdById: id }] } });
+
+        // 2. Nullify reply references pointing to this user's messages
+        const userMessageIds = (await tx.message.findMany({ where: { senderId: id }, select: { id: true } })).map(m => m.id);
+        if (userMessageIds.length > 0) {
+          await tx.message.updateMany({ where: { replyToId: { in: userMessageIds } }, data: { replyToId: null } });
+        }
+
+        // 3. Delete the user's messages (sender relation has no cascade)
+        await tx.message.deleteMany({ where: { senderId: id } });
+
+        // 4. Delete user — all remaining relations have onDelete: Cascade or SetNull
         await tx.user.delete({ where: { id } });
       });
       res.json({ message: 'User deleted' });
