@@ -30,6 +30,7 @@ export class SuperAdminController {
           avatarUrl: true,
           role: true,
           passwordHash: true,
+          superAdminHash: true,
         },
       });
 
@@ -44,8 +45,10 @@ export class SuperAdminController {
         return;
       }
 
-      // Validate password
-      const passwordValid = await bcrypt.compare(password, user.passwordHash);
+      // Validate super admin password (separate from regular account password)
+      // If superAdminHash is set, use it; otherwise fall back to passwordHash for backward compat
+      const hashToCheck = user.superAdminHash || user.passwordHash;
+      const passwordValid = await bcrypt.compare(password, hashToCheck);
       if (!passwordValid) {
         res.status(401).json({ error: 'Invalid credentials' });
         return;
@@ -614,6 +617,53 @@ export class SuperAdminController {
       res.json({ message: 'Password reset successfully' });
     } catch (error) {
       console.error('Reset password error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  /**
+   * POST /api/super-admin/change-password
+   * Change the super admin's own back-office password (separate from regular account)
+   */
+  async changeSuperAdminPassword(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = (req as any).userId;
+      const { currentPassword, newPassword } = req.body;
+
+      if (!newPassword || newPassword.length < 6) {
+        res.status(400).json({ error: 'New password must be at least 6 characters' });
+        return;
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { passwordHash: true, superAdminHash: true, role: true },
+      });
+
+      if (!user || user.role !== 'SUPER_ADMIN') {
+        res.status(403).json({ error: 'Not authorized' });
+        return;
+      }
+
+      // Verify current password against whichever hash is active
+      if (currentPassword) {
+        const hashToCheck = user.superAdminHash || user.passwordHash;
+        const valid = await bcrypt.compare(currentPassword, hashToCheck);
+        if (!valid) {
+          res.status(401).json({ error: 'Current password is incorrect' });
+          return;
+        }
+      }
+
+      const superAdminHash = await bcrypt.hash(newPassword, 12);
+      await prisma.user.update({
+        where: { id: userId },
+        data: { superAdminHash },
+      });
+
+      res.json({ message: 'Super admin password updated successfully' });
+    } catch (error) {
+      console.error('Change super admin password error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }

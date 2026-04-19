@@ -45,6 +45,11 @@ router.post('/super-admin/users/:id/reset-password', authenticate, requireSuperA
   controller.resetUserPassword(req, res)
 );
 
+// Super admin password (separate from regular account)
+router.post('/super-admin/change-password', authenticate, requireSuperAdmin, (req, res) =>
+  controller.changeSuperAdminPassword(req, res)
+);
+
 // Activity & Financial
 router.get('/super-admin/activity-log', authenticate, requireSuperAdmin, (req, res) =>
   controller.getActivityLog(req, res)

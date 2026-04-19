@@ -49,6 +49,7 @@ model User {
   lastSeenAt   DateTime? @map("last_seen_at")
   emailVerified    Boolean   @default(false) @map("email_verified")
   role             String    @default("USER") // "USER", "ORG_ADMIN", "SUPER_ADMIN"
+  superAdminHash   String?  @map("super_admin_hash") // Separate password for super admin panel
   twoFactorEnabled Boolean @default(false) @map("two_factor_enabled")
   twoFactorSecret  String? @map("two_factor_secret")
   createdAt    DateTime  @default(now()) @map("created_at")

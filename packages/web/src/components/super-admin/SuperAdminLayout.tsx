@@ -17,6 +17,8 @@ import SuperAdminUsers from './SuperAdminUsers';
 import SuperAdminFinancial from './SuperAdminFinancial';
 import SuperAdminActivity from './SuperAdminActivity';
 
+const BASE = '/omnilink-backoffice-x7k9';
+
 const SuperAdminLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -24,23 +26,28 @@ const SuperAdminLayout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const menuItems = [
-    { label: 'Dashboard', path: '/omnilink-backoffice-x7k9', icon: LayoutDashboard },
-    { label: 'Organizations', path: '/admin/organizations', icon: Building2 },
-    { label: 'Users', path: '/admin/users', icon: Users },
-    { label: 'Financial', path: '/admin/financial', icon: DollarSign },
-    { label: 'Activity', path: '/admin/activity', icon: Activity },
+    { label: 'Dashboard', path: BASE, icon: LayoutDashboard },
+    { label: 'Organizations', path: `${BASE}/organizations`, icon: Building2 },
+    { label: 'Users', path: `${BASE}/users`, icon: Users },
+    { label: 'Financial', path: `${BASE}/financial`, icon: DollarSign },
+    { label: 'Activity', path: `${BASE}/activity`, icon: Activity },
   ];
 
   const handleLogout = async () => {
     try {
       await logout();
-      navigate('/omnilink-backoffice-x7k9/login');
+      navigate(`${BASE}/login`);
     } catch (error) {
       console.error('Logout error:', error);
     }
   };
 
   const isActive = (path: string) => location.pathname === path;
+
+  const handleNav = (e: React.MouseEvent, path: string) => {
+    e.preventDefault();
+    navigate(path);
+  };
 
   return (
     <div className="min-h-screen bg-slate-900 text-white flex">
@@ -72,6 +79,7 @@ const SuperAdminLayout: React.FC = () => {
             <a
               key={item.path}
               href={item.path}
+              onClick={(e) => handleNav(e, item.path)}
               className={`flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
                 isActive(item.path)
                   ? 'bg-blue-600 text-white'
@@ -115,7 +123,7 @@ const SuperAdminLayout: React.FC = () => {
             <Route path="/users" element={<SuperAdminUsers />} />
             <Route path="/financial" element={<SuperAdminFinancial />} />
             <Route path="/activity" element={<SuperAdminActivity />} />
-            <Route path="*" element={<Navigate to="/admin" replace />} />
+            <Route path="*" element={<Navigate to={BASE} replace />} />
           </Routes>
         </div>
       </main>
