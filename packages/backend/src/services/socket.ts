@@ -67,12 +67,27 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
     // Join user's personal room for direct notifications
     socket.join(`user:${userId}`);
 
-    // Broadcast online status
+    // Broadcast online status to others
     socket.broadcast.emit('user:online', { userId });
 
-    // Tell the newly connected client that Linda bot is online
-    if (_lindaBotUserId) {
-      socket.emit('user:online', { userId: _lindaBotUserId });
+    // Send the full list of currently online users to THIS newly connected client
+    try {
+      const onlineUsers = await prisma.user.findMany({
+        where: { isOnline: true },
+        select: { id: true },
+      });
+      const onlineUserIds = onlineUsers.map(u => u.id);
+      // Include Linda bot if registered
+      if (_lindaBotUserId && !onlineUserIds.includes(_lindaBotUserId)) {
+        onlineUserIds.push(_lindaBotUserId);
+      }
+      socket.emit('users:online-list', { userIds: onlineUserIds });
+    } catch (err) {
+      console.error('Failed to fetch online users list:', err);
+      // Fallback: at least tell about Linda
+      if (_lindaBotUserId) {
+        socket.emit('user:online', { userId: _lindaBotUserId });
+      }
     }
 
     // --- EVENT HANDLERS ---

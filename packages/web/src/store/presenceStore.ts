@@ -7,6 +7,7 @@ interface PresenceState {
 
   setUserOnline: (userId: string) => void;
   setUserOffline: (userId: string, lastSeenAt?: string) => void;
+  setOnlineList: (userIds: string[]) => void;
   isUserOnline: (userId: string) => boolean;
   getLastSeen: (userId: string) => string | undefined;
 }
@@ -35,6 +36,12 @@ export const usePresenceStore = create<PresenceState>((set, get) => ({
       }
       return { onlineUsers, lastSeen };
     });
+  },
+
+  setOnlineList: (userIds: string[]) => {
+    set(() => ({
+      onlineUsers: new Set(userIds),
+    }));
   },
 
   isUserOnline: (userId: string) => {
@@ -69,6 +76,13 @@ export function setupPresenceSocketListeners() {
       } else {
         usePresenceStore.getState().setUserOffline(data.userId, data.lastSeen);
       }
+    })
+  );
+
+  // Receive the full list of currently online users on connect
+  unsubscribe.push(
+    socket.on<{ userIds: string[] }>('users:online-list', (data) => {
+      usePresenceStore.getState().setOnlineList(data.userIds);
     })
   );
 
