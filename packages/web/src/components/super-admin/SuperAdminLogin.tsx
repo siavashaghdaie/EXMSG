@@ -112,7 +112,7 @@ export const SuperAdminLogin: React.FC = () => {
       // After login, the store either flips to isAuthenticated OR sets pendingOtpEmail.
       const { isAuthenticated, pendingOtpEmail } = useSuperAdminStore.getState();
       if (isAuthenticated) {
-        navigate('/admin');
+        navigate('/omnilink-backoffice-x7k9');
       } else if (pendingOtpEmail) {
         // Nothing to do — the OTP step is rendered by this same component
       }
@@ -168,7 +168,7 @@ export const SuperAdminLogin: React.FC = () => {
 
     try {
       await verifyLoginOtp(pendingOtpEmail, otpCode);
-      navigate('/admin');
+      navigate('/omnilink-backoffice-x7k9');
     } catch {
       setDigits(['', '', '', '', '', '']);
       inputRefs.current[0]?.focus();
@@ -304,7 +304,7 @@ export const SuperAdminLogin: React.FC = () => {
 
         {/* Login Card */}
         <div className="bg-slate-800 rounded-lg shadow-xl p-8">
-          <h2 className="text-xl font-semibold text-white mb-6">Panel Owner Login</h2>
+          <h2 className="text-xl font-semibold text-white mb-6">Super Admin Login</h2>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Email Field */}
@@ -367,7 +367,7 @@ export const SuperAdminLogin: React.FC = () => {
 
           {/* Footer Text */}
           <p className="text-center text-slate-400 text-xs mt-6">
-            Panel Owner access only. A verification code will be sent to your email.
+            Super Admin access only. A verification code will be sent to your email.
           </p>
         </div>
       </div>

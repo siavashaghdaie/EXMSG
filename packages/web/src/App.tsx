@@ -53,14 +53,14 @@ function App() {
 
   return (
     <Routes>
-      {/* Super Admin routes */}
+      {/* Super Admin routes — obscured path for security */}
       <Route
-        path="/admin/login"
-        element={isSuperAdminAuthenticated ? <Navigate to="/admin" replace /> : <SuperAdminLogin />}
+        path="/omnilink-backoffice-x7k9/login"
+        element={isSuperAdminAuthenticated ? <Navigate to="/omnilink-backoffice-x7k9" replace /> : <SuperAdminLogin />}
       />
       <Route
-        path="/admin/*"
-        element={isSuperAdminAuthenticated ? <SuperAdminLayout /> : <Navigate to="/admin/login" replace />}
+        path="/omnilink-backoffice-x7k9/*"
+        element={isSuperAdminAuthenticated ? <SuperAdminLayout /> : <Navigate to="/omnilink-backoffice-x7k9/login" replace />}
       />
 
       {/* Public marketing + onboarding routes (spec 2.3) */}

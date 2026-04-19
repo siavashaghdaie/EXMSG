@@ -17,14 +17,35 @@ router.get('/super-admin/dashboard', authenticate, requireSuperAdmin, (req, res)
   controller.getDashboard(req, res)
 );
 
+// Organizations CRUD
 router.get('/super-admin/organizations', authenticate, requireSuperAdmin, (req, res) =>
   controller.getOrganizations(req, res)
 );
+router.post('/super-admin/organizations', authenticate, requireSuperAdmin, (req, res) =>
+  controller.createOrganization(req, res)
+);
+router.patch('/super-admin/organizations/:id', authenticate, requireSuperAdmin, (req, res) =>
+  controller.updateOrganization(req, res)
+);
+router.delete('/super-admin/organizations/:id', authenticate, requireSuperAdmin, (req, res) =>
+  controller.deleteOrganization(req, res)
+);
 
+// Users CRUD
 router.get('/super-admin/users', authenticate, requireSuperAdmin, (req, res) =>
   controller.getUsers(req, res)
 );
+router.patch('/super-admin/users/:id', authenticate, requireSuperAdmin, (req, res) =>
+  controller.updateUser(req, res)
+);
+router.delete('/super-admin/users/:id', authenticate, requireSuperAdmin, (req, res) =>
+  controller.deleteUser(req, res)
+);
+router.post('/super-admin/users/:id/reset-password', authenticate, requireSuperAdmin, (req, res) =>
+  controller.resetUserPassword(req, res)
+);
 
+// Activity & Financial
 router.get('/super-admin/activity-log', authenticate, requireSuperAdmin, (req, res) =>
   controller.getActivityLog(req, res)
 );

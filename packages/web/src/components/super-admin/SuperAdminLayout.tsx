@@ -24,7 +24,7 @@ const SuperAdminLayout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const menuItems = [
-    { label: 'Dashboard', path: '/admin', icon: LayoutDashboard },
+    { label: 'Dashboard', path: '/omnilink-backoffice-x7k9', icon: LayoutDashboard },
     { label: 'Organizations', path: '/admin/organizations', icon: Building2 },
     { label: 'Users', path: '/admin/users', icon: Users },
     { label: 'Financial', path: '/admin/financial', icon: DollarSign },
@@ -34,7 +34,7 @@ const SuperAdminLayout: React.FC = () => {
   const handleLogout = async () => {
     try {
       await logout();
-      navigate('/admin/login');
+      navigate('/omnilink-backoffice-x7k9/login');
     } catch (error) {
       console.error('Logout error:', error);
     }

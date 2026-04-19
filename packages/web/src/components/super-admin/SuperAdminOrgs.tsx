@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Search } from 'lucide-react';
+import { Search, Plus, Pencil, Trash2, X } from 'lucide-react';
 import { api } from '@/services/api';
 
 interface Organization {
@@ -23,6 +23,12 @@ interface OrganizationsResponse {
   totalPages: number;
 }
 
+interface OrgFormData {
+  name: string;
+  slug: string;
+  description: string;
+}
+
 const SuperAdminOrgs: React.FC = () => {
   const [data, setData] = useState<OrganizationsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -30,6 +36,17 @@ const SuperAdminOrgs: React.FC = () => {
   const [search, setSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  // Modal state
+  const [showModal, setShowModal] = useState(false);
+  const [editingOrg, setEditingOrg] = useState<Organization | null>(null);
+  const [formData, setFormData] = useState<OrgFormData>({ name: '', slug: '', description: '' });
+  const [formError, setFormError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Delete confirmation
+  const [deletingOrg, setDeletingOrg] = useState<Organization | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -39,22 +56,81 @@ const SuperAdminOrgs: React.FC = () => {
     return () => clearTimeout(timer);
   }, [search]);
 
-  useEffect(() => {
-    const fetchOrganizations = async () => {
-      try {
-        setIsLoading(true);
-        const response = await api.getSuperAdminOrganizations(debouncedSearch, currentPage, 20);
-        setData(response);
-        setError(null);
-      } catch (err: any) {
-        setError(err.message || 'Failed to load organizations');
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  const fetchOrganizations = async () => {
+    try {
+      setIsLoading(true);
+      const response = await api.getSuperAdminOrganizations(debouncedSearch, currentPage, 20);
+      setData(response);
+      setError(null);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load organizations');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchOrganizations();
   }, [debouncedSearch, currentPage]);
+
+  const openCreateModal = () => {
+    setEditingOrg(null);
+    setFormData({ name: '', slug: '', description: '' });
+    setFormError('');
+    setShowModal(true);
+  };
+
+  const openEditModal = (org: Organization) => {
+    setEditingOrg(org);
+    setFormData({ name: org.name, slug: org.slug, description: org.description || '' });
+    setFormError('');
+    setShowModal(true);
+  };
+
+  const handleSave = async () => {
+    if (!formData.name.trim() || !formData.slug.trim()) {
+      setFormError('Name and slug are required');
+      return;
+    }
+
+    setIsSaving(true);
+    setFormError('');
+    try {
+      if (editingOrg) {
+        await api.updateSuperAdminOrganization(editingOrg.id, formData);
+      } else {
+        await api.createSuperAdminOrganization(formData);
+      }
+      setShowModal(false);
+      fetchOrganizations();
+    } catch (err: any) {
+      setFormError(err.response?.data?.error || 'Failed to save');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deletingOrg) return;
+    setIsDeleting(true);
+    try {
+      await api.deleteSuperAdminOrganization(deletingOrg.id);
+      setDeletingOrg(null);
+      fetchOrganizations();
+    } catch (err: any) {
+      setFormError(err.response?.data?.error || 'Failed to delete');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleNameChange = (value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      name: value,
+      ...(!editingOrg ? { slug: value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') } : {}),
+    }));
+  };
 
   if (error) {
     return (
@@ -66,9 +142,18 @@ const SuperAdminOrgs: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-white mb-2">Organizations</h1>
-        <p className="text-slate-400">Manage all organizations on the platform</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-white mb-2">Organizations</h1>
+          <p className="text-slate-400">Manage all organizations on the platform</p>
+        </div>
+        <button
+          onClick={openCreateModal}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+        >
+          <Plus className="w-4 h-4" />
+          New Organization
+        </button>
       </div>
 
       <div className="relative">
@@ -103,6 +188,7 @@ const SuperAdminOrgs: React.FC = () => {
                     <th className="text-center py-4 px-6 text-sm font-semibold text-slate-300">Channels</th>
                     <th className="text-center py-4 px-6 text-sm font-semibold text-slate-300">Messages</th>
                     <th className="text-left py-4 px-6 text-sm font-semibold text-slate-300">Created</th>
+                    <th className="text-center py-4 px-6 text-sm font-semibold text-slate-300">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -115,17 +201,9 @@ const SuperAdminOrgs: React.FC = () => {
                     >
                       <td className="py-4 px-6">
                         <div className="flex items-center space-x-3">
-                          {org.avatarUrl ? (
-                            <img
-                              src={org.avatarUrl}
-                              alt={org.name}
-                              className="w-8 h-8 rounded-full"
-                            />
-                          ) : (
-                            <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-bold">
-                              {org.name.charAt(0).toUpperCase()}
-                            </div>
-                          )}
+                          <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-bold">
+                            {org.name.charAt(0).toUpperCase()}
+                          </div>
                           <span className="text-white font-medium">{org.name}</span>
                         </div>
                       </td>
@@ -135,6 +213,24 @@ const SuperAdminOrgs: React.FC = () => {
                       <td className="py-4 px-6 text-center text-slate-300">{org.messageCount}</td>
                       <td className="py-4 px-6 text-slate-400 text-sm">
                         {new Date(org.createdAt).toLocaleDateString()}
+                      </td>
+                      <td className="py-4 px-6">
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            onClick={() => openEditModal(org)}
+                            className="p-2 text-slate-400 hover:text-blue-400 hover:bg-slate-700 rounded-lg transition-colors"
+                            title="Edit"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => setDeletingOrg(org)}
+                            className="p-2 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded-lg transition-colors"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -168,6 +264,104 @@ const SuperAdminOrgs: React.FC = () => {
           </>
         )}
       </div>
+
+      {/* Create/Edit Modal */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-slate-800 rounded-lg border border-slate-700 w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold text-white">
+                {editingOrg ? 'Edit Organization' : 'New Organization'}
+              </h3>
+              <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {formError && (
+              <div className="bg-red-900/30 border border-red-600 text-red-200 px-3 py-2 rounded-lg text-sm mb-4">
+                {formError}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Name</label>
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => handleNameChange(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  placeholder="Acme Corp"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Slug</label>
+                <input
+                  type="text"
+                  value={formData.slug}
+                  onChange={(e) => setFormData(prev => ({ ...prev, slug: e.target.value }))}
+                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  placeholder="acme-corp"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1">Description</label>
+                <textarea
+                  value={formData.description}
+                  onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  rows={3}
+                  placeholder="Optional description..."
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => setShowModal(false)}
+                className="px-4 py-2 text-slate-400 hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg transition-colors"
+              >
+                {isSaving ? 'Saving...' : editingOrg ? 'Update' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deletingOrg && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-slate-800 rounded-lg border border-slate-700 w-full max-w-sm p-6">
+            <h3 className="text-xl font-semibold text-white mb-2">Delete Organization</h3>
+            <p className="text-slate-400 text-sm mb-6">
+              Are you sure you want to delete <strong className="text-white">{deletingOrg.name}</strong>? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setDeletingOrg(null)}
+                className="px-4 py-2 text-slate-400 hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg transition-colors"
+              >
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

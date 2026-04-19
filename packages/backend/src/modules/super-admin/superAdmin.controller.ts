@@ -435,6 +435,190 @@ export class SuperAdminController {
   }
 
   /**
+   * POST /api/super-admin/organizations
+   * Create a new organization
+   */
+  async createOrganization(req: Request, res: Response): Promise<void> {
+    try {
+      const { name, slug, description } = req.body;
+
+      if (!name || !slug) {
+        res.status(400).json({ error: 'Name and slug are required' });
+        return;
+      }
+
+      const existing = await prisma.organization.findUnique({ where: { slug } });
+      if (existing) {
+        res.status(409).json({ error: 'An organization with this slug already exists' });
+        return;
+      }
+
+      const org = await prisma.organization.create({
+        data: { name, slug: slug.toLowerCase().replace(/[^a-z0-9-]/g, '-'), description },
+      });
+
+      res.status(201).json(org);
+    } catch (error) {
+      console.error('Create organization error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  /**
+   * PATCH /api/super-admin/organizations/:id
+   * Update an organization
+   */
+  async updateOrganization(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { name, slug, description } = req.body;
+
+      const org = await prisma.organization.findUnique({ where: { id } });
+      if (!org) {
+        res.status(404).json({ error: 'Organization not found' });
+        return;
+      }
+
+      if (slug && slug !== org.slug) {
+        const existing = await prisma.organization.findUnique({ where: { slug } });
+        if (existing) {
+          res.status(409).json({ error: 'Slug already in use' });
+          return;
+        }
+      }
+
+      const updated = await prisma.organization.update({
+        where: { id },
+        data: {
+          ...(name && { name }),
+          ...(slug && { slug: slug.toLowerCase().replace(/[^a-z0-9-]/g, '-') }),
+          ...(description !== undefined && { description }),
+        },
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error('Update organization error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  /**
+   * DELETE /api/super-admin/organizations/:id
+   * Delete an organization
+   */
+  async deleteOrganization(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+
+      const org = await prisma.organization.findUnique({ where: { id } });
+      if (!org) {
+        res.status(404).json({ error: 'Organization not found' });
+        return;
+      }
+
+      await prisma.organization.delete({ where: { id } });
+      res.json({ message: 'Organization deleted' });
+    } catch (error) {
+      console.error('Delete organization error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  /**
+   * PATCH /api/super-admin/users/:id
+   * Update a user (role, status, etc.)
+   */
+  async updateUser(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { role, displayName, username, emailVerified } = req.body;
+
+      const user = await prisma.user.findUnique({ where: { id } });
+      if (!user) {
+        res.status(404).json({ error: 'User not found' });
+        return;
+      }
+
+      const updated = await prisma.user.update({
+        where: { id },
+        data: {
+          ...(role && { role }),
+          ...(displayName && { displayName }),
+          ...(username && { username }),
+          ...(emailVerified !== undefined && { emailVerified }),
+        },
+        select: {
+          id: true, email: true, username: true, displayName: true, role: true, emailVerified: true,
+        },
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error('Update user error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  /**
+   * DELETE /api/super-admin/users/:id
+   * Delete a user
+   */
+  async deleteUser(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const currentUserId = (req as any).userId;
+
+      if (id === currentUserId) {
+        res.status(400).json({ error: 'Cannot delete your own account' });
+        return;
+      }
+
+      const user = await prisma.user.findUnique({ where: { id } });
+      if (!user) {
+        res.status(404).json({ error: 'User not found' });
+        return;
+      }
+
+      await prisma.user.delete({ where: { id } });
+      res.json({ message: 'User deleted' });
+    } catch (error) {
+      console.error('Delete user error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  /**
+   * POST /api/super-admin/users/:id/reset-password
+   * Reset a user's password
+   */
+  async resetUserPassword(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { newPassword } = req.body;
+
+      if (!newPassword || newPassword.length < 6) {
+        res.status(400).json({ error: 'Password must be at least 6 characters' });
+        return;
+      }
+
+      const user = await prisma.user.findUnique({ where: { id } });
+      if (!user) {
+        res.status(404).json({ error: 'User not found' });
+        return;
+      }
+
+      const passwordHash = await bcrypt.hash(newPassword, 12);
+      await prisma.user.update({ where: { id }, data: { passwordHash } });
+
+      res.json({ message: 'Password reset successfully' });
+    } catch (error) {
+      console.error('Reset password error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  /**
    * GET /api/super-admin/activity-log
    * Recent platform activity log
    */

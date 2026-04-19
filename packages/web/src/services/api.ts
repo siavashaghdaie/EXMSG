@@ -1141,6 +1141,37 @@ class APIClient {
     const res = await this.client.get('/super-admin/financial');
     return res.data;
   }
+
+  // Super Admin CRUD
+  async createSuperAdminOrganization(data: { name: string; slug: string; description?: string }): Promise<any> {
+    const res = await this.client.post('/super-admin/organizations', data);
+    return res.data;
+  }
+
+  async updateSuperAdminOrganization(id: string, data: { name?: string; slug?: string; description?: string }): Promise<any> {
+    const res = await this.client.patch(`/super-admin/organizations/${id}`, data);
+    return res.data;
+  }
+
+  async deleteSuperAdminOrganization(id: string): Promise<any> {
+    const res = await this.client.delete(`/super-admin/organizations/${id}`);
+    return res.data;
+  }
+
+  async updateSuperAdminUser(id: string, data: { role?: string; displayName?: string; username?: string; emailVerified?: boolean }): Promise<any> {
+    const res = await this.client.patch(`/super-admin/users/${id}`, data);
+    return res.data;
+  }
+
+  async deleteSuperAdminUser(id: string): Promise<any> {
+    const res = await this.client.delete(`/super-admin/users/${id}`);
+    return res.data;
+  }
+
+  async resetSuperAdminUserPassword(id: string, newPassword: string): Promise<any> {
+    const res = await this.client.post(`/super-admin/users/${id}/reset-password`, { newPassword });
+    return res.data;
+  }
 }
 
 // Export singleton instance
