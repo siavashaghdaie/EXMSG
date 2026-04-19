@@ -1,5 +1,5 @@
-import React, { useRef, useEffect, useState } from 'react';
-import { X } from 'lucide-react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { X, ZoomIn, ZoomOut } from 'lucide-react';
 
 interface AvatarCropModalProps {
   file: File;
@@ -18,10 +18,30 @@ export default function AvatarCropModal({ file, isOpen, onClose, onSave }: Avata
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [isSaving, setIsSaving] = useState(false);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
 
-  const CROP_SIZE = 400; // Size of the circular crop area (display)
   const OUTPUT_SIZE = 512; // Output resolution for the saved avatar
-  const CIRCLE_RADIUS = CROP_SIZE / 2;
+
+  // The crop circle fills ~85% of the smaller container dimension
+  const cropSize = Math.min(containerSize.width, containerSize.height) * 0.85 || 400;
+  const circleRadius = cropSize / 2;
+
+  // Measure container
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const measure = () => {
+      if (containerRef.current) {
+        setContainerSize({
+          width: containerRef.current.clientWidth,
+          height: containerRef.current.clientHeight,
+        });
+      }
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [isOpen]);
 
   // Load image when file changes
   useEffect(() => {
@@ -32,11 +52,14 @@ export default function AvatarCropModal({ file, isOpen, onClose, onSave }: Avata
       const img = new Image();
       img.onload = () => {
         setImage(img);
-        // Center image initially
-        const containerWidth = containerRef.current?.clientWidth || 400;
-        const containerHeight = containerRef.current?.clientHeight || 400;
-        const centerX = (containerWidth - img.width * zoom) / 2;
-        const centerY = (containerHeight - img.height * zoom) / 2;
+        // Scale image to fit the crop circle initially
+        const cW = containerRef.current?.clientWidth || 600;
+        const cH = containerRef.current?.clientHeight || 600;
+        const cs = Math.min(cW, cH) * 0.85;
+        const fitZoom = Math.max(cs / img.width, cs / img.height);
+        setZoom(fitZoom);
+        const centerX = (cW - img.width * fitZoom) / 2;
+        const centerY = (cH - img.height * fitZoom) / 2;
         setImageX(centerX);
         setImageY(centerY);
       };
@@ -53,45 +76,44 @@ export default function AvatarCropModal({ file, isOpen, onClose, onSave }: Avata
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const containerWidth = containerRef.current.clientWidth;
-    const containerHeight = containerRef.current.clientHeight;
+    const cW = containerRef.current.clientWidth;
+    const cH = containerRef.current.clientHeight;
 
-    canvas.width = containerWidth;
-    canvas.height = containerHeight;
+    canvas.width = cW;
+    canvas.height = cH;
 
-    // Dark background
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Draw image first
+    ctx.clearRect(0, 0, cW, cH);
+    ctx.drawImage(image, imageX, imageY, image.width * zoom, image.height * zoom);
 
-    // Draw image
-    ctx.save();
-    ctx.drawImage(
-      image,
-      imageX,
-      imageY,
-      image.width * zoom,
-      image.height * zoom
-    );
-    ctx.restore();
-
-    // Circle mask - clear the middle to show image
-    const centerX = containerWidth / 2;
-    const centerY = containerHeight / 2;
+    // Darken everything outside the circle
+    const centerX = cW / 2;
+    const centerY = cH / 2;
 
     ctx.save();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(0, 0, cW, cH);
     ctx.globalCompositeOperation = 'destination-out';
     ctx.beginPath();
-    ctx.arc(centerX, centerY, CIRCLE_RADIUS, 0, Math.PI * 2);
+    ctx.arc(centerX, centerY, circleRadius, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
+    // Redraw image inside the circle (so it's not darkened)
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, circleRadius, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(image, imageX, imageY, image.width * zoom, image.height * zoom);
+    ctx.restore();
+
     // Circle border
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(centerX, centerY, CIRCLE_RADIUS, 0, Math.PI * 2);
+    ctx.arc(centerX, centerY, circleRadius, 0, Math.PI * 2);
     ctx.stroke();
-  }, [image, imageX, imageY, zoom]);
+  }, [image, imageX, imageY, zoom, containerSize, circleRadius]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsDragging(true);
@@ -100,12 +122,8 @@ export default function AvatarCropModal({ file, isOpen, onClose, onSave }: Avata
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!isDragging) return;
-
-    const newX = e.clientX - dragStart.x;
-    const newY = e.clientY - dragStart.y;
-
-    setImageX(newX);
-    setImageY(newY);
+    setImageX(e.clientX - dragStart.x);
+    setImageY(e.clientY - dragStart.y);
   };
 
   const handleMouseUp = () => {
@@ -114,10 +132,8 @@ export default function AvatarCropModal({ file, isOpen, onClose, onSave }: Avata
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    const newZoom = Math.max(0.5, Math.min(3, zoom * delta));
-    setZoom(newZoom);
+    const delta = e.deltaY > 0 ? 0.93 : 1.07;
+    setZoom(prev => Math.max(0.1, Math.min(10, prev * delta)));
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -135,15 +151,12 @@ export default function AvatarCropModal({ file, isOpen, onClose, onSave }: Avata
       setImageX(touch.clientX - dragStart.x);
       setImageY(touch.clientY - dragStart.y);
     } else if (e.touches.length === 2) {
-      // Pinch to zoom
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       const distance = Math.sqrt(dx * dx + dy * dy);
-
       if ((window as any).__lastPinchDistance) {
         const delta = distance / (window as any).__lastPinchDistance;
-        const newZoom = Math.max(0.5, Math.min(3, zoom * delta));
-        setZoom(newZoom);
+        setZoom(prev => Math.max(0.1, Math.min(10, prev * delta)));
       }
       (window as any).__lastPinchDistance = distance;
     }
@@ -154,13 +167,12 @@ export default function AvatarCropModal({ file, isOpen, onClose, onSave }: Avata
     delete (window as any).__lastPinchDistance;
   };
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     if (!image || !containerRef.current) return;
 
     setIsSaving(true);
 
     try {
-      // Create a temporary canvas for cropping at high resolution
       const cropCanvas = document.createElement('canvas');
       cropCanvas.width = OUTPUT_SIZE;
       cropCanvas.height = OUTPUT_SIZE;
@@ -170,36 +182,26 @@ export default function AvatarCropModal({ file, isOpen, onClose, onSave }: Avata
         throw new Error('Could not get canvas context');
       }
 
-      const containerWidth = containerRef.current.clientWidth;
-      const containerHeight = containerRef.current.clientHeight;
-      const centerX = containerWidth / 2;
-      const centerY = containerHeight / 2;
+      const cW = containerRef.current.clientWidth;
+      const cH = containerRef.current.clientHeight;
+      const centerX = cW / 2;
+      const centerY = cH / 2;
 
-      // Calculate the source region from the canvas
-      const sourceX = centerX - CIRCLE_RADIUS - imageX;
-      const sourceY = centerY - CIRCLE_RADIUS - imageY;
+      // Calculate source region
+      const sourceX = (centerX - circleRadius - imageX) / zoom;
+      const sourceY = (centerY - circleRadius - imageY) / zoom;
+      const sourceSize = cropSize / zoom;
 
-      // Draw the cropped image at OUTPUT_SIZE resolution
-      cropCtx.drawImage(
-        image,
-        sourceX / zoom,
-        sourceY / zoom,
-        CROP_SIZE / zoom,
-        CROP_SIZE / zoom,
-        0,
-        0,
-        OUTPUT_SIZE,
-        OUTPUT_SIZE
-      );
+      // Draw cropped image at output resolution
+      cropCtx.drawImage(image, sourceX, sourceY, sourceSize, sourceSize, 0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
 
       // Create circular mask
-      const outputRadius = OUTPUT_SIZE / 2;
+      const r = OUTPUT_SIZE / 2;
       cropCtx.globalCompositeOperation = 'destination-in';
       cropCtx.beginPath();
-      cropCtx.arc(outputRadius, outputRadius, outputRadius, 0, Math.PI * 2);
+      cropCtx.arc(r, r, r, 0, Math.PI * 2);
       cropCtx.fill();
 
-      // Convert canvas to blob
       cropCanvas.toBlob(
         (blob) => {
           if (blob) {
@@ -215,13 +217,13 @@ export default function AvatarCropModal({ file, isOpen, onClose, onSave }: Avata
     } finally {
       setIsSaving(false);
     }
-  };
+  }, [image, imageX, imageY, zoom, circleRadius, cropSize, onSave, onClose]);
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-3xl h-[85vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Crop Avatar</h2>
@@ -233,10 +235,10 @@ export default function AvatarCropModal({ file, isOpen, onClose, onSave }: Avata
           </button>
         </div>
 
-        {/* Canvas Container */}
+        {/* Canvas Container — fills all available space */}
         <div
           ref={containerRef}
-          className="flex-1 flex items-center justify-center bg-black relative overflow-hidden cursor-move"
+          className="flex-1 bg-black relative overflow-hidden cursor-move select-none"
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
@@ -245,29 +247,39 @@ export default function AvatarCropModal({ file, isOpen, onClose, onSave }: Avata
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
-          style={{ minHeight: '460px', touchAction: 'none' }}
+          style={{ touchAction: 'none' }}
         >
-          <canvas ref={canvasRef} className="absolute inset-0" />
+          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
 
-          {/* Instructions */}
-          <div className="absolute top-4 left-0 right-0 text-center text-white text-sm opacity-75 pointer-events-none">
-            <p>Drag to move • Pinch or scroll to zoom</p>
+          {/* Instructions overlay */}
+          <div className="absolute top-3 left-0 right-0 text-center text-white text-sm opacity-60 pointer-events-none">
+            Drag to move &middot; Scroll or pinch to zoom
           </div>
         </div>
 
-        {/* Zoom slider */}
-        <div className="px-4 py-2 flex items-center gap-3 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700">
-          <span className="text-xs text-slate-500">−</span>
+        {/* Zoom controls */}
+        <div className="px-4 py-3 flex items-center gap-3 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700">
+          <button
+            onClick={() => setZoom(prev => Math.max(0.1, prev * 0.8))}
+            className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition"
+          >
+            <ZoomOut size={18} className="text-slate-500" />
+          </button>
           <input
             type="range"
-            min="0.5"
-            max="3"
-            step="0.1"
+            min="0.1"
+            max="5"
+            step="0.05"
             value={zoom}
             onChange={(e) => setZoom(parseFloat(e.target.value))}
             className="flex-1 h-2 bg-slate-300 dark:bg-slate-600 rounded-lg appearance-none cursor-pointer"
           />
-          <span className="text-xs text-slate-500">+</span>
+          <button
+            onClick={() => setZoom(prev => Math.min(10, prev * 1.25))}
+            className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition"
+          >
+            <ZoomIn size={18} className="text-slate-500" />
+          </button>
         </div>
 
         {/* Footer */}

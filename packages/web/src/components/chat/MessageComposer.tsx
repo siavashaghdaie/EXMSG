@@ -3,6 +3,7 @@ import { Send, Paperclip, Smile, X, Mic, Camera } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { socket } from '@/services/socket';
 import { api } from '@/services/api';
+import { compressMedia } from '@/utils/mediaCompressor';
 import EmojiPicker from './EmojiPicker';
 import VoiceRecorder from './VoiceRecorder';
 
@@ -227,7 +228,11 @@ export default function MessageComposer({
     setUploadProgress(0);
 
     try {
-      await api.uploadFile(conversationId, attachedFile, (progress) => {
+      // Compress media before uploading (images get resized, large videos re-encoded)
+      setUploadProgress(1); // Show activity during compression
+      const fileToUpload = await compressMedia(attachedFile);
+
+      await api.uploadFile(conversationId, fileToUpload, (progress) => {
         setUploadProgress(progress);
       });
 

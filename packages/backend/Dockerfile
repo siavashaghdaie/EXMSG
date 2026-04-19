@@ -64,8 +64,9 @@ COPY --from=builder /app/package.json ./
 # Re-generate Prisma client for Debian (different platform than Alpine builder)
 RUN npx prisma generate --schema=packages/backend/prisma/schema.prisma
 
-# Change ownership to nodejs user
-RUN chown -R nodejs:nodejs /app
+# Create uploads directories and set ownership
+RUN mkdir -p /app/uploads/avatars && \
+    chown -R nodejs:nodejs /app
 
 USER nodejs
 

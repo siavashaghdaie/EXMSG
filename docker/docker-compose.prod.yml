@@ -88,6 +88,8 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
       S3_SECRET_KEY: ${S3_SECRET_KEY:-}
       S3_REGION: ${S3_REGION:-us-east-1}
+    volumes:
+      - uploads_data:/app/uploads
     networks:
       - em-network
     expose:
@@ -168,6 +170,8 @@ volumes:
   postgres_data_prod:
     driver: local
   redis_data_prod:
+    driver: local
+  uploads_data:
     driver: local
   certbot_webroot:
     driver: local

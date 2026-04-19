@@ -28,13 +28,19 @@ export default function FileCard({ fileName, fileSize, mimeType, url }: FileCard
   // Image preview with thumbnail
   if (mimeType.startsWith('image/')) {
     return (
-      <div className="rounded-lg overflow-hidden max-w-xs">
+      <div className="rounded-lg overflow-hidden max-w-sm">
         <a href={url} target="_blank" rel="noopener noreferrer">
           <img
             src={url}
             alt={fileName}
-            className="max-w-full max-h-64 object-cover rounded-lg cursor-pointer hover:opacity-90 transition"
+            className="max-w-full max-h-96 object-contain rounded-lg cursor-pointer hover:opacity-90 transition"
             loading="lazy"
+            onError={(e) => {
+              // If image fails to load, show broken image text
+              const target = e.target as HTMLImageElement;
+              target.style.display = 'none';
+              target.parentElement!.innerHTML = '<div class="p-4 text-sm text-slate-400">Image failed to load</div>';
+            }}
           />
         </a>
         <div className="flex items-center gap-2 mt-1 px-1">
