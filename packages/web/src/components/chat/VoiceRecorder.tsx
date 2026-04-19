@@ -8,6 +8,7 @@ interface VoiceRecorderProps {
 
 // Browser SpeechRecognition types
 const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+const hasSpeechRecognition = !!SpeechRecognition;
 
 export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) {
   const [isRecording, setIsRecording] = useState(true);
@@ -15,12 +16,14 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [transcript, setTranscript] = useState('');
+  const [manualTranscript, setManualTranscript] = useState('');
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recognitionRef = useRef<any>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout>();
   const streamRef = useRef<MediaStream | null>(null);
   const transcriptRef = useRef('');
+  const manualInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     startRecording();
@@ -31,6 +34,13 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
       if (audioUrl) URL.revokeObjectURL(audioUrl);
     };
   }, []);
+
+  // Auto-focus the manual transcript input when recording stops and no auto-transcript
+  useEffect(() => {
+    if (!isRecording && !transcript && !hasSpeechRecognition && manualInputRef.current) {
+      manualInputRef.current.focus();
+    }
+  }, [isRecording, transcript]);
 
   const startSpeechRecognition = () => {
     if (!SpeechRecognition) return; // Browser doesn't support it
@@ -82,7 +92,14 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+      // Use a compatible mime type — Safari doesn't support webm
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+          ? 'audio/webm'
+          : 'audio/mp4'; // Safari fallback
+
+      const mediaRecorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
 
@@ -91,7 +108,8 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
       };
 
       mediaRecorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const actualMime = mimeType.includes('mp4') ? 'audio/mp4' : 'audio/webm';
+        const blob = new Blob(chunksRef.current, { type: actualMime });
         setAudioBlob(blob);
         setAudioUrl(URL.createObjectURL(blob));
         stopStream();
@@ -129,7 +147,9 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
 
   const handleSend = () => {
     if (audioBlob) {
-      onSend(audioBlob, duration, transcriptRef.current || undefined);
+      // Use auto-transcript if available, otherwise use manually typed transcript
+      const finalTranscript = transcriptRef.current || manualTranscript.trim() || undefined;
+      onSend(audioBlob, duration, finalTranscript);
     }
   };
 
@@ -138,6 +158,9 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
     const sec = (s % 60).toString().padStart(2, '0');
     return `${m}:${sec}`;
   };
+
+  // Whether to show manual transcript input (no auto-transcription available, recording stopped)
+  const showManualInput = !isRecording && audioBlob && !transcript;
 
   return (
     <div className="flex flex-col gap-1">
@@ -197,11 +220,27 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
           </button>
         )}
       </div>
-      {/* Show transcript preview if available */}
+
+      {/* Show auto-transcript preview if available */}
       {transcript && !isRecording && (
         <p className="text-xs text-slate-500 dark:text-slate-400 px-3 truncate">
           Transcript: {transcript}
         </p>
+      )}
+
+      {/* Manual transcript input — shown when auto-transcription is not available */}
+      {showManualInput && (
+        <div className="flex items-center gap-2 px-2">
+          <input
+            ref={manualInputRef}
+            type="text"
+            value={manualTranscript}
+            onChange={(e) => setManualTranscript(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSend(); } }}
+            placeholder="Type what you said (for Linda to understand)..."
+            className="flex-1 text-base bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 rounded-lg px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-400"
+          />
+        </div>
       )}
     </div>
   );

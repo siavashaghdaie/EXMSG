@@ -149,6 +149,14 @@ class SocketService {
         this.emit('user:status', data);
       });
 
+      this.socket.on('user:online', (data: { userId: string }) => {
+        this.emit('user:online', data);
+      });
+
+      this.socket.on('user:offline', (data: { userId: string }) => {
+        this.emit('user:offline', data);
+      });
+
       this.socket.on('conversation:created', (data: any) => {
         this.emit('conversation:created', data);
       });
