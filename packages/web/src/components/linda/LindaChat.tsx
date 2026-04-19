@@ -237,7 +237,7 @@ export default function LindaChat({ onClose }: LindaChatProps) {
     requestAnimationFrame(() => inputRef.current?.focus());
 
     try {
-      let data: { response: string; timestamp: string; conversationId: string; actions?: Array<{ type: string; target: string; status: string }> };
+      let data: { response: string; timestamp: string; conversationId: string; actions?: Array<{ type: string; target: string; status: string }>; generatedFiles?: Array<{ fileName: string; fileSize: number; mimeType: string; url: string }> };
       if (file) {
         data = await api.chatWithLindaFile(file, text, activeConversationId || undefined);
       } else {
@@ -264,6 +264,18 @@ export default function LindaChat({ onClose }: LindaChatProps) {
         timestamp: new Date(data.timestamp),
       };
       setMessages(prev => [...prev, lindaMsg]);
+
+      // Add file download messages if Linda generated files
+      if (data.generatedFiles && data.generatedFiles.length > 0) {
+        const fileMessages: LindaMessage[] = data.generatedFiles.map((f, i) => ({
+          id: `linda-file-${Date.now()}-${i}`,
+          content: `📎 Generated file ready for download:`,
+          sender: 'linda' as const,
+          timestamp: new Date(data.timestamp),
+          attachment: { name: f.fileName, type: f.mimeType || 'application/octet-stream', url: f.url, size: f.fileSize || 0 },
+        }));
+        setMessages(prev => [...prev, ...fileMessages]);
+      }
     } catch (err) {
       console.error('Linda chat error:', err);
       setMessages(prev => [...prev, {
@@ -277,13 +289,14 @@ export default function LindaChat({ onClose }: LindaChatProps) {
     }
   };
 
-  const handleVoiceSend = async (blob: Blob) => {
+  const handleVoiceSend = async (blob: Blob, _duration?: number, transcript?: string) => {
     setIsRecordingVoice(false);
     const file = new File([blob], `voice-${Date.now()}.webm`, { type: 'audio/webm' });
 
+    const displayContent = transcript ? `Voice message: "${transcript}"` : 'Voice message';
     const userMsg: LindaMessage = {
       id: `user-${Date.now()}`,
-      content: 'Voice message',
+      content: displayContent,
       sender: 'user',
       timestamp: new Date(),
       attachment: { name: file.name, type: 'audio/webm', size: file.size },
@@ -292,16 +305,35 @@ export default function LindaChat({ onClose }: LindaChatProps) {
     setIsLoading(true);
 
     try {
-      const data = await api.chatWithLindaFile(file, 'The user sent a voice message. Please acknowledge it.', activeConversationId || undefined);
+      // If we have a transcript, send it as context so Linda understands the voice note
+      const voiceContext = transcript
+        ? `The user sent a voice message. Here is the transcript of what they said: "${transcript}". Please respond to their message.`
+        : 'The user sent a voice message. Please acknowledge it.';
+      const data = await api.chatWithLindaFile(file, voiceContext, activeConversationId || undefined);
       if (!activeConversationId && data.conversationId) {
         setActiveConversationId(data.conversationId);
       }
-      setMessages(prev => [...prev, {
+
+      // Handle generated files from response
+      const lindaMsg: LindaMessage = {
         id: `linda-${Date.now()}`,
         content: data.response,
         sender: 'linda',
         timestamp: new Date(data.timestamp),
-      }]);
+      };
+      setMessages(prev => [...prev, lindaMsg]);
+
+      // Add file download messages if Linda generated files
+      if (data.generatedFiles && data.generatedFiles.length > 0) {
+        const fileMessages: LindaMessage[] = data.generatedFiles.map((f: any, i: number) => ({
+          id: `linda-file-${Date.now()}-${i}`,
+          content: `📎 Generated file ready for download:`,
+          sender: 'linda' as const,
+          timestamp: new Date(data.timestamp),
+          attachment: { name: f.fileName, type: f.mimeType || 'application/octet-stream', url: f.url, size: f.fileSize || 0 },
+        }));
+        setMessages(prev => [...prev, ...fileMessages]);
+      }
     } catch {
       setMessages(prev => [...prev, {
         id: `error-${Date.now()}`,
@@ -844,6 +876,21 @@ export default function LindaChat({ onClose }: LindaChatProps) {
                 <div className="mb-2">
                   {msg.attachment.url && msg.attachment.type.startsWith('image/') ? (
                     <img src={msg.attachment.url} alt={msg.attachment.name} className="max-w-full max-h-48 rounded-lg object-cover" />
+                  ) : msg.attachment.url && msg.sender === 'linda' ? (
+                    <a
+                      href={msg.attachment.url}
+                      download={msg.attachment.name}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 p-2.5 rounded-lg text-xs bg-violet-100 dark:bg-violet-900/40 border border-violet-200 dark:border-violet-700 hover:bg-violet-200 dark:hover:bg-violet-900/60 transition cursor-pointer"
+                    >
+                      <span className="text-base">{getFileEmoji(msg.attachment.type)}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-violet-700 dark:text-violet-300 truncate">{msg.attachment.name}</p>
+                        {msg.attachment.size > 0 && <p className="text-violet-500 dark:text-violet-400 opacity-70">{formatFileSize(msg.attachment.size)}</p>}
+                      </div>
+                      <span className="text-violet-500 dark:text-violet-400 font-medium">Download</span>
+                    </a>
                   ) : (
                     <div className={`flex items-center gap-2 p-2 rounded-lg text-xs ${
                       msg.sender === 'user' ? 'bg-blue-600/50' : 'bg-slate-200 dark:bg-slate-700'

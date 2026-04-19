@@ -92,12 +92,22 @@ export async function processFile(
       return processLegacyDoc(filePath, fileDesc);
     }
 
-    // 7. Text-based files
+    // 7. Audio files — voice notes, recordings, etc.
+    if (mimeType.startsWith('audio/') || ['.webm', '.ogg', '.mp3', '.wav', '.m4a', '.aac', '.flac'].includes(ext)) {
+      return {
+        type: 'metadata-only',
+        fileDescription: fileDesc,
+        textContent: `${fileDesc}\n\nThis is an audio file (voice message or recording). I cannot directly listen to audio files. If the user's message includes a transcript of the audio, I should respond based on that transcript content.`,
+        success: true,
+      };
+    }
+
+    // 8. Text-based files
     if (isTextFile(mimeType, ext)) {
       return processTextFile(filePath, fileName, fileDesc);
     }
 
-    // 8. Unknown binary — metadata only
+    // 9. Unknown binary — metadata only
     return {
       type: 'metadata-only',
       fileDescription: fileDesc,

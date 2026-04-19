@@ -457,15 +457,38 @@ export class LindaController {
       // Clean up uploaded file
       try { const fs = await import('fs'); fs.unlinkSync(file.path); } catch {}
 
-      addToHistory(userId, 'assistant', responseText);
+      // Execute any action blocks (send messages, create files, etc.)
+      const actions = await this.executeActions(responseText, userId);
+
+      // Strip action blocks from the visible response
+      const cleanResponse = this.stripActionBlocks(responseText);
+
+      addToHistory(userId, 'assistant', cleanResponse);
       if (useDb && lindaConvId) {
         try {
-          await db.lindaMessage.create({ data: { conversationId: lindaConvId, role: 'assistant', content: responseText } });
+          await db.lindaMessage.create({ data: { conversationId: lindaConvId, role: 'assistant', content: cleanResponse } });
           await db.lindaConversation.update({ where: { id: lindaConvId }, data: { updatedAt: new Date() } });
         } catch { /* ignore */ }
       }
 
-      res.json({ response: responseText, timestamp: new Date().toISOString(), sender: 'linda', conversationId: lindaConvId });
+      // Extract generated files from actions
+      const generatedFiles = actions
+        .filter((a: any) => a.type === 'create_file' && a.status === 'created' && a.url)
+        .map((a: any) => ({
+          fileName: a.target,
+          fileSize: a.fileSize,
+          mimeType: a.mimeType,
+          url: a.url,
+        }));
+
+      res.json({
+        response: cleanResponse,
+        timestamp: new Date().toISOString(),
+        sender: 'linda',
+        conversationId: lindaConvId,
+        actions: actions.length > 0 ? actions : undefined,
+        generatedFiles: generatedFiles.length > 0 ? generatedFiles : undefined,
+      });
     } catch (error: any) {
       console.error('Linda file chat error:', error);
       if (error?.status === 429) {

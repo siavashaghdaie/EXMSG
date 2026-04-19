@@ -22,7 +22,9 @@ export const env = {
   // Server
   PORT: parseInt(process.env.PORT || '3001', 10),
   NODE_ENV: process.env.NODE_ENV || 'development',
-  CORS_ORIGIN: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  CORS_ORIGIN: process.env.CORS_ORIGIN?.includes(',')
+    ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
+    : (process.env.CORS_ORIGIN || 'http://localhost:5173'),
   FRONTEND_URL: process.env.FRONTEND_URL || process.env.CORS_ORIGIN || 'http://localhost:5173',
 
   // Database

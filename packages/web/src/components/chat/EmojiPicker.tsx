@@ -108,7 +108,7 @@ export default function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search emoji..."
-            className="flex-1 bg-transparent text-sm outline-none text-slate-900 dark:text-white placeholder-slate-400"
+            className="flex-1 bg-transparent text-base outline-none text-slate-900 dark:text-white placeholder-slate-400"
             autoFocus
           />
           {searchQuery && (

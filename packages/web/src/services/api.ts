@@ -816,7 +816,7 @@ class APIClient {
     return res.data;
   }
 
-  async chatWithLindaFile(file: File, message?: string, conversationId?: string): Promise<{ response: string; timestamp: string; conversationId: string }> {
+  async chatWithLindaFile(file: File, message?: string, conversationId?: string): Promise<{ response: string; timestamp: string; conversationId: string; generatedFiles?: Array<{ fileName: string; fileSize: number; mimeType: string; url: string }> }> {
     const formData = new FormData();
     formData.append('file', file);
     if (message) formData.append('message', message);
