@@ -6,8 +6,8 @@
 
 @layer base {
   html, body, #root {
-    height: 100dvh;
-    height: 100vh; /* fallback */
+    height: 100vh; /* fallback for older browsers */
+    height: 100dvh; /* dynamic viewport height — adjusts for mobile keyboard */
     margin: 0;
     padding: 0;
     /* NOTE: overflow is NOT set here. Full-page scroll is allowed by default

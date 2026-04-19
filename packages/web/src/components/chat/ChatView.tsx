@@ -118,6 +118,29 @@ export default function ChatView() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Mobile keyboard: scroll to bottom when virtual keyboard opens/closes
+  // The visualViewport API fires a resize event when the software keyboard appears.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    let prevHeight = vv.height;
+    const onViewportResize = () => {
+      const currentHeight = vv.height;
+      // Keyboard opened (viewport shrank) or closed (viewport grew)
+      if (currentHeight !== prevHeight) {
+        prevHeight = currentHeight;
+        // Small delay to let the browser finish layout
+        requestAnimationFrame(() => {
+          scrollToBottom();
+        });
+      }
+    };
+
+    vv.addEventListener('resize', onViewportResize);
+    return () => vv.removeEventListener('resize', onViewportResize);
+  }, [scrollToBottom]);
+
   // Set active conversation and fetch messages when conversation changes
   useEffect(() => {
     if (conversationId) {
