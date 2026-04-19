@@ -583,7 +583,14 @@ export class SuperAdminController {
         return;
       }
 
-      await prisma.user.delete({ where: { id } });
+      // Task relations don't have onDelete: Cascade, so delete them first
+      // All other User relations have onDelete: Cascade or SetNull in the schema
+      await prisma.$transaction(async (tx) => {
+        await tx.task.deleteMany({
+          where: { OR: [{ assignedToId: id }, { createdById: id }] },
+        });
+        await tx.user.delete({ where: { id } });
+      });
       res.json({ message: 'User deleted' });
     } catch (error) {
       console.error('Delete user error:', error);
