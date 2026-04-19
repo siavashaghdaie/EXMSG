@@ -19,7 +19,8 @@ export default function AvatarCropModal({ file, isOpen, onClose, onSave }: Avata
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [isSaving, setIsSaving] = useState(false);
 
-  const CROP_SIZE = 256; // Size of the circular crop area
+  const CROP_SIZE = 400; // Size of the circular crop area (display)
+  const OUTPUT_SIZE = 512; // Output resolution for the saved avatar
   const CIRCLE_RADIUS = CROP_SIZE / 2;
 
   // Load image when file changes
@@ -159,10 +160,10 @@ export default function AvatarCropModal({ file, isOpen, onClose, onSave }: Avata
     setIsSaving(true);
 
     try {
-      // Create a temporary canvas for cropping
+      // Create a temporary canvas for cropping at high resolution
       const cropCanvas = document.createElement('canvas');
-      cropCanvas.width = CROP_SIZE;
-      cropCanvas.height = CROP_SIZE;
+      cropCanvas.width = OUTPUT_SIZE;
+      cropCanvas.height = OUTPUT_SIZE;
       const cropCtx = cropCanvas.getContext('2d');
 
       if (!cropCtx) {
@@ -178,7 +179,7 @@ export default function AvatarCropModal({ file, isOpen, onClose, onSave }: Avata
       const sourceX = centerX - CIRCLE_RADIUS - imageX;
       const sourceY = centerY - CIRCLE_RADIUS - imageY;
 
-      // Draw the cropped image
+      // Draw the cropped image at OUTPUT_SIZE resolution
       cropCtx.drawImage(
         image,
         sourceX / zoom,
@@ -187,14 +188,15 @@ export default function AvatarCropModal({ file, isOpen, onClose, onSave }: Avata
         CROP_SIZE / zoom,
         0,
         0,
-        CROP_SIZE,
-        CROP_SIZE
+        OUTPUT_SIZE,
+        OUTPUT_SIZE
       );
 
       // Create circular mask
+      const outputRadius = OUTPUT_SIZE / 2;
       cropCtx.globalCompositeOperation = 'destination-in';
       cropCtx.beginPath();
-      cropCtx.arc(CIRCLE_RADIUS, CIRCLE_RADIUS, CIRCLE_RADIUS, 0, Math.PI * 2);
+      cropCtx.arc(outputRadius, outputRadius, outputRadius, 0, Math.PI * 2);
       cropCtx.fill();
 
       // Convert canvas to blob
@@ -219,7 +221,7 @@ export default function AvatarCropModal({ file, isOpen, onClose, onSave }: Avata
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Crop Avatar</h2>
@@ -243,7 +245,7 @@ export default function AvatarCropModal({ file, isOpen, onClose, onSave }: Avata
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
-          style={{ minHeight: '300px', touchAction: 'none' }}
+          style={{ minHeight: '460px', touchAction: 'none' }}
         >
           <canvas ref={canvasRef} className="absolute inset-0" />
 

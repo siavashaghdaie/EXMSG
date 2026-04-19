@@ -237,10 +237,11 @@ export class StatusController {
 
       const now = new Date();
 
-      // ── Resolve org-mates ─────────────────────────────────────
-      // Find every organization the current user belongs to, then
-      // collect all the member user IDs from those orgs. Stories are
-      // only visible within the same organization(s).
+      // ── Resolve visible users ─────────────────────────────────
+      // In an enterprise messenger all platform users should be able
+      // to see each other's stories. We still prefer org-mates when
+      // the user belongs to an org, but fall back to ALL other users
+      // so stories are never hidden from colleagues.
       const myMemberships = await prisma.organizationMember.findMany({
         where: { userId },
         select: { organizationId: true },
@@ -248,30 +249,11 @@ export class StatusController {
       const orgIds = myMemberships.map((m) => m.organizationId);
       console.log(`[Status] getContactStatuses: userId=${userId} belongs to ${orgIds.length} org(s): [${orgIds.join(', ')}]`);
 
-      let orgMateIds: string[] = [];
-      if (orgIds.length > 0) {
-        const orgMembers = await prisma.organizationMember.findMany({
-          where: {
-            organizationId: { in: orgIds },
-            userId: { not: userId },
-          },
-          select: { userId: true },
-        });
-        orgMateIds = [...new Set(orgMembers.map((m) => m.userId))];
-      }
-
-      console.log(`[Status] getContactStatuses: userId=${userId} has ${orgMateIds.length} org-mate(s)`);
-
-      if (orgMateIds.length === 0) {
-        // No org-mates → no stories to show
-        res.json({ users: [] });
-        return;
-      }
-
-      // Get active statuses only from org members
+      // Get active statuses from ALL other users on the platform
+      // (excluding the current user's own statuses — those are in /mine)
       let statuses: any[];
       const statusWhere = {
-        userId: { in: orgMateIds },
+        userId: { not: userId },
         expiresAt: { gt: now },
       };
       const tryLikes = shouldRetryLikesTable() || likesTableAvailable === true;
@@ -310,7 +292,7 @@ export class StatusController {
         });
       }
 
-      console.log(`[Status] getContactStatuses: found ${statuses.length} active stories from org-mates for userId=${userId}`);
+      console.log(`[Status] getContactStatuses: found ${statuses.length} active stories for userId=${userId}`);
 
       // Group statuses by user
       const groupedByUser = new Map<

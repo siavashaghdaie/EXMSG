@@ -4,15 +4,11 @@
     "slug": "omnilink-messenger",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "scheme": "omnilink",
     "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
       "backgroundColor": "#7C3AED"
     },
-    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "io.theomnilink.messenger",
@@ -23,10 +19,6 @@
       }
     },
     "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#7C3AED"
-      },
       "package": "io.theomnilink.messenger",
       "permissions": [
         "CAMERA",
@@ -35,22 +27,6 @@
         "WRITE_EXTERNAL_STORAGE",
         "VIBRATE"
       ]
-    },
-    "plugins": [
-      "expo-secure-store",
-      "expo-image-picker",
-      "expo-document-picker",
-      "expo-camera",
-      "expo-av",
-      "expo-haptics",
-      "expo-file-system",
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/notification-icon.png",
-          "color": "#7C3AED"
-        }
-      ]
-    ]
+    }
   }
 }
