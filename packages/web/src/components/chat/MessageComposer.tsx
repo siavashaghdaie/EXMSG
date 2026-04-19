@@ -387,7 +387,7 @@ export default function MessageComposer({
             onBlur={() => { if (!isSendingRef.current) setIsFocused(false); }}
             placeholder="Type a message..."
             disabled={disabled}
-            className="flex-1 resize-none bg-transparent text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 outline-none max-h-24 scrollbar-hide leading-normal py-0.5"
+            className="flex-1 resize-none bg-transparent text-base sm:text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 outline-none max-h-24 scrollbar-hide leading-normal py-0.5"
             rows={1}
             style={{ height: '24px', minHeight: '24px' }}
           />
@@ -454,7 +454,7 @@ export default function MessageComposer({
             onBlur={() => { if (!isSendingRef.current) setIsFocused(false); }}
             placeholder="Type a message..."
             disabled={disabled}
-            className="flex-1 resize-none bg-transparent text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 outline-none max-h-36 scrollbar-hide leading-normal py-0.5"
+            className="flex-1 resize-none bg-transparent text-base sm:text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 outline-none max-h-36 scrollbar-hide leading-normal py-0.5"
             rows={1}
             style={{ height: '24px', minHeight: '24px' }}
           />
