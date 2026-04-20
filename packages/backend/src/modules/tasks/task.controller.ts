@@ -1,5 +1,14 @@
 import { Request, Response } from 'express';
 import { prisma } from '../../config/database';
+import { sendLindaDM } from '../../services/lindaNotify';
+
+const STATUS_LABELS: Record<string, string> = {
+  NOT_STARTED: 'Not Started',
+  IN_PROGRESS: 'In Progress',
+  PENDING_REVIEW: 'Pending Review',
+  COMPLETED: 'Completed',
+  BLOCKED: 'Blocked',
+};
 
 export class TaskController {
   // GET /api/tasks
@@ -109,6 +118,10 @@ export class TaskController {
         return;
       }
 
+      // Capture old values before update for change detection
+      const oldStatus = task.status;
+      const oldPriority = task.priority;
+
       const updated = await prisma.task.update({
         where: { id: taskId },
         data: {
@@ -127,6 +140,25 @@ export class TaskController {
           orderedBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
         },
       });
+
+      // Linda notification: notify task creator when assignee changes status or priority
+      // Only notify if the person making the change is the assignee (not the creator themselves)
+      if (task.assignedToId === userId && task.createdById !== userId) {
+        const changes: string[] = [];
+        if (status !== undefined && status !== oldStatus) {
+          changes.push(`status from **${STATUS_LABELS[oldStatus] || oldStatus}** to **${STATUS_LABELS[status] || status}**`);
+        }
+        if (priority !== undefined && priority !== oldPriority) {
+          changes.push(`priority from **${oldPriority}** to **${priority}**`);
+        }
+        if (changes.length > 0) {
+          const assigneeName = updated.assignedTo.displayName || updated.assignedTo.username;
+          const msg = `📋 **Task Update**\n\n**${updated.title}**\n\n${assigneeName} changed ${changes.join(' and ')}.\n\nCheck the Task Wall for details.`;
+          sendLindaDM(task.createdById, msg).catch(err => {
+            console.error('[Tasks] Linda notification error:', err);
+          });
+        }
+      }
 
       res.json({ task: updated });
     } catch (error) {

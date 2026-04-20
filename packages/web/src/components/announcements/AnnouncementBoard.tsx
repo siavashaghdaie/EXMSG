@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import Avatar from '@/components/common/Avatar';
-import { Plus, X, Pin, MoreVertical, Loader2, Megaphone, Check, Clock, Eye, Users, CheckCircle2, ThumbsUp, ThumbsDown, MessageCircle, Share2 } from 'lucide-react';
+import { Plus, X, Pin, MoreVertical, Loader2, Megaphone, Check, Clock, Eye, Users, CheckCircle2, ThumbsUp, ThumbsDown, MessageCircle, Share2, Pencil, Trash2 } from 'lucide-react';
 import { api, AnnouncementItem } from '@/services/api';
 
 interface AnnouncementBoardProps {
@@ -38,6 +38,8 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
   const [comments, setComments] = useState<any[]>([]);
   const [newComment, setNewComment] = useState('');
   const [loadingComments, setLoadingComments] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState('');
 
   // Default expiration: 7 days from now
   const getDefaultExpiry = () => {
@@ -449,14 +451,77 @@ const AnnouncementBoard: React.FC<AnnouncementBoardProps> = ({ onClose }) => {
                           <p className="text-xs text-slate-500 dark:text-slate-400 py-2">No comments yet. Be the first!</p>
                         ) : (
                           comments.map((comment) => (
-                            <div key={comment.id} className="flex gap-2 text-xs">
+                            <div key={comment.id} className="flex gap-2 text-xs group">
                               <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
                                 <span className="text-[9px] font-bold">{(comment.user?.displayName || '?')[0].toUpperCase()}</span>
                               </div>
-                              <div className="flex-1">
+                              <div className="flex-1 min-w-0">
                                 <span className="font-semibold text-slate-700 dark:text-slate-300">{comment.user?.displayName}</span>
-                                <span className="text-slate-600 dark:text-slate-400 ml-1">{comment.content}</span>
+                                {editingCommentId === comment.id ? (
+                                  <div className="mt-1 flex gap-1">
+                                    <input
+                                      type="text"
+                                      value={editingCommentText}
+                                      onChange={(e) => setEditingCommentText(e.target.value)}
+                                      className="flex-1 px-2 py-1 text-xs rounded border border-blue-300 dark:border-blue-600 bg-white dark:bg-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                      onKeyDown={async (e) => {
+                                        if (e.key === 'Enter' && editingCommentText.trim()) {
+                                          try {
+                                            await api.updateAnnouncementComment(announcement.id, comment.id, editingCommentText.trim());
+                                            setEditingCommentId(null);
+                                            const data = await api.getAnnouncementComments(announcement.id);
+                                            setComments(data.comments);
+                                          } catch (error) {
+                                            console.error('Failed to update comment:', error);
+                                          }
+                                        } else if (e.key === 'Escape') {
+                                          setEditingCommentId(null);
+                                        }
+                                      }}
+                                      autoFocus
+                                    />
+                                    <button
+                                      onClick={() => setEditingCommentId(null)}
+                                      className="px-1.5 py-0.5 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-600 dark:text-slate-400 ml-1">{comment.content}</span>
+                                )}
                               </div>
+                              {/* Edit/Delete buttons — only for comment author */}
+                              {user?.id === comment.user?.id && editingCommentId !== comment.id && (
+                                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                                  <button
+                                    onClick={() => {
+                                      setEditingCommentId(comment.id);
+                                      setEditingCommentText(comment.content);
+                                    }}
+                                    className="p-0.5 hover:bg-slate-200 dark:hover:bg-slate-600 rounded transition-colors"
+                                    title="Edit comment"
+                                  >
+                                    <Pencil className="w-3 h-3 text-slate-500 dark:text-slate-400" />
+                                  </button>
+                                  <button
+                                    onClick={async () => {
+                                      try {
+                                        await api.deleteAnnouncementComment(announcement.id, comment.id);
+                                        const data = await api.getAnnouncementComments(announcement.id);
+                                        setComments(data.comments);
+                                        loadData();
+                                      } catch (error) {
+                                        console.error('Failed to delete comment:', error);
+                                      }
+                                    }}
+                                    className="p-0.5 hover:bg-red-100 dark:hover:bg-red-900/40 rounded transition-colors"
+                                    title="Delete comment"
+                                  >
+                                    <Trash2 className="w-3 h-3 text-red-500 dark:text-red-400" />
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           ))
                         )}

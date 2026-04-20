@@ -616,6 +616,41 @@ export class AnnouncementController {
     }
   }
 
+  // PATCH /api/announcements/:id/comments/:commentId
+  async updateComment(req: Request, res: Response): Promise<void> {
+    try {
+      const { id, commentId } = req.params;
+      const userId = req.user!.userId;
+      const { content } = req.body;
+
+      if (!content?.trim()) {
+        res.status(400).json({ error: 'Comment cannot be empty' });
+        return;
+      }
+
+      // Only the comment author can edit
+      const existing = await db.announcementComment.findFirst({
+        where: { id: commentId, announcementId: id, userId },
+      });
+      if (!existing) {
+        res.status(403).json({ error: 'Not authorized to edit this comment' });
+        return;
+      }
+
+      const updated = await db.announcementComment.update({
+        where: { id: commentId },
+        data: { content: content.trim() },
+        include: {
+          user: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
+        },
+      });
+      res.json({ comment: updated });
+    } catch (err) {
+      console.error('Update comment error:', err);
+      res.status(500).json({ error: 'Failed to update comment' });
+    }
+  }
+
   // DELETE /api/announcements/:id/comments/:commentId
   async deleteComment(req: Request, res: Response): Promise<void> {
     try {

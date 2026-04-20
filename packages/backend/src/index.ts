@@ -20,6 +20,7 @@ import { superAdminRoutes } from './modules/super-admin/superAdmin.routes';
 import { announcementRoutes } from './modules/announcements/announcement.routes';
 import { interPanelRoutes } from './modules/inter-panel/interPanel.routes';
 import { initializeLinda } from './modules/linda/linda.controller';
+import { startTaskReminderJob } from './modules/tasks/taskReminder';
 import { resolveOrganization } from './middleware/orgScope';
 
 async function bootstrap() {
@@ -95,6 +96,9 @@ async function bootstrap() {
 
   // Initialize Linda bot (ensure she's online)
   await initializeLinda();
+
+  // Start background task reminder job (Linda notifies assignees about ignored tasks)
+  startTaskReminderJob();
 
   // Start server
   httpServer.listen(env.PORT, () => {

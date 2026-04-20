@@ -1086,6 +1086,11 @@ class APIClient {
     return res.data;
   }
 
+  async updateAnnouncementComment(announcementId: string, commentId: string, content: string): Promise<any> {
+    const res = await this.client.patch(`/announcements/${announcementId}/comments/${commentId}`, { content });
+    return res.data;
+  }
+
   async deleteAnnouncementComment(announcementId: string, commentId: string): Promise<void> {
     await this.client.delete(`/announcements/${announcementId}/comments/${commentId}`);
   }
