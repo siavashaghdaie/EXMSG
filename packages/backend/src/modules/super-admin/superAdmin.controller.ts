@@ -1,14 +1,40 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import { prisma } from '../../config/database';
-import { generateTokens } from '../../middleware/auth';
+import { env } from '../../config/env';
 import { createAndSendOtp, verifyOtp } from '../../services/otp';
 import { isEmailConfigured } from '../../services/email';
+
+// The SuperAdmin model lives in its own table, completely separate from
+// the regular User table.  We cast prisma to `any` so we can access the
+// new model even before `prisma generate` has been re-run on every dev
+// machine.
+const db = prisma as any;
+
+/**
+ * Generate JWT tokens specifically for super admin sessions.
+ * The payload includes a `superAdmin: true` flag so middleware can
+ * distinguish super-admin tokens from regular user tokens.
+ */
+function generateSuperAdminTokens(payload: { superAdminId: string; email: string; username: string }) {
+  const accessToken = jwt.sign(
+    { ...payload, superAdmin: true },
+    env.JWT_SECRET,
+    { expiresIn: 15 * 60 },
+  );
+  const refreshToken = jwt.sign(
+    { ...payload, superAdmin: true },
+    env.JWT_REFRESH_SECRET,
+    { expiresIn: 7 * 24 * 60 * 60 },
+  );
+  return { accessToken, refreshToken };
+}
 
 export class SuperAdminController {
   /**
    * POST /api/super-admin/login
-   * Super Admin login - only works for users with SUPER_ADMIN role
+   * Super Admin login — uses the super_admins table exclusively.
    */
   async login(req: Request, res: Response): Promise<void> {
     try {
@@ -19,46 +45,24 @@ export class SuperAdminController {
         return;
       }
 
-      // Find user by email
-      const user = await prisma.user.findUnique({
+      const admin = await db.superAdmin.findUnique({
         where: { email: email.toLowerCase() },
-        select: {
-          id: true,
-          email: true,
-          username: true,
-          displayName: true,
-          avatarUrl: true,
-          role: true,
-          passwordHash: true,
-          superAdminHash: true,
-        },
       });
 
-      if (!user) {
+      if (!admin) {
         res.status(401).json({ error: 'Invalid credentials' });
         return;
       }
 
-      // Check if user is super admin
-      if (user.role !== 'SUPER_ADMIN') {
-        res.status(403).json({ error: 'Only Super Admins can access the back office' });
-        return;
-      }
-
-      // Validate super admin password (separate from regular account password)
-      // If superAdminHash is set, use it; otherwise fall back to passwordHash for backward compat
-      const hashToCheck = user.superAdminHash || user.passwordHash;
-      const passwordValid = await bcrypt.compare(password, hashToCheck);
+      const passwordValid = await bcrypt.compare(password, admin.passwordHash);
       if (!passwordValid) {
         res.status(401).json({ error: 'Invalid credentials' });
         return;
       }
 
-      // ---------------------------------------------------------------------
-      // Two-factor via email OTP on every Panel Owner login
-      // ---------------------------------------------------------------------
+      // Two-factor via email OTP when configured
       if (isEmailConfigured()) {
-        const otpResult = await createAndSendOtp(user.email, 'login', user.id);
+        const otpResult = await createAndSendOtp(admin.email, 'login', admin.id);
         if (!otpResult.success) {
           console.error('[Super Admin] Failed to send login OTP:', otpResult.error);
           res.status(500).json({ error: otpResult.error || 'Failed to send verification code' });
@@ -67,27 +71,26 @@ export class SuperAdminController {
         res.json({
           requiresOtp: true,
           purpose: 'login',
-          email: user.email,
+          email: admin.email,
           message: 'A verification code has been sent to your email.',
         });
         return;
       }
 
-      // Email not configured (dev mode) — issue tokens immediately
-      const tokens = generateTokens({
-        userId: user.id,
-        email: user.email,
-        username: user.username,
+      // Dev mode — issue tokens immediately
+      const tokens = generateSuperAdminTokens({
+        superAdminId: admin.id,
+        email: admin.email,
+        username: admin.username,
       });
 
       res.json({
         user: {
-          id: user.id,
-          email: user.email,
-          username: user.username,
-          displayName: user.displayName,
-          avatarUrl: user.avatarUrl,
-          role: user.role,
+          id: admin.id,
+          email: admin.email,
+          username: admin.username,
+          displayName: admin.displayName,
+          role: 'SUPER_ADMIN',
         },
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
@@ -100,7 +103,7 @@ export class SuperAdminController {
 
   /**
    * POST /api/super-admin/verify-login
-   * Complete a Panel Owner login by verifying the 6-digit code.
+   * Complete a Super Admin login by verifying the 6-digit code.
    */
   async verifyLogin(req: Request, res: Response): Promise<void> {
     try {
@@ -118,37 +121,29 @@ export class SuperAdminController {
         return;
       }
 
-      const user = await prisma.user.findUnique({
+      const admin = await db.superAdmin.findUnique({
         where: { email },
-        select: {
-          id: true,
-          email: true,
-          username: true,
-          displayName: true,
-          avatarUrl: true,
-          role: true,
-        },
       });
 
-      if (!user) {
-        res.status(404).json({ error: 'User not found' });
+      if (!admin) {
+        res.status(404).json({ error: 'Admin not found' });
         return;
       }
 
-      // Enforce that only SUPER_ADMINs get tokens from this endpoint
-      if (user.role !== 'SUPER_ADMIN') {
-        res.status(403).json({ error: 'Only Panel Owners can access the back office' });
-        return;
-      }
-
-      const tokens = generateTokens({
-        userId: user.id,
-        email: user.email,
-        username: user.username,
+      const tokens = generateSuperAdminTokens({
+        superAdminId: admin.id,
+        email: admin.email,
+        username: admin.username,
       });
 
       res.json({
-        user,
+        user: {
+          id: admin.id,
+          email: admin.email,
+          username: admin.username,
+          displayName: admin.displayName,
+          role: 'SUPER_ADMIN',
+        },
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
       });
@@ -179,35 +174,24 @@ export class SuperAdminController {
         topOrganizations,
       ] = await Promise.all([
         prisma.organization.count(),
-        prisma.user.count({
-          where: { role: 'USER' }, // Don't count admins in user stats
-        }),
+        prisma.user.count(),
         prisma.message.count(),
         prisma.user.count({
-          where: {
-            isOnline: true,
-            role: 'USER',
-          },
+          where: { isOnline: true },
         }),
         prisma.message.count({
           where: { createdAt: { gte: today } },
         }),
-        // New signups by day (last 7 days)
         prisma.user.groupBy({
           by: ['createdAt'],
-          where: {
-            createdAt: { gte: sevenDaysAgo },
-            role: 'USER',
-          },
+          where: { createdAt: { gte: sevenDaysAgo } },
           _count: { id: true },
         }),
-        // Messages per day (last 7 days)
         prisma.message.groupBy({
           by: ['createdAt'],
           where: { createdAt: { gte: sevenDaysAgo } },
           _count: { id: true },
         }),
-        // Top organizations by message count
         prisma.organization.findMany({
           take: 5,
           orderBy: {
@@ -235,7 +219,6 @@ export class SuperAdminController {
         const dateStr = date.toISOString().split('T')[0];
         newSignupsByDay[dateStr] = 0;
       }
-
       newSignupsData.forEach((entry: any) => {
         const dateStr = entry.createdAt.toISOString().split('T')[0];
         if (dateStr in newSignupsByDay) {
@@ -250,7 +233,6 @@ export class SuperAdminController {
         const dateStr = date.toISOString().split('T')[0];
         messagesPerDay[dateStr] = 0;
       }
-
       messagesPerDayData.forEach((entry: any) => {
         const dateStr = entry.createdAt.toISOString().split('T')[0];
         if (dateStr in messagesPerDay) {
@@ -265,7 +247,7 @@ export class SuperAdminController {
           totalMessages,
           activeUsersToday,
           messagesToday,
-          revenue: 0, // Placeholder for when billing is implemented
+          revenue: 0,
         },
         charts: {
           newSignupsByDay,
@@ -281,7 +263,6 @@ export class SuperAdminController {
 
   /**
    * GET /api/super-admin/organizations
-   * List all organizations with stats
    */
   async getOrganizations(req: Request, res: Response): Promise<void> {
     try {
@@ -320,10 +301,8 @@ export class SuperAdminController {
         prisma.organization.count({ where }),
       ]);
 
-      // Get message count for each organization (via channels)
       const orgsWithStats = await Promise.all(
         organizations.map(async (org) => {
-          // Get this org's channels (which each link to a conversation)
           const orgChannels = await prisma.channel.findMany({
             where: { organizationId: org.id, conversationId: { not: null } },
             select: { conversationId: true },
@@ -338,10 +317,7 @@ export class SuperAdminController {
               })
             : 0;
 
-          return {
-            ...org,
-            messageCount,
-          };
+          return { ...org, messageCount };
         })
       );
 
@@ -359,7 +335,6 @@ export class SuperAdminController {
 
   /**
    * GET /api/super-admin/users
-   * List all users across all organizations
    */
   async getUsers(req: Request, res: Response): Promise<void> {
     try {
@@ -367,7 +342,6 @@ export class SuperAdminController {
       const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
 
       const where: any = {};
-
       if (search) {
         where.OR = [
           { username: { contains: search as string, mode: 'insensitive' } },
@@ -375,7 +349,6 @@ export class SuperAdminController {
           { email: { contains: search as string, mode: 'insensitive' } },
         ];
       }
-
       if (role) {
         where.role = role as string;
       }
@@ -439,7 +412,6 @@ export class SuperAdminController {
 
   /**
    * POST /api/super-admin/organizations
-   * Create a new organization
    */
   async createOrganization(req: Request, res: Response): Promise<void> {
     try {
@@ -469,7 +441,6 @@ export class SuperAdminController {
 
   /**
    * PATCH /api/super-admin/organizations/:id
-   * Update an organization
    */
   async updateOrganization(req: Request, res: Response): Promise<void> {
     try {
@@ -508,7 +479,6 @@ export class SuperAdminController {
 
   /**
    * DELETE /api/super-admin/organizations/:id
-   * Delete an organization
    */
   async deleteOrganization(req: Request, res: Response): Promise<void> {
     try {
@@ -530,7 +500,6 @@ export class SuperAdminController {
 
   /**
    * PATCH /api/super-admin/users/:id
-   * Update a user (role, status, etc.)
    */
   async updateUser(req: Request, res: Response): Promise<void> {
     try {
@@ -565,17 +534,11 @@ export class SuperAdminController {
 
   /**
    * DELETE /api/super-admin/users/:id
-   * Delete a user
    */
   async deleteUser(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      const currentUserId = (req as any).userId;
-
-      if (id === currentUserId) {
-        res.status(400).json({ error: 'Cannot delete your own account' });
-        return;
-      }
+      const currentAdminId = (req as any).superAdminId;
 
       const user = await prisma.user.findUnique({ where: { id } });
       if (!user) {
@@ -583,22 +546,15 @@ export class SuperAdminController {
         return;
       }
 
-      // Several relations lack onDelete: Cascade (Task, Message sender, reply_to)
-      // Delete dependents manually in correct order, then delete the user
       await prisma.$transaction(async (tx) => {
-        // 1. Tasks (no cascade on assignedToId / createdById)
         await tx.task.deleteMany({ where: { OR: [{ assignedToId: id }, { createdById: id }] } });
 
-        // 2. Nullify reply references pointing to this user's messages
         const userMessageIds = (await tx.message.findMany({ where: { senderId: id }, select: { id: true } })).map(m => m.id);
         if (userMessageIds.length > 0) {
           await tx.message.updateMany({ where: { replyToId: { in: userMessageIds } }, data: { replyToId: null } });
         }
 
-        // 3. Delete the user's messages (sender relation has no cascade)
         await tx.message.deleteMany({ where: { senderId: id } });
-
-        // 4. Delete user — all remaining relations have onDelete: Cascade or SetNull
         await tx.user.delete({ where: { id } });
       });
       res.json({ message: 'User deleted' });
@@ -610,7 +566,6 @@ export class SuperAdminController {
 
   /**
    * POST /api/super-admin/users/:id/reset-password
-   * Reset a user's password
    */
   async resetUserPassword(req: Request, res: Response): Promise<void> {
     try {
@@ -640,11 +595,10 @@ export class SuperAdminController {
 
   /**
    * POST /api/super-admin/change-password
-   * Change the super admin's own back-office password (separate from regular account)
    */
   async changeSuperAdminPassword(req: Request, res: Response): Promise<void> {
     try {
-      const userId = (req as any).userId;
+      const superAdminId = (req as any).superAdminId;
       const { currentPassword, newPassword } = req.body;
 
       if (!newPassword || newPassword.length < 6) {
@@ -652,30 +606,27 @@ export class SuperAdminController {
         return;
       }
 
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { passwordHash: true, superAdminHash: true, role: true },
+      const admin = await db.superAdmin.findUnique({
+        where: { id: superAdminId },
       });
 
-      if (!user || user.role !== 'SUPER_ADMIN') {
+      if (!admin) {
         res.status(403).json({ error: 'Not authorized' });
         return;
       }
 
-      // Verify current password against whichever hash is active
       if (currentPassword) {
-        const hashToCheck = user.superAdminHash || user.passwordHash;
-        const valid = await bcrypt.compare(currentPassword, hashToCheck);
+        const valid = await bcrypt.compare(currentPassword, admin.passwordHash);
         if (!valid) {
           res.status(401).json({ error: 'Current password is incorrect' });
           return;
         }
       }
 
-      const superAdminHash = await bcrypt.hash(newPassword, 12);
-      await prisma.user.update({
-        where: { id: userId },
-        data: { superAdminHash },
+      const passwordHash = await bcrypt.hash(newPassword, 12);
+      await db.superAdmin.update({
+        where: { id: superAdminId },
+        data: { passwordHash },
       });
 
       res.json({ message: 'Super admin password updated successfully' });
@@ -687,7 +638,6 @@ export class SuperAdminController {
 
   /**
    * GET /api/super-admin/activity-log
-   * Recent platform activity log
    */
   async getActivityLog(req: Request, res: Response): Promise<void> {
     try {
@@ -695,7 +645,6 @@ export class SuperAdminController {
         prisma.user.findMany({
           take: 25,
           orderBy: { createdAt: 'desc' },
-          where: { role: 'USER' },
           select: {
             id: true,
             username: true,
@@ -720,7 +669,6 @@ export class SuperAdminController {
         }),
       ]);
 
-      // Combine and sort by date
       const activities: any[] = [
         ...recentUsers.map((user) => ({
           id: user.id,
@@ -740,9 +688,7 @@ export class SuperAdminController {
 
       activities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 
-      res.json({
-        activities: activities.slice(0, 50),
-      });
+      res.json({ activities: activities.slice(0, 50) });
     } catch (error) {
       console.error('Activity log error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -751,7 +697,6 @@ export class SuperAdminController {
 
   /**
    * GET /api/super-admin/financial
-   * Financial report placeholder
    */
   async getFinancial(req: Request, res: Response): Promise<void> {
     try {

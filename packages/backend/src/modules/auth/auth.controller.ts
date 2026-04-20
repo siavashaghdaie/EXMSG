@@ -442,6 +442,7 @@ export class AuthController {
           passwordHash: true,
           avatarUrl: true,
           emailVerified: true,
+          role: true,
         },
       });
 
@@ -453,6 +454,14 @@ export class AuthController {
       const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
       if (!isPasswordValid) {
         res.status(401).json({ error: 'Invalid email or password' });
+        return;
+      }
+
+      // Super admins live in their own table and must NOT log in via /auth/login.
+      // This is a safety net in case legacy SUPER_ADMIN users still exist in the
+      // users table after the migration.
+      if (user.role === 'SUPER_ADMIN') {
+        res.status(403).json({ error: 'Super admins must use the back-office login panel.' });
         return;
       }
 
@@ -505,7 +514,7 @@ export class AuthController {
         },
       });
 
-      const { passwordHash: _, emailVerified: __, ...userWithoutPassword } = user;
+      const { passwordHash: _, emailVerified: __, role: ___, ...userWithoutPassword } = user;
 
       // Ensure DM with Linda exists (fire-and-forget)
       ensureLindaDM(user.id).catch(() => {});

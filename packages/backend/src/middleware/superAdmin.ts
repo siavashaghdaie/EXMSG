@@ -1,35 +1,55 @@
 import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
+import { env } from '../config/env';
 import { prisma } from '../config/database';
 
+const db = prisma as any;
+
 /**
- * Middleware to require Super Admin role
- * Must be used AFTER authenticate middleware
+ * Middleware to authenticate and require Super Admin role.
+ *
+ * Super admins use a SEPARATE table (`super_admins`) and their JWT tokens
+ * contain `superAdmin: true` + `superAdminId`.  This middleware does NOT
+ * depend on the regular `authenticate` middleware — it reads the Bearer
+ * token itself and verifies against the super_admins table.
  */
 export async function requireSuperAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    // Ensure user is authenticated first
-    if (!req.user) {
-      res.status(401).json({ error: 'Not authenticated' });
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'No token provided' });
       return;
     }
 
-    // Query the database to get the user's role
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.userId },
-      select: { role: true },
-    });
-
-    if (!user) {
-      res.status(404).json({ error: 'User not found' });
+    const token = authHeader.substring(7);
+    let decoded: any;
+    try {
+      decoded = jwt.verify(token, env.JWT_SECRET);
+    } catch {
+      res.status(401).json({ error: 'Invalid or expired token' });
       return;
     }
 
-    if (user.role !== 'SUPER_ADMIN') {
+    // Must be a super-admin token (contains superAdmin flag)
+    if (!decoded.superAdmin || !decoded.superAdminId) {
       res.status(403).json({ error: 'Insufficient permissions. Super Admin access required.' });
       return;
     }
 
-    // User is a super admin, proceed
+    // Verify the super admin still exists in the DB
+    const admin = await db.superAdmin.findUnique({
+      where: { id: decoded.superAdminId },
+      select: { id: true },
+    });
+
+    if (!admin) {
+      res.status(403).json({ error: 'Super Admin account not found' });
+      return;
+    }
+
+    // Attach the super admin id to the request for downstream handlers
+    (req as any).superAdminId = decoded.superAdminId;
+
     next();
   } catch (error) {
     console.error('Super Admin middleware error:', error);

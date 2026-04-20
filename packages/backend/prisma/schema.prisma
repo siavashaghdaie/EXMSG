@@ -38,6 +38,22 @@ model Organization {
   @@map("organizations")
 }
 
+// Completely separate table for platform super admins.
+// Super admins manage the back-office (orgs, users, billing) and are NOT
+// regular messenger users.  Their email can overlap with a regular User
+// without conflict.
+model SuperAdmin {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  username     String   @unique
+  displayName  String   @map("display_name")
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("super_admins")
+}
+
 model User {
   id           String    @id @default(uuid())
   email        String    @unique
@@ -50,8 +66,8 @@ model User {
   isOnline     Boolean   @default(false) @map("is_online")
   lastSeenAt   DateTime? @map("last_seen_at")
   emailVerified    Boolean   @default(false) @map("email_verified")
-  role             String    @default("USER") // "USER", "ORG_ADMIN", "SUPER_ADMIN"
-  superAdminHash   String?  @map("super_admin_hash") // Separate password for super admin panel
+  role             String    @default("USER") // "USER", "ORG_ADMIN"  (SUPER_ADMIN is in its own table now)
+  superAdminHash   String?  @map("super_admin_hash") // Deprecated — kept for backward compat
   twoFactorEnabled Boolean @default(false) @map("two_factor_enabled")
   twoFactorSecret  String? @map("two_factor_secret")
   createdAt    DateTime  @default(now()) @map("created_at")
