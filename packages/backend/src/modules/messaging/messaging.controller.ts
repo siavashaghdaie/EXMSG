@@ -20,6 +20,8 @@ export class MessagingController {
                 OR: [
                   { organizationId: orgId, members: { some: { userId } } },
                   { isInterPanel: true, members: { some: { userId } } },
+                  // Include Linda bot DMs and other org-less conversations
+                  { organizationId: null, members: { some: { userId } } },
                 ],
               }
             : { members: { some: { userId } } }),

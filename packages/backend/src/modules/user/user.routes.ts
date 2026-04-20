@@ -51,14 +51,21 @@ router.get('/search', async (req: Request, res: Response) => {
       return;
     }
 
-    // Only return users in the same organization
+    // Only return users in the same organization + the Linda bot
     const orgMemberIds = await getOrgMemberIds(req);
+
+    // Find Linda bot so she always appears in search results
+    const lindaBot = await prisma.user.findFirst({
+      where: { email: 'linda@omnilink.system' },
+      select: { id: true },
+    });
+    const searchableIds = lindaBot ? [...orgMemberIds, lindaBot.id] : orgMemberIds;
 
     const users = await prisma.user.findMany({
       where: {
         AND: [
           { id: { not: userId } }, // Exclude current user
-          { id: { in: orgMemberIds } }, // Only same-org users
+          { id: { in: searchableIds } }, // Same-org users + Linda
           {
             OR: [
               { username: { contains: query, mode: 'insensitive' } },
