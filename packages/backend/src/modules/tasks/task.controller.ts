@@ -9,15 +9,24 @@ export class TaskController {
       const { status, assignedTo } = req.query;
 
       const where: any = {
-        OR: [
-          { assignedToId: userId },
-          { createdById: userId },
+        AND: [
+          {
+            OR: [
+              { assignedToId: userId },
+              { createdById: userId },
+            ],
+          },
         ],
       };
 
-      // Scope to organization
+      // Scope to organization (include tasks with null orgId for legacy/bot-created tasks)
       if (req.orgId) {
-        where.organizationId = req.orgId;
+        where.AND.push({
+          OR: [
+            { organizationId: req.orgId },
+            { organizationId: null },
+          ],
+        });
       }
 
       if (status) {
@@ -94,8 +103,8 @@ export class TaskController {
         return;
       }
 
-      // Verify task belongs to user's organization
-      if (req.orgId && (task as any).organizationId !== req.orgId) {
+      // Verify task belongs to user's organization (allow null orgId for legacy tasks)
+      if (req.orgId && (task as any).organizationId && (task as any).organizationId !== req.orgId) {
         res.status(403).json({ error: 'Not authorized to update this task' });
         return;
       }
