@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../../config/database';
+import { getOrgMemberIds } from '../../middleware/orgScope';
 
 // Type-safe accessors for new Prisma models (available after running `npx prisma generate`)
 const db = prisma as any;
@@ -237,23 +238,15 @@ export class StatusController {
 
       const now = new Date();
 
-      // ── Resolve visible users ─────────────────────────────────
-      // In an enterprise messenger all platform users should be able
-      // to see each other's stories. We still prefer org-mates when
-      // the user belongs to an org, but fall back to ALL other users
-      // so stories are never hidden from colleagues.
-      const myMemberships = await prisma.organizationMember.findMany({
-        where: { userId },
-        select: { organizationId: true },
-      });
-      const orgIds = myMemberships.map((m) => m.organizationId);
-      console.log(`[Status] getContactStatuses: userId=${userId} belongs to ${orgIds.length} org(s): [${orgIds.join(', ')}]`);
+      // ── Resolve visible users (org-scoped) ────────────────────
+      // Only show stories from users in the same organization.
+      const orgMemberIds = await getOrgMemberIds(req);
+      console.log(`[Status] getContactStatuses: userId=${userId} org has ${orgMemberIds.length} member(s)`);
 
-      // Get active statuses from ALL other users on the platform
-      // (excluding the current user's own statuses — those are in /mine)
+      // Get active statuses from org members only (excluding self)
       let statuses: any[];
       const statusWhere = {
-        userId: { not: userId },
+        userId: { in: orgMemberIds, not: userId },
         expiresAt: { gt: now },
       };
       const tryLikes = shouldRetryLikesTable() || likesTableAvailable === true;

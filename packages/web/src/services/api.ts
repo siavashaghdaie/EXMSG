@@ -1167,6 +1167,57 @@ class APIClient {
     const res = await this.client.post(`/super-admin/users/${id}/reset-password`, { newPassword });
     return res.data;
   }
+
+  // Inter-Panel methods
+
+  async getPublicPanels(): Promise<any> {
+    const res = await this.client.get('/panels/public');
+    return res.data;
+  }
+
+  async searchPanels(query: string): Promise<any> {
+    const res = await this.client.get('/panels/search', { params: { q: query } });
+    return res.data;
+  }
+
+  async sendPanelRequest(receiverOrgId: string, message?: string): Promise<any> {
+    const res = await this.client.post('/panels/request', { receiverOrgId, message });
+    return res.data;
+  }
+
+  async getPanelRequests(): Promise<any> {
+    const res = await this.client.get('/panels/requests');
+    return res.data;
+  }
+
+  async acceptPanelRequest(id: string): Promise<any> {
+    const res = await this.client.post(`/panels/requests/${id}/accept`);
+    return res.data;
+  }
+
+  async rejectPanelRequest(id: string): Promise<any> {
+    const res = await this.client.post(`/panels/requests/${id}/reject`);
+    return res.data;
+  }
+
+  // Org Profile methods
+
+  async getOrgProfile(): Promise<any> {
+    const res = await this.client.get('/org-admin/profile');
+    return res.data;
+  }
+
+  async updateOrgProfile(data: { name?: string; description?: string; visibility?: string }): Promise<any> {
+    const res = await this.client.patch('/org-admin/profile', data);
+    return res.data;
+  }
+
+  async uploadOrgLogo(file: File): Promise<any> {
+    const formData = new FormData();
+    formData.append('logo', file);
+    const res = await this.client.post('/org-admin/profile/logo', formData);
+    return res.data;
+  }
 }
 
 // Export singleton instance

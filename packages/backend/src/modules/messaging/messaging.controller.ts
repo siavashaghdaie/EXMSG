@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../../config/database';
 import { emitToConversation } from '../../services/socket';
 import { handleLindaAutoReply } from '../linda/linda.controller';
+import { getOrgMemberIds } from '../../middleware/orgScope';
 
 export class MessagingController {
   // GET /api/conversations
@@ -9,10 +10,19 @@ export class MessagingController {
     try {
       const userId = req.user!.userId;
 
+      const orgId = req.orgId ?? null;
+
       const conversations = await prisma.conversation.findMany({
         where: {
-          members: { some: { userId } },
           isArchived: false,
+          ...(orgId
+            ? {
+                OR: [
+                  { organizationId: orgId, members: { some: { userId } } },
+                  { isInterPanel: true, members: { some: { userId } } },
+                ],
+              }
+            : { members: { some: { userId } } }),
         },
         include: {
           members: {
@@ -103,11 +113,23 @@ export class MessagingController {
 
       const allMemberIds = [userId, ...memberIds.filter((id: string) => id !== userId)];
 
+      // Org-scoping: verify all participants belong to the same organization
+      const orgId = req.orgId ?? null;
+      if (orgId) {
+        const orgMemberIds = await getOrgMemberIds(req);
+        const nonOrgParticipants = allMemberIds.filter((id: string) => !orgMemberIds.includes(id));
+        if (nonOrgParticipants.length > 0) {
+          res.status(403).json({ error: 'All participants must belong to the same organization' });
+          return;
+        }
+      }
+
       const conversation = await prisma.conversation.create({
         data: {
           type,
           name: type === 'DIRECT' ? null : name,
           description,
+          organizationId: orgId,
           members: {
             create: allMemberIds.map((id: string, index: number) => ({
               userId: id,
@@ -198,10 +220,20 @@ export class MessagingController {
       const { conversationId } = req.params;
       const userId = req.user!.userId;
 
+      const orgId = req.orgId ?? null;
+
       const conversation = await prisma.conversation.findFirst({
         where: {
           id: conversationId,
           members: { some: { userId } },
+          ...(orgId
+            ? {
+                OR: [
+                  { organizationId: orgId },
+                  { isInterPanel: true },
+                ],
+              }
+            : {}),
         },
         include: {
           members: {
@@ -557,12 +589,22 @@ export class MessagingController {
         return;
       }
 
+      const orgId = req.orgId ?? null;
+
       // Build where clause with OR to search both message content and conversation names
       const where: any = {
         AND: [
           {
             conversation: {
               members: { some: { userId } },
+              ...(orgId
+                ? {
+                    OR: [
+                      { organizationId: orgId },
+                      { isInterPanel: true },
+                    ],
+                  }
+                : {}),
             },
           },
           {

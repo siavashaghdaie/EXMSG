@@ -18,7 +18,9 @@ import { orgAdminRoutes } from './modules/org-admin/orgAdmin.routes';
 import { statusRoutes } from './modules/status/status.routes';
 import { superAdminRoutes } from './modules/super-admin/superAdmin.routes';
 import { announcementRoutes } from './modules/announcements/announcement.routes';
+import { interPanelRoutes } from './modules/inter-panel/interPanel.routes';
 import { initializeLinda } from './modules/linda/linda.controller';
+import { resolveOrganization } from './middleware/orgScope';
 
 async function bootstrap() {
   const app = express();
@@ -34,6 +36,12 @@ async function bootstrap() {
   const avatarsDir = path.join(uploadsDir, 'avatars');
   if (!fs.existsSync(avatarsDir)) {
     fs.mkdirSync(avatarsDir, { recursive: true });
+  }
+
+  // Ensure logos subdirectory exists
+  const logosDir = path.join(uploadsDir, 'logos');
+  if (!fs.existsSync(logosDir)) {
+    fs.mkdirSync(logosDir, { recursive: true });
   }
 
   // Middleware
@@ -58,6 +66,7 @@ async function bootstrap() {
   // auth middleware before it can reach its own handler.
   app.use('/api/auth', authRoutes);
   app.use('/api', superAdminRoutes);
+  app.use('/api', interPanelRoutes);
   app.use('/api', messagingRoutes);
   app.use('/api/users', userRoutes);
   app.use('/api', lindaRoutes);

@@ -15,16 +15,13 @@ model Organization {
   id          String   @id @default(uuid())
   name        String
   slug        String   @unique
-  avatarUrl   String?  @map("avatar_url")
+  avatarUrl   String?  @map("avatar_url")   // Also serves as the company logo
   description String?
-  // Subscription plan selected at signup time: "starter" | "professional" | "business" | "enterprise"
-  // In v1 only "starter" is reachable through the public signup flow; the other tiers
-  // are exposed on the landing page for marketing but route to "Contact Sales" or a
-  // coming-soon state until billing is wired up.
+  // "public" panels appear on the landing page and can be found by other panel owners.
+  // "private" panels are hidden from discovery.
+  visibility  String   @default("private")   // "public" | "private"
+  // Subscription plan selected at signup time
   plan        String   @default("starter")
-  // Lifecycle of the plan: "trial" | "active" | "past_due" | "canceled". Free Starter
-  // orgs stay in "active" forever. Once checkout is wired up this will be driven by
-  // the billing provider webhooks.
   planStatus  String   @default("active") @map("plan_status")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
@@ -32,6 +29,11 @@ model Organization {
   members      OrganizationMember[]
   channels     Channel[]
   inviteTokens InviteToken[]
+  conversations Conversation[]
+  tasks        Task[]
+  announcements Announcement[]
+  sentPanelRequests     InterPanelRequest[] @relation("SentPanelRequests")
+  receivedPanelRequests InterPanelRequest[] @relation("ReceivedPanelRequests")
 
   @@map("organizations")
 }
@@ -119,19 +121,25 @@ enum OrgRole {
 // ============================================
 
 model Conversation {
-  id          String           @id @default(uuid())
-  type        ConversationType
-  name        String?
-  description String?
-  avatarUrl   String?          @map("avatar_url")
-  isArchived  Boolean          @default(false) @map("is_archived")
-  createdAt   DateTime         @default(now()) @map("created_at")
-  updatedAt   DateTime         @updatedAt @map("updated_at")
+  id             String           @id @default(uuid())
+  organizationId String?          @map("organization_id") // null for inter-panel owner DMs
+  type           ConversationType
+  name           String?
+  description    String?
+  avatarUrl      String?          @map("avatar_url")
+  isArchived     Boolean          @default(false) @map("is_archived")
+  // When true, this is a cross-panel DM between two org owners
+  isInterPanel   Boolean          @default(false) @map("is_inter_panel")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
 
-  members  ConversationMember[]
-  messages Message[]
-  pins     PinnedMessage[]
+  organization Organization?       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members      ConversationMember[]
+  messages     Message[]
+  pins         PinnedMessage[]
+  interPanelRequests InterPanelRequest[]
 
+  @@index([organizationId])
   @@map("conversations")
 }
 
@@ -278,13 +286,14 @@ model PinnedMessage {
 // ============================================
 
 model Task {
-  id          String   @id @default(uuid())
-  title       String
-  description String?
-  status      String   @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, PENDING_REVIEW, COMPLETED, BLOCKED
-  priority    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
-  deadline    DateTime?
-  labels      String[] @default([])
+  id             String   @id @default(uuid())
+  organizationId String?  @map("organization_id")
+  title          String
+  description    String?
+  status         String   @default("NOT_STARTED")
+  priority       String   @default("MEDIUM")
+  deadline       DateTime?
+  labels         String[] @default([])
 
   assignedToId String
   assignedTo   User     @relation("TasksAssigned", fields: [assignedToId], references: [id])
@@ -298,11 +307,14 @@ model Task {
   sourceMessageId String?
 
   lindaFollowing       Boolean  @default(false) @map("linda_following")
-  lindaFollowInterval  String?  @map("linda_follow_interval") // e.g. "daily", "every_2_days", "weekly"
+  lindaFollowInterval  String?  @map("linda_follow_interval")
 
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
   @@index([assignedToId])
   @@index([createdById])
   @@index([status])
@@ -409,21 +421,24 @@ model StatusLike {
 // ============================================
 
 model Announcement {
-  id        String   @id @default(uuid())
-  authorId  String   @map("author_id")
-  title     String
-  content   String
-  priority  String   @default("NORMAL") // 'LOW', 'NORMAL', 'HIGH', 'URGENT'
-  pinned    Boolean  @default(false)
-  expiresAt DateTime @map("expires_at")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(uuid())
+  organizationId String?  @map("organization_id")
+  authorId       String   @map("author_id")
+  title          String
+  content        String
+  priority       String   @default("NORMAL")
+  pinned         Boolean  @default(false)
+  expiresAt      DateTime @map("expires_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
-  author    User                      @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  reads     AnnouncementRead[]
-  reactions AnnouncementReaction[]
-  comments  AnnouncementComment[]
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  author       User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  reads        AnnouncementRead[]
+  reactions    AnnouncementReaction[]
+  comments     AnnouncementComment[]
 
+  @@index([organizationId])
   @@index([createdAt])
   @@map("announcements")
 }
@@ -553,4 +568,30 @@ model OtpCode {
   @@index([email, purpose])
   @@index([code, email])
   @@map("otp_codes")
+}
+
+// ============================================
+// INTER-PANEL COMMUNICATION
+// ============================================
+
+/// A request from one panel (organization) to communicate with another panel.
+/// Until accepted, the requesting panel owner only sees the target company name.
+/// Once accepted, a DM conversation is created between the two panel owners.
+model InterPanelRequest {
+  id              String   @id @default(uuid())
+  senderOrgId     String   @map("sender_org_id")
+  receiverOrgId   String   @map("receiver_org_id")
+  status          String   @default("PENDING") // "PENDING" | "ACCEPTED" | "REJECTED"
+  message         String?  // Optional message from the sender
+  conversationId  String?  @unique @map("conversation_id") // Created upon acceptance
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  senderOrg    Organization  @relation("SentPanelRequests", fields: [senderOrgId], references: [id], onDelete: Cascade)
+  receiverOrg  Organization  @relation("ReceivedPanelRequests", fields: [receiverOrgId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@unique([senderOrgId, receiverOrgId]) // Only one request per pair
+  @@index([receiverOrgId, status])
+  @@map("inter_panel_requests")
 }

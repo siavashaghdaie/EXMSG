@@ -1,10 +1,36 @@
 import { Router } from 'express';
+import multer from 'multer';
+import path from 'path';
 import { OrgAdminController } from './orgAdmin.controller';
 import { authenticate } from '../../middleware/auth';
 import { requireOrgAdmin } from '../../middleware/orgAdmin';
 
 const router = Router();
 const controller = new OrgAdminController();
+
+// Configure multer for org logo uploads
+const logoStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, 'uploads/logos/');
+  },
+  filename: (_req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  },
+});
+
+const logoUpload = multer({
+  storage: logoStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (_req, file, cb) => {
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only JPEG, PNG, and WebP images are allowed'));
+    }
+  },
+});
 
 // All routes require authentication
 router.use(authenticate);
@@ -20,6 +46,18 @@ router.post('/org-admin/organizations', (req, res) =>
 
 // All following routes require the caller to be an org admin (or SUPER_ADMIN)
 router.use(requireOrgAdmin);
+
+router.get('/org-admin/profile', (req, res) =>
+  controller.getProfile(req, res)
+);
+
+router.patch('/org-admin/profile', (req, res) =>
+  controller.updateProfile(req, res)
+);
+
+router.post('/org-admin/profile/logo', logoUpload.single('logo'), (req, res) =>
+  controller.uploadLogo(req, res)
+);
 
 router.get('/org-admin/organization', (req, res) =>
   controller.getOrganization(req, res)

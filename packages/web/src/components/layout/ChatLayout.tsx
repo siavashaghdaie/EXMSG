@@ -14,6 +14,7 @@ import AnnouncementBoard from '@/components/announcements/AnnouncementBoard';
 import AgentsPage from '@/components/agents/AgentsPage';
 import PanelOwnerWizard from '@/components/auth/PanelOwnerWizard';
 import OrgAdminDashboard from '@/components/org-admin/OrgAdminDashboard';
+import InterPanelPage from '@/components/inter-panel/InterPanelPage';
 
 export const ChatLayout: React.FC = () => {
   const navigate = useNavigate();
@@ -30,6 +31,7 @@ export const ChatLayout: React.FC = () => {
   const [showAnnouncements, setShowAnnouncements] = useState(false);
   const [showAgents, setShowAgents] = useState(false);
   const [showOrgDashboard, setShowOrgDashboard] = useState(false);
+  const [showInterPanel, setShowInterPanel] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
   const [, setAnnouncementCount] = useState(0);
   const [taskCount, setTaskCount] = useState(0);
@@ -43,6 +45,7 @@ export const ChatLayout: React.FC = () => {
     setShowAnnouncements(false);
     setShowAgents(false);
     setShowOrgDashboard(false);
+    setShowInterPanel(false);
   };
 
   // Check whether to show the welcome wizard on first login (ALL users)
@@ -195,7 +198,7 @@ export const ChatLayout: React.FC = () => {
   const shouldShowContent = isMobile ? !showSidebar : true;
 
   // Determine if a sub-page (settings, agents, tasks, etc.) is open — these should keep BottomNav visible
-  const isSubPageOpen = showSettings || showAgents || showTaskWall || showAdminDashboard || showAnnouncements || showOrgDashboard;
+  const isSubPageOpen = showSettings || showAgents || showTaskWall || showAdminDashboard || showAnnouncements || showOrgDashboard || showInterPanel;
   // On mobile, show BottomNav when: sidebar is visible OR a sub-page is open (not in a conversation)
   const showBottomNav = isMobile && (shouldShowSidebar || isSubPageOpen);
 
@@ -236,6 +239,11 @@ export const ChatLayout: React.FC = () => {
             onTasksClick={() => {
               closeAllSubPages();
               setShowTaskWall(true);
+              if (isMobile) setShowSidebar(false);
+            }}
+            onInterPanelClick={() => {
+              closeAllSubPages();
+              setShowInterPanel(true);
               if (isMobile) setShowSidebar(false);
             }}
           />
@@ -281,6 +289,13 @@ export const ChatLayout: React.FC = () => {
             ) : showOrgDashboard ? (
               <OrgAdminDashboard onBack={() => {
                 setShowOrgDashboard(false);
+                if (isMobile) {
+                  setShowSidebar(true);
+                }
+              }} />
+            ) : showInterPanel ? (
+              <InterPanelPage onBack={() => {
+                setShowInterPanel(false);
                 if (isMobile) {
                   setShowSidebar(true);
                 }

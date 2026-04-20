@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '../../config/database';
 import { emitToConversation } from '../../services/socket';
+import { getOrgMemberIds } from '../../middleware/orgScope';
 
 // Type-safe accessors for Announcement model
 const db = prisma as any;
@@ -142,6 +143,7 @@ export class AnnouncementController {
           priority: priority.toUpperCase(),
           pinned: !!pinned,
           expiresAt: new Date(expiresAt),
+          ...(req.orgId && { organizationId: req.orgId }),
         },
         include: {
           author: {
@@ -151,7 +153,7 @@ export class AnnouncementController {
       });
 
       // Linda notifies all users via PM (async, don't block response)
-      this.notifyAllUsersViaLinda(announcement).catch(err => {
+      this.notifyAllUsersViaLinda(announcement, req).catch(err => {
         console.error('[Announcements] Linda notification error:', err);
       });
 
@@ -173,18 +175,25 @@ export class AnnouncementController {
   }
 
   // Notify all users via Linda PM
-  private async notifyAllUsersViaLinda(announcement: any) {
+  private async notifyAllUsersViaLinda(announcement: any, req?: Request) {
     const lindaId = await getLindaBotUserId();
     const authorName = announcement.author?.displayName || announcement.author?.username || 'Admin';
 
-    // Get all users except Linda and the author
-    const allUsers = await prisma.user.findMany({
-      where: {
-        id: { notIn: [lindaId, announcement.authorId] },
-        email: { not: 'linda@omnilink.system' },
-      },
-      select: { id: true },
-    });
+    // Only notify users in the same organization
+    const orgMemberIds = req ? await getOrgMemberIds(req) : [];
+    const excludeIds = [lindaId, announcement.authorId];
+
+    const allUsers = orgMemberIds.length > 0
+      ? orgMemberIds
+          .filter((id: string) => !excludeIds.includes(id))
+          .map((id: string) => ({ id }))
+      : await prisma.user.findMany({
+          where: {
+            id: { notIn: excludeIds },
+            email: { not: 'linda@omnilink.system' },
+          },
+          select: { id: true },
+        });
 
     // Send PM to each user
     for (const user of allUsers) {
@@ -231,6 +240,7 @@ export class AnnouncementController {
       const announcements = await db.announcement.findMany({
         where: {
           expiresAt: { gt: now },
+          ...(req.orgId && { organizationId: req.orgId }),
         },
         include: includeClause,
         orderBy: [

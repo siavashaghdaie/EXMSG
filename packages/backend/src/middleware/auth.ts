@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env';
+import { resolveOrganization } from './orgScope';
 
 export interface AuthPayload {
   userId: string;
@@ -29,7 +30,8 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
   try {
     const decoded = jwt.verify(token, env.JWT_SECRET) as AuthPayload;
     req.user = decoded;
-    next();
+    // After authenticating, resolve the user's organization for tenant scoping
+    resolveOrganization(req, res, next);
   } catch (error) {
     if (error instanceof jwt.TokenExpiredError) {
       res.status(401).json({ error: 'Token expired' });

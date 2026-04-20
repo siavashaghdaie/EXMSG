@@ -201,6 +201,9 @@ export const LandingPage: React.FC = () => {
         )}
       </section>
 
+      {/* Public Panels Showcase */}
+      <PublicPanelsShowcase />
+
       {/* Trust strip */}
       <section className="relative z-10 max-w-6xl mx-auto px-6 pb-24">
         <div className="rounded-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-8 shadow-lg">
@@ -303,6 +306,71 @@ const PlanCard: React.FC<PlanCardProps> = ({ plan, priceLabel, onCta }) => {
         </p>
       )}
     </div>
+  );
+};
+
+const PublicPanelsShowcase: React.FC = () => {
+  const [panels, setPanels] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await api.getPublicPanels();
+        setPanels(res?.panels || []);
+      } catch {
+        // Silently fail — section just won't render
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  if (loading || panels.length === 0) return null;
+
+  return (
+    <section className="relative z-10 max-w-6xl mx-auto px-6 pb-24">
+      <div className="text-center mb-10">
+        <h2 className="text-3xl sm:text-4xl font-extrabold text-gray-900 dark:text-white mb-3">
+          Public panels on OmniLink
+        </h2>
+        <p className="text-gray-600 dark:text-gray-400">
+          These organizations have opened their doors. Create your panel and connect.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {panels.map((panel: any) => (
+          <div
+            key={panel.id}
+            className="rounded-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-6 shadow-sm flex items-start gap-4"
+          >
+            {panel.avatarUrl ? (
+              <img
+                src={panel.avatarUrl}
+                alt={panel.name}
+                className="w-12 h-12 rounded-xl object-cover bg-gray-100 dark:bg-gray-800 flex-shrink-0"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                }}
+              />
+            ) : (
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white flex-shrink-0">
+                <Building2 className="h-6 w-6" />
+              </div>
+            )}
+            <div className="min-w-0">
+              <h3 className="font-bold text-gray-900 dark:text-white truncate">{panel.name}</h3>
+              {panel.description && (
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
+                  {panel.description}
+                </p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 };
 

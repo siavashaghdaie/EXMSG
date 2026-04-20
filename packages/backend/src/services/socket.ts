@@ -13,6 +13,7 @@ export function registerLindaBotUserId(id: string) { _lindaBotUserId = id; }
 interface AuthenticatedSocket extends Socket {
   userId?: string;
   username?: string;
+  orgId?: string | null;
 }
 
 let io: Server;
@@ -64,16 +65,47 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
       console.error('Failed to update user online status in database:', error);
     }
 
+    // Resolve user's organization and join org room
+    let orgId: string | null = null;
+    try {
+      const membership = await prisma.organizationMember.findFirst({
+        where: { userId },
+        select: { organizationId: true },
+        orderBy: { joinedAt: 'asc' },
+      });
+      orgId = membership?.organizationId || null;
+      socket.orgId = orgId;
+      if (orgId) {
+        socket.join(`org:${orgId}`);
+      }
+    } catch (error) {
+      console.error('Failed to resolve user org for socket:', error);
+    }
+
     // Join user's personal room for direct notifications
     socket.join(`user:${userId}`);
 
-    // Broadcast online status to others
-    socket.broadcast.emit('user:online', { userId });
+    // Broadcast online status to org members only (or all if no org)
+    if (orgId) {
+      socket.to(`org:${orgId}`).emit('user:online', { userId });
+    } else {
+      socket.broadcast.emit('user:online', { userId });
+    }
 
-    // Send the full list of currently online users to THIS newly connected client
+    // Send the full list of currently online users (scoped to org) to THIS newly connected client
     try {
+      let onlineWhere: any = { isOnline: true };
+      if (orgId) {
+        // Only show online users from the same org
+        const orgMembers = await prisma.organizationMember.findMany({
+          where: { organizationId: orgId },
+          select: { userId: true },
+        });
+        const orgMemberIds = orgMembers.map(m => m.userId);
+        onlineWhere = { isOnline: true, id: { in: orgMemberIds } };
+      }
       const onlineUsers = await prisma.user.findMany({
-        where: { isOnline: true },
+        where: onlineWhere,
         select: { id: true },
       });
       const onlineUserIds = onlineUsers.map(u => u.id);
@@ -254,8 +286,12 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
         console.error('Failed to update user offline status in database:', error);
       }
 
-      // Broadcast offline status
-      socket.broadcast.emit('user:offline', { userId });
+      // Broadcast offline status to org members only (or all if no org)
+      if (socket.orgId) {
+        socket.to(`org:${socket.orgId}`).emit('user:offline', { userId });
+      } else {
+        socket.broadcast.emit('user:offline', { userId });
+      }
     });
   });
 

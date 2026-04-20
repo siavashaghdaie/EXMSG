@@ -3,6 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import { prisma } from '../../config/database';
 import { authenticate } from '../../middleware/auth';
+import { getOrgMemberIds } from '../../middleware/orgScope';
 import { UserController } from './user.controller';
 
 const router = Router();
@@ -50,10 +51,14 @@ router.get('/search', async (req: Request, res: Response) => {
       return;
     }
 
+    // Only return users in the same organization
+    const orgMemberIds = await getOrgMemberIds(req);
+
     const users = await prisma.user.findMany({
       where: {
         AND: [
           { id: { not: userId } }, // Exclude current user
+          { id: { in: orgMemberIds } }, // Only same-org users
           {
             OR: [
               { username: { contains: query, mode: 'insensitive' } },

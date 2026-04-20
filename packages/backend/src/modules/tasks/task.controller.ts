@@ -15,6 +15,11 @@ export class TaskController {
         ],
       };
 
+      // Scope to organization
+      if (req.orgId) {
+        where.organizationId = req.orgId;
+      }
+
       if (status) {
         where.status = status as string;
       }
@@ -60,6 +65,7 @@ export class TaskController {
           status: 'NOT_STARTED',
           lindaFollowing: lindaFollowing || false,
           lindaFollowInterval: lindaFollowInterval || null,
+          ...(req.orgId && { organizationId: req.orgId }),
         },
         include: {
           assignedTo: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
@@ -84,6 +90,12 @@ export class TaskController {
 
       const task = await prisma.task.findUnique({ where: { id: taskId } });
       if (!task || (task.assignedToId !== userId && task.createdById !== userId)) {
+        res.status(403).json({ error: 'Not authorized to update this task' });
+        return;
+      }
+
+      // Verify task belongs to user's organization
+      if (req.orgId && (task as any).organizationId !== req.orgId) {
         res.status(403).json({ error: 'Not authorized to update this task' });
         return;
       }

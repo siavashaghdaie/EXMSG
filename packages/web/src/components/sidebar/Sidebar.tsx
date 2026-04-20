@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Search, Settings, Plus, Bell, Clipboard, LayoutDashboard } from 'lucide-react';
+import { Search, Settings, Plus, Bell, Clipboard, LayoutDashboard, Globe } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { usePresenceStore } from '@/store/presenceStore';
@@ -18,6 +18,7 @@ interface SidebarProps {
   onClose?: () => void;
   onAnnouncementsClick?: () => void;
   onTasksClick?: () => void;
+  onInterPanelClick?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -27,7 +28,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onDashboardClick,
   onClose,
   onAnnouncementsClick,
-  onTasksClick
+  onTasksClick,
+  onInterPanelClick
 }) => {
   const navigate = useNavigate();
   const { conversationId } = useParams<{ conversationId?: string }>();
@@ -244,6 +246,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       )}
                     </button>
                   )}
+                  {user?.orgRole === 'OWNER' && (
+                    <button
+                      onClick={() => onInterPanelClick?.()}
+                      className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors"
+                      title="Inter-Panel Connections"
+                    >
+                      <Globe className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       if (onAnnouncementsClick) {
@@ -281,6 +292,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       {dashboardBlink && (
                         <span className="absolute top-0.5 right-0.5 w-2.5 h-2.5 bg-primary-500 rounded-full" />
                       )}
+                    </button>
+                  )}
+                  {user?.orgRole === 'OWNER' && (
+                    <button
+                      onClick={() => onInterPanelClick?.()}
+                      className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors"
+                      title="Inter-Panel Connections"
+                    >
+                      <Globe className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                     </button>
                   )}
                   <button

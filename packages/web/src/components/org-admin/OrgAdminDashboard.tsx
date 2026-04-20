@@ -23,12 +23,13 @@ import {
 } from 'lucide-react';
 import { api } from '@/services/api';
 import Avatar from '@/components/common/Avatar';
+import PanelSettingsTab from './PanelSettingsTab';
 
 interface OrgAdminDashboardProps {
   onBack: () => void;
 }
 
-type TabType = 'overview' | 'members' | 'messages' | 'tasks' | 'reports';
+type TabType = 'overview' | 'members' | 'messages' | 'tasks' | 'reports' | 'settings';
 
 interface OrgSummary {
   id: string;
@@ -498,6 +499,7 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
             { id: 'messages' as TabType, label: 'Messages' },
             { id: 'tasks' as TabType, label: 'Tasks' },
             { id: 'reports' as TabType, label: 'Reports' },
+            { id: 'settings' as TabType, label: 'Settings' },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -1207,6 +1209,11 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
               </div>
             )}
           </div>
+        )}
+
+        {/* Settings Tab */}
+        {activeTab === 'settings' && currentOrgId && (
+          <PanelSettingsTab orgId={currentOrgId} />
         )}
       </div>
 

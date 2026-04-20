@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import path from 'path';
 import { prisma } from '../../config/database';
 import { createInviteToken, INVITE_EXPIRY_HOURS } from '../../services/invite';
 import { sendInviteEmail, isEmailConfigured } from '../../services/email';
@@ -1013,6 +1014,138 @@ export class OrgAdminController {
       res.status(201).json({ organization: org });
     } catch (error) {
       console.error('Create organization error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // GET /api/org-admin/profile — get the organization profile
+  async getProfile(req: Request, res: Response): Promise<void> {
+    try {
+      const orgId = req.orgId;
+      if (!orgId) {
+        res.status(400).json({ error: 'Organization ID required' });
+        return;
+      }
+
+      const org = await prisma.organization.findUnique({
+        where: { id: orgId },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          avatarUrl: true,
+          description: true,
+          visibility: true,
+          plan: true,
+          planStatus: true,
+        },
+      });
+
+      if (!org) {
+        res.status(404).json({ error: 'Organization not found' });
+        return;
+      }
+
+      res.json(org);
+    } catch (error) {
+      console.error('Get org profile error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // PATCH /api/org-admin/profile — update org profile (OWNER only)
+  async updateProfile(req: Request, res: Response): Promise<void> {
+    try {
+      const orgId = req.orgId;
+      if (!orgId) {
+        res.status(400).json({ error: 'Organization ID required' });
+        return;
+      }
+
+      if (req.orgRole !== 'OWNER') {
+        res.status(403).json({ error: 'Only organization owners can update the profile' });
+        return;
+      }
+
+      const { name, description, visibility } = req.body || {};
+
+      // Validate visibility if provided
+      if (visibility !== undefined && visibility !== 'public' && visibility !== 'private') {
+        res.status(400).json({ error: 'visibility must be "public" or "private"' });
+        return;
+      }
+
+      const data: Record<string, any> = {};
+      if (name !== undefined) data.name = String(name).trim();
+      if (description !== undefined) data.description = String(description).trim();
+      if (visibility !== undefined) data.visibility = visibility;
+
+      if (Object.keys(data).length === 0) {
+        res.status(400).json({ error: 'No fields to update' });
+        return;
+      }
+
+      const org = await prisma.organization.update({
+        where: { id: orgId },
+        data,
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          avatarUrl: true,
+          description: true,
+          visibility: true,
+          plan: true,
+          planStatus: true,
+        },
+      });
+
+      res.json(org);
+    } catch (error) {
+      console.error('Update org profile error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // POST /api/org-admin/profile/logo — upload org logo (OWNER only)
+  async uploadLogo(req: Request, res: Response): Promise<void> {
+    try {
+      const orgId = req.orgId;
+      if (!orgId) {
+        res.status(400).json({ error: 'Organization ID required' });
+        return;
+      }
+
+      if (req.orgRole !== 'OWNER') {
+        res.status(403).json({ error: 'Only organization owners can upload a logo' });
+        return;
+      }
+
+      if (!req.file) {
+        res.status(400).json({ error: 'No file uploaded' });
+        return;
+      }
+
+      const logoUrl = `/uploads/logos/${req.file.filename}`;
+
+      const org = await prisma.organization.update({
+        where: { id: orgId },
+        data: { avatarUrl: logoUrl },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          avatarUrl: true,
+          description: true,
+          visibility: true,
+          plan: true,
+          planStatus: true,
+        },
+      });
+
+      res.json(org);
+    } catch (error) {
+      console.error('Upload org logo error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }
