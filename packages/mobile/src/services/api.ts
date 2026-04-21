@@ -1125,8 +1125,67 @@ class APIClient {
     return res.data;
   }
 
+  async updateAnnouncementComment(announcementId: string, commentId: string, content: string): Promise<any> {
+    const res = await this.client.patch(`/announcements/${announcementId}/comments/${commentId}`, { content });
+    return res.data;
+  }
+
   async deleteAnnouncementComment(announcementId: string, commentId: string): Promise<void> {
     await this.client.delete(`/announcements/${announcementId}/comments/${commentId}`);
+  }
+
+  // ─── Inter-Panel API ──────────────────────────────────────────────────
+
+  async getPublicPanels(): Promise<any[]> {
+    const { data } = await this.client.get('/inter-panel/public');
+    return data.panels || data;
+  }
+
+  async searchPanels(query: string): Promise<any[]> {
+    const { data } = await this.client.get('/inter-panel/search', { params: { query } });
+    return data.panels || data;
+  }
+
+  async sendPanelRequest(targetOrgId: string, message?: string): Promise<any> {
+    const { data } = await this.client.post('/inter-panel/request', { targetOrgId, message });
+    return data;
+  }
+
+  async getPanelRequests(): Promise<any> {
+    const { data } = await this.client.get('/inter-panel/requests');
+    return data;
+  }
+
+  async acceptPanelRequest(requestId: string): Promise<any> {
+    const { data } = await this.client.post(`/inter-panel/requests/${requestId}/accept`);
+    return data;
+  }
+
+  async rejectPanelRequest(requestId: string): Promise<any> {
+    const { data } = await this.client.post(`/inter-panel/requests/${requestId}/reject`);
+    return data;
+  }
+
+  // ─── Org Profile API ──────────────────────────────────────────────────
+
+  async getOrgProfile(): Promise<any> {
+    const { data } = await this.client.get('/org-admin/profile');
+    return data;
+  }
+
+  async updateOrgProfile(updates: { name?: string; description?: string; visibility?: string }): Promise<any> {
+    const { data } = await this.client.patch('/org-admin/profile', updates);
+    return data;
+  }
+
+  async uploadOrgLogo(file: RNFileDescriptor): Promise<{ logoUrl: string }> {
+    const formData = new FormData();
+    formData.append('logo', file as any);
+    const { data } = await this.client.post('/org-admin/profile/logo', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: UPLOAD_TIMEOUT,
+    });
+    return data;
   }
 
   // ─── Super Admin API ───────────────────────────────────────────────────

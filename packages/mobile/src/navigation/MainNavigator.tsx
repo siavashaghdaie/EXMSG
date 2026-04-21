@@ -3,14 +3,14 @@ import { Text, StyleSheet } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import ChatNavigator from '@/navigation/ChatNavigator';
 import LindaChatScreen from '@/screens/main/LindaChatScreen';
-import CallsScreen from '@/screens/main/CallsScreen';
+import AnnouncementScreen from '@/screens/main/AnnouncementScreen';
 import TasksScreen from '@/screens/main/TasksScreen';
 import SettingsScreen from '@/screens/main/SettingsScreen';
 
 export type MainTabParamList = {
   Chats: undefined;
   Linda: undefined;
-  Calls: undefined;
+  News: undefined;
   Tasks: undefined;
   Settings: undefined;
 };
@@ -42,7 +42,7 @@ export default function MainNavigator() {
         component={ChatNavigator}
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon label="C" focused={focused} />
+            <TabIcon label="💬" focused={focused} />
           ),
         }}
       />
@@ -51,16 +51,17 @@ export default function MainNavigator() {
         component={LindaChatScreen}
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon label="L" focused={focused} />
+            <TabIcon label="🤖" focused={focused} />
           ),
         }}
       />
       <Tab.Screen
-        name="Calls"
-        component={CallsScreen}
+        name="News"
+        component={AnnouncementScreen}
         options={{
+          tabBarLabel: 'News',
           tabBarIcon: ({ focused }) => (
-            <TabIcon label="P" focused={focused} />
+            <TabIcon label="📢" focused={focused} />
           ),
         }}
       />
@@ -69,7 +70,7 @@ export default function MainNavigator() {
         component={TasksScreen}
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon label="T" focused={focused} />
+            <TabIcon label="📋" focused={focused} />
           ),
         }}
       />
@@ -78,7 +79,7 @@ export default function MainNavigator() {
         component={SettingsScreen}
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon label="S" focused={focused} />
+            <TabIcon label="⚙️" focused={focused} />
           ),
         }}
       />
@@ -88,7 +89,7 @@ export default function MainNavigator() {
 
 const styles = StyleSheet.create({
   icon: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
     color: '#999',
   },
