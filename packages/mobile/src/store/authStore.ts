@@ -344,6 +344,7 @@ export const useAuthStore = create<AuthState>()(
           }
 
           // Verify token is still valid by fetching user profile
+          // (the API interceptor may silently refresh the token during this call)
           const user = await api.getMe();
           set({
             user,
@@ -352,10 +353,13 @@ export const useAuthStore = create<AuthState>()(
             hasCheckedAuth: true,
           });
 
-          // Connect socket with valid token (fire-and-forget)
-          socket.connect(token).catch((err: unknown) => {
-            console.warn('[Socket] Connection failed, will retry:', err);
-          });
+          // Re-read the token AFTER the API call — it may have been refreshed
+          const freshToken = await secureStorage.getAccessToken();
+          if (freshToken) {
+            socket.connect(freshToken).catch((err: unknown) => {
+              console.warn('[Socket] Connection failed, will retry:', err);
+            });
+          }
         } catch (error: any) {
           // Token is invalid, clear it
           await secureStorage.clearTokens();

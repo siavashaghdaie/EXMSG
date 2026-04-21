@@ -177,7 +177,9 @@ class SocketService {
       this.socket.disconnect();
     }
     this.socket = null;
-    this.eventListeners.clear();
+    // NOTE: Do NOT clear eventListeners here.
+    // Listeners are managed by setupChatSocketListeners / setupPresenceSocketListeners
+    // which return their own cleanup functions. Clearing here would break reconnect flows.
   }
 
   /**

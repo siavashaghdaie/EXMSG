@@ -9,6 +9,8 @@ import {
   RefreshControl,
   Alert,
   ActivityIndicator,
+  Modal,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -16,7 +18,11 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useChatStore } from '@/store/chatStore';
 import { usePresenceStore } from '@/store/presenceStore';
 import { useAuthStore } from '@/store/authStore';
+import { api, SearchUsersResponse } from '@/services/api';
 import { ChatStackParamList } from '@/navigation/ChatNavigator';
+import StoryCreationModal from '@/components/StoryCreationModal';
+import StoryViewerModal from '@/components/StoryViewerModal';
+import { getFullUrl } from '@/utils/url';
 
 type NavProp = NativeStackNavigationProp<ChatStackParamList, 'ConversationList'>;
 
@@ -31,6 +37,7 @@ const COLORS = {
   green: '#10B981',
   white: '#FFFFFF',
   lindaPurple: '#8B5CF6',
+  amber: '#F59E0B',
 };
 
 const AVATAR_COLORS = [
@@ -63,6 +70,22 @@ function formatTime(dateStr: string | undefined): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+function formatLastSeen(dateStr: string | undefined): string {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMins < 1) return 'Last seen just now';
+  if (diffMins < 60) return `Last seen ${diffMins}m ago`;
+  if (diffHours < 24) return `Last seen ${diffHours}h ago`;
+  if (diffDays === 1) return 'Last seen yesterday';
+  return `Last seen ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+}
+
 interface ConversationItemData {
   id: string;
   name: string;
@@ -77,70 +100,164 @@ interface ConversationItemData {
   isGroup: boolean;
   isLinda: boolean;
   otherUserId: string | null;
+  lastSeen: string | undefined;
 }
 
 export default function ConversationListScreen() {
   const navigation = useNavigation<NavProp>();
-  const { conversations, fetchConversations, isLoadingConversations, typingIndicators, unreadCounts } = useChatStore();
+  const { conversations, fetchConversations, isLoadingConversations, typingIndicators, unreadCounts, createConversation } = useChatStore();
   const onlineUsers = usePresenceStore((s) => s.onlineUsers);
+  const lastSeenMap = usePresenceStore((s) => s.lastSeen);
   const currentUser = useAuthStore((s) => s.user);
   const [searchQuery, setSearchQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
+  // New chat modal state
+  const [showNewChatModal, setShowNewChatModal] = useState(false);
+  const [newChatSearch, setNewChatSearch] = useState('');
+  const [newChatUsers, setNewChatUsers] = useState<SearchUsersResponse[]>([]);
+  const [newChatLoading, setNewChatLoading] = useState(false);
+  const [startingDm, setStartingDm] = useState<string | null>(null);
+  const [showStoryModal, setShowStoryModal] = useState(false);
+
+  // Story viewer state
+  const [showStoryViewer, setShowStoryViewer] = useState(false);
+  const [storyViewUserId, setStoryViewUserId] = useState('');
+  const [storyViewUserName, setStoryViewUserName] = useState('');
+  const [hasOwnStory, setHasOwnStory] = useState(false);
+  const [contactStories, setContactStories] = useState<any[]>([]);
+
+  // Fetch own stories status
+  const refreshStoryStatus = useCallback(async () => {
+    try {
+      const result = await api.getMyStatuses();
+      setHasOwnStory((result?.statuses || []).length > 0);
+    } catch { /* ignore */ }
+    try {
+      const result = await api.getContactStatuses();
+      setContactStories(result?.users || []);
+    } catch { /* ignore */ }
+  }, []);
+
   useEffect(() => {
     fetchConversations();
-  }, [fetchConversations]);
+    refreshStoryStatus();
+  }, [fetchConversations, refreshStoryStatus]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchConversations();
+    await Promise.all([fetchConversations(), refreshStoryStatus()]);
     setRefreshing(false);
-  }, [fetchConversations]);
+  }, [fetchConversations, refreshStoryStatus]);
+
+  // Fetch users for new chat modal
+  const fetchNewChatUsers = useCallback(async (query: string) => {
+    setNewChatLoading(true);
+    try {
+      const isAdmin = currentUser?.orgRole === 'OWNER' || currentUser?.orgRole === 'ADMIN';
+      let users: SearchUsersResponse[] = [];
+      if (isAdmin) {
+        try {
+          const result = await api.getOrgAdminMembers(query || undefined);
+          const members = result?.members || result || [];
+          users = members.map((m: any) => ({
+            id: m.userId || m.id,
+            email: m.email || m.user?.email || '',
+            username: m.username || m.user?.username || '',
+            displayName: m.displayName || m.user?.displayName || m.username || m.user?.username || '',
+            avatar: m.avatar || m.user?.avatar,
+          }));
+        } catch {
+          users = await api.searchUsers(query);
+        }
+      } else {
+        users = await api.searchUsers(query);
+      }
+      if (currentUser) {
+        users = users.filter((u) => u.id !== currentUser.id);
+      }
+      setNewChatUsers(users);
+    } catch (err) {
+      console.error('[ConversationList] Failed to fetch users:', err);
+    }
+    setNewChatLoading(false);
+  }, [currentUser]);
+
+  const openNewChatModal = useCallback(() => {
+    setShowNewChatModal(true);
+    setNewChatSearch('');
+    fetchNewChatUsers('');
+  }, [fetchNewChatUsers]);
+
+  const handleNewChatUserPress = useCallback(async (user: SearchUsersResponse) => {
+    if (startingDm) return;
+    setStartingDm(user.id);
+    try {
+      const conversation = await createConversation([user.id]);
+      setShowNewChatModal(false);
+      navigation.navigate('Chat', {
+        conversationId: conversation.id,
+        name: (user as any).displayName || user.username || user.email,
+      });
+    } catch (err: any) {
+      console.error('[ConversationList] Failed to create DM:', err);
+      Alert.alert('Error', 'Failed to start conversation.');
+    } finally {
+      setStartingDm(null);
+    }
+  }, [createConversation, navigation, startingDm]);
 
   const conversationItems: ConversationItemData[] = useMemo(() => {
     if (!conversations || !currentUser) return [];
 
-    return conversations.map((conv) => {
-      const isDm = conv.type === 'DIRECT';
-      const otherMember = isDm
-        ? conv.members?.find((m: any) => m.userId !== currentUser.id)
+    return conversations.map((conv: any) => {
+      const participants = conv.participants || conv.members || [];
+      const isDm = participants.length === 2 && !conv.name;
+      const otherUser = isDm
+        ? participants.find((p: any) => p.id !== currentUser.id)
         : null;
-      const otherUser = otherMember?.user;
-      const isLinda = otherUser?.username === 'linda' || otherUser?.email === 'linda@omnilink.system';
-
-      // DMs: show other user's display name; Groups: show conv name only (no suffix)
-      const name = isDm
+      const isLinda = !!(otherUser?.username === 'linda' || otherUser?.email === 'linda@omnilink.system');
+      const displayName = isDm
         ? (otherUser?.displayName || otherUser?.username || 'Unknown')
         : (conv.name || 'Group Chat');
-
-      const avatarLetter = isLinda ? 'AI' : name.charAt(0).toUpperCase();
+      const avatarLetter = isLinda ? 'AI' : displayName.charAt(0).toUpperCase();
       const avatarColor = isLinda ? COLORS.lindaPurple : getAvatarColor(conv.id);
 
-      // Last message
       let lastMessage = '';
       let lastMessageTime = '';
       if (conv.lastMessage) {
-        const isOwn = conv.lastMessage.sender?.id === currentUser.id;
+        const isOwn = conv.lastMessage.senderId === currentUser.id;
         const prefix = isOwn ? 'You: ' : '';
         const content = conv.lastMessage.content || (conv.lastMessage.type === 'IMAGE' ? 'Photo' : 'Attachment');
         lastMessage = prefix + content;
         lastMessageTime = conv.lastMessage.createdAt;
       }
 
-      // Typing
-      const typing = typingIndicators?.[conv.id];
-      const isTyping = !!typing && Object.keys(typing).length > 0;
-      const typingUser = isTyping ? Object.values(typing)[0] as string || 'Someone' : '';
+      const typing = typingIndicators instanceof Map
+        ? typingIndicators.get(conv.id)
+        : (typingIndicators as any)?.[conv.id];
+      const isTyping = Array.isArray(typing) ? typing.length > 0
+        : (!!typing && typeof typing === 'object' && Object.keys(typing).length > 0);
+      let typingUser = 'Someone';
+      if (isTyping) {
+        if (Array.isArray(typing) && typing.length > 0) {
+          typingUser = typing[0]?.username || 'Someone';
+        } else if (typeof typing === 'object') {
+          typingUser = Object.values(typing)[0] as string || 'Someone';
+        }
+      }
 
-      // Unread
-      const unread = unreadCounts?.[conv.id] || 0;
-
-      // Online - only for DMs; Linda is always online
+      const unread = unreadCounts instanceof Map
+        ? (unreadCounts.get(conv.id) || 0)
+        : ((unreadCounts as any)?.[conv.id] || 0);
       const isOnline = isLinda ? true : (otherUser ? onlineUsers.has(otherUser.id) : false);
+      const lastSeen = otherUser && !isOnline
+        ? (lastSeenMap instanceof Map ? lastSeenMap.get(otherUser.id) : undefined)
+        : undefined;
 
       return {
         id: conv.id,
-        name,
+        name: displayName,
         avatarLetter,
         avatarColor,
         lastMessage,
@@ -150,11 +267,12 @@ export default function ConversationListScreen() {
         isTyping,
         typingUser,
         isGroup: !isDm,
-        isLinda: !!isLinda,
+        isLinda,
         otherUserId: otherUser?.id || null,
+        lastSeen,
       };
     });
-  }, [conversations, currentUser, typingIndicators, unreadCounts, onlineUsers]);
+  }, [conversations, currentUser, typingIndicators, unreadCounts, onlineUsers, lastSeenMap]);
 
   const filtered = useMemo(() => {
     if (!searchQuery.trim()) return conversationItems;
@@ -172,19 +290,45 @@ export default function ConversationListScreen() {
     });
   };
 
-  const renderItem = ({ item }: { item: ConversationItemData }) => (
+  // User avatar URL
+  const userAvatarUrl = getFullUrl(currentUser?.avatarUrl || currentUser?.avatar);
+  const userDisplayName = currentUser?.displayName || currentUser?.username || currentUser?.email || '';
+  const userAvatarLetter = userDisplayName.charAt(0).toUpperCase();
+
+  const renderItem = ({ item }: { item: ConversationItemData }) => {
+    const contactStory = getContactStory(item.otherUserId);
+    const hasStory = !!contactStory && (contactStory.statuses?.length || 0) > 0;
+    const hasUnviewedStory = hasStory && contactStory.hasUnviewed;
+
+    return (
     <TouchableOpacity
       style={styles.item}
       onPress={() => handlePress(item)}
       activeOpacity={0.6}
     >
-      {/* Avatar */}
-      <View style={styles.avatarContainer}>
-        <View style={[styles.avatar, { backgroundColor: item.avatarColor }]}>
-          <Text style={styles.avatarText}>{item.avatarLetter}</Text>
+      {/* Avatar — with story ring if contact has stories */}
+      <TouchableOpacity
+        style={styles.avatarContainer}
+        activeOpacity={hasStory ? 0.7 : 1}
+        disabled={!hasStory}
+        onPress={() => {
+          if (hasStory && item.otherUserId) {
+            setStoryViewUserId(item.otherUserId);
+            setStoryViewUserName(item.name);
+            setShowStoryViewer(true);
+          }
+        }}
+      >
+        <View style={[
+          styles.avatarStoryWrap,
+          hasStory && (hasUnviewedStory ? styles.avatarStoryRingUnviewed : styles.avatarStoryRingViewed),
+        ]}>
+          <View style={[styles.avatar, { backgroundColor: item.avatarColor }]}>
+            <Text style={styles.avatarText}>{item.avatarLetter}</Text>
+          </View>
         </View>
         {item.isOnline && <View style={styles.onlineDot} />}
-      </View>
+      </TouchableOpacity>
 
       {/* Content */}
       <View style={styles.itemContent}>
@@ -193,7 +337,7 @@ export default function ConversationListScreen() {
             {item.isGroup && (
               <Text style={styles.groupIcon}>{'\uD83D\uDC65'} </Text>
             )}
-            <Text style={styles.itemName} numberOfLines={1}>
+            <Text style={[styles.itemName, item.unread > 0 && styles.itemNameUnread]} numberOfLines={1}>
               {item.name}
             </Text>
             {item.isLinda && (
@@ -206,13 +350,25 @@ export default function ConversationListScreen() {
             {formatTime(item.lastMessageTime)}
           </Text>
         </View>
+        {/* Last seen for offline DMs */}
+        {!item.isGroup && !item.isOnline && !item.isLinda && !!item.lastSeen && (
+          <Text style={styles.lastSeenText} numberOfLines={1}>
+            {formatLastSeen(item.lastSeen)}
+          </Text>
+        )}
+        {/* Online indicator for DMs */}
+        {!item.isGroup && item.isOnline && !item.isLinda && (
+          <Text style={styles.onlineText} numberOfLines={1}>
+            Online
+          </Text>
+        )}
         <View style={styles.itemBottomRow}>
           {item.isTyping ? (
             <Text style={styles.typingText} numberOfLines={1}>
               {item.typingUser} is typing...
             </Text>
           ) : (
-            <Text style={styles.itemPreview} numberOfLines={1}>
+            <Text style={[styles.itemPreview, item.unread > 0 && styles.itemPreviewUnread]} numberOfLines={1}>
               {item.lastMessage || 'No messages yet'}
             </Text>
           )}
@@ -227,6 +383,7 @@ export default function ConversationListScreen() {
       </View>
     </TouchableOpacity>
   );
+  };
 
   const renderEmpty = () => {
     if (isLoadingConversations) {
@@ -247,23 +404,67 @@ export default function ConversationListScreen() {
     );
   };
 
+  // Check if a conversation's other user has a story
+  const getContactStory = useCallback((otherUserId: string | null) => {
+    if (!otherUserId) return null;
+    return contactStories.find((s: any) => s.userId === otherUserId);
+  }, [contactStories]);
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>OMNILINK</Text>
-        <View style={styles.headerButtons}>
+        {/* Top row: OMNILINK logo + bell */}
+        <View style={styles.headerButtonsRow}>
+          <Text style={styles.headerTitle}>OMNILINK</Text>
+          <View style={styles.headerButtons}>
+            {/* Announcements bell */}
+            <TouchableOpacity
+              style={styles.headerButton}
+              onPress={() => navigation.navigate('Announcements')}
+            >
+              <Text style={styles.headerButtonIcon}>{'\uD83D\uDD14'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Profile row with story ring */}
+        <View style={styles.profileRow}>
+          {/* User avatar — tap to view own stories */}
           <TouchableOpacity
-            style={styles.headerButton}
-            onPress={() => navigation.navigate('Announcements')}
+            style={styles.profileAvatarContainer}
+            activeOpacity={0.7}
+            onPress={() => {
+              if (hasOwnStory && currentUser) {
+                setStoryViewUserId(currentUser.id);
+                setStoryViewUserName(userDisplayName);
+                setShowStoryViewer(true);
+              }
+            }}
           >
-            <Text style={styles.headerButtonIcon}>{'\uD83D\uDCE2'}</Text>
+            <View style={[styles.storyRing, hasOwnStory && styles.storyRingActive]}>
+              {userAvatarUrl ? (
+                <Image source={{ uri: userAvatarUrl }} style={styles.profileAvatar} />
+              ) : (
+                <View style={[styles.profileAvatar, styles.profileAvatarFallback]}>
+                  <Text style={styles.profileAvatarText}>{userAvatarLetter}</Text>
+                </View>
+              )}
+            </View>
           </TouchableOpacity>
+
+          {/* User info */}
+          <View style={styles.profileInfo}>
+            <Text style={styles.profileName} numberOfLines={1}>{userDisplayName}</Text>
+            <Text style={styles.profileEmail} numberOfLines={1}>{currentUser?.email || ''}</Text>
+          </View>
+
+          {/* Add Story button */}
           <TouchableOpacity
-            style={styles.composeButton}
-            onPress={() => Alert.alert('New Chat', 'New conversation screen coming soon')}
+            style={styles.addStoryButton}
+            activeOpacity={0.7}
+            onPress={() => setShowStoryModal(true)}
           >
-            <Text style={styles.composeIcon}>+</Text>
+            <Text style={styles.addStoryIcon}>+</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -297,6 +498,113 @@ export default function ConversationListScreen() {
         }
         contentContainerStyle={filtered.length === 0 ? styles.emptyList : undefined}
       />
+
+      {/* Floating New Chat button at bottom */}
+      <View style={styles.newChatButtonContainer}>
+        <TouchableOpacity
+          style={styles.newChatButton}
+          onPress={openNewChatModal}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.newChatIcon}>+</Text>
+          <Text style={styles.newChatText}>New Chat</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Story Creation Modal */}
+      <StoryCreationModal
+        visible={showStoryModal}
+        onClose={() => setShowStoryModal(false)}
+        onSuccess={() => {
+          fetchConversations();
+          refreshStoryStatus();
+        }}
+      />
+
+      {/* Story Viewer Modal */}
+      <StoryViewerModal
+        visible={showStoryViewer}
+        userId={storyViewUserId}
+        userName={storyViewUserName}
+        onClose={() => setShowStoryViewer(false)}
+        onStoryDeleted={refreshStoryStatus}
+      />
+
+      {/* New Chat Modal */}
+      <Modal
+        visible={showNewChatModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowNewChatModal(false)}
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setShowNewChatModal(false)}>
+              <Text style={styles.modalCancel}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>New Chat</Text>
+            <View style={{ width: 60 }} />
+          </View>
+
+          <View style={styles.modalSearchContainer}>
+            <TextInput
+              style={styles.modalSearchInput}
+              placeholder="Search people..."
+              placeholderTextColor={COLORS.muted}
+              value={newChatSearch}
+              onChangeText={(text) => {
+                setNewChatSearch(text);
+                fetchNewChatUsers(text);
+              }}
+              autoCorrect={false}
+              autoFocus
+            />
+          </View>
+
+          {newChatLoading ? (
+            <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 40 }} />
+          ) : (
+            <FlatList
+              data={newChatUsers}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => {
+                const displayName = (item as any).displayName || item.username || item.email;
+                const letter = displayName.charAt(0).toUpperCase();
+                const color = getAvatarColor(item.id);
+                const isOnline = onlineUsers.has(item.id);
+                return (
+                  <TouchableOpacity
+                    style={styles.modalUserItem}
+                    onPress={() => handleNewChatUserPress(item)}
+                    activeOpacity={0.6}
+                    disabled={startingDm === item.id}
+                  >
+                    <View style={styles.modalAvatarContainer}>
+                      <View style={[styles.modalAvatar, { backgroundColor: color }]}>
+                        <Text style={styles.modalAvatarText}>{letter}</Text>
+                      </View>
+                      {isOnline && <View style={styles.modalOnlineDot} />}
+                    </View>
+                    <View style={styles.modalUserInfo}>
+                      <Text style={styles.modalUserName}>{displayName}</Text>
+                      <Text style={styles.modalUserUsername}>@{item.username}</Text>
+                    </View>
+                    {startingDm === item.id && (
+                      <ActivityIndicator size="small" color={COLORS.primary} />
+                    )}
+                  </TouchableOpacity>
+                );
+              }}
+              ItemSeparatorComponent={() => <View style={styles.modalSeparator} />}
+              ListEmptyComponent={
+                <View style={styles.modalEmptyContainer}>
+                  <Text style={styles.modalEmptyText}>No users found</Text>
+                </View>
+              }
+            />
+          )}
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -306,12 +614,89 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.bg,
   },
+
+  // Header + Profile
   header: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  profileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  profileAvatarContainer: {
+    marginRight: 12,
+  },
+  storyRing: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 2.5,
+    borderColor: COLORS.border,
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 2,
+  },
+  storyRingActive: {
+    borderColor: COLORS.amber,
+  },
+  profileAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+  },
+  profileAvatarFallback: {
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileAvatarText: {
+    color: COLORS.white,
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  profileInfo: {
+    flex: 1,
+  },
+  profileName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: COLORS.text,
+    marginBottom: 1,
+  },
+  profileEmail: {
+    fontSize: 12,
+    color: COLORS.secondary,
+  },
+  addStoryButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: COLORS.white,
+    borderStyle: 'dashed',
+  },
+  addStoryIcon: {
+    fontSize: 20,
+    color: COLORS.white,
+    fontWeight: '600',
+    marginTop: -1,
+  },
+
+  // Header buttons row (top)
+  headerButtonsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    marginBottom: 8,
   },
   headerTitle: {
     fontSize: 22,
@@ -335,23 +720,38 @@ const styles = StyleSheet.create({
   headerButtonIcon: {
     fontSize: 18,
   },
-  composeButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: COLORS.primary,
-    justifyContent: 'center',
+  // Floating New Chat button
+  newChatButtonContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    paddingBottom: 12,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  newChatButton: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
   },
-  composeIcon: {
-    fontSize: 22,
+  newChatIcon: {
+    fontSize: 20,
     color: COLORS.white,
-    fontWeight: '600',
-    marginTop: -1,
+    fontWeight: '700',
   },
+  newChatText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.white,
+  },
+
+  // Search
   searchContainer: {
     paddingHorizontal: 16,
-    paddingBottom: 8,
+    paddingVertical: 8,
   },
   searchInput: {
     backgroundColor: COLORS.inputBg,
@@ -361,6 +761,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: COLORS.text,
   },
+
+  // Conversation item
   item: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -371,10 +773,28 @@ const styles = StyleSheet.create({
     position: 'relative',
     marginRight: 12,
   },
+  avatarStoryWrap: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    borderWidth: 2.5,
+    borderColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 2,
+  },
+  avatarStoryRingUnviewed: {
+    borderColor: COLORS.amber,
+    borderStyle: 'dashed',
+  },
+  avatarStoryRingViewed: {
+    borderColor: COLORS.muted,
+    borderStyle: 'dashed',
+  },
   avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -420,6 +840,10 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     flexShrink: 1,
   },
+  itemNameUnread: {
+    fontWeight: '800',
+    color: '#000000',
+  },
   aiBadge: {
     backgroundColor: COLORS.lindaPurple,
     borderRadius: 6,
@@ -436,6 +860,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.muted,
   },
+  lastSeenText: {
+    fontSize: 12,
+    color: COLORS.muted,
+    marginBottom: 2,
+  },
+  onlineText: {
+    fontSize: 12,
+    color: COLORS.green,
+    fontWeight: '500',
+    marginBottom: 2,
+  },
   itemTimeUnread: {
     color: COLORS.primary,
     fontWeight: '600',
@@ -450,6 +885,10 @@ const styles = StyleSheet.create({
     color: COLORS.secondary,
     flex: 1,
     marginRight: 8,
+  },
+  itemPreviewUnread: {
+    fontWeight: '700',
+    color: COLORS.text,
   },
   typingText: {
     fontSize: 14,
@@ -504,5 +943,102 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.secondary,
     textAlign: 'center',
+  },
+
+  // New Chat Modal
+  modalContainer: {
+    flex: 1,
+    backgroundColor: COLORS.bg,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  modalCancel: {
+    fontSize: 16,
+    color: COLORS.primary,
+    fontWeight: '500',
+    width: 60,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.text,
+  },
+  modalSearchContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  modalSearchInput: {
+    backgroundColor: COLORS.inputBg,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: COLORS.text,
+  },
+  modalUserItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  modalAvatarContainer: {
+    position: 'relative',
+    marginRight: 12,
+  },
+  modalAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalAvatarText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  modalOnlineDot: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: COLORS.green,
+    borderWidth: 2,
+    borderColor: COLORS.white,
+  },
+  modalUserInfo: {
+    flex: 1,
+  },
+  modalUserName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.text,
+    marginBottom: 2,
+  },
+  modalUserUsername: {
+    fontSize: 13,
+    color: COLORS.secondary,
+  },
+  modalSeparator: {
+    height: 1,
+    backgroundColor: COLORS.border,
+    marginLeft: 72,
+  },
+  modalEmptyContainer: {
+    alignItems: 'center',
+    paddingTop: 60,
+  },
+  modalEmptyText: {
+    fontSize: 15,
+    color: COLORS.muted,
   },
 });

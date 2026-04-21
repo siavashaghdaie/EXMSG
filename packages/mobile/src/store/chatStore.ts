@@ -14,6 +14,7 @@ import {
   TypingEvent,
 } from '@/services/socket';
 import { useAuthStore } from './authStore';
+import { notificationService } from '@/services/notifications';
 
 interface TypingIndicator {
   userId: string;
@@ -272,6 +273,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const messages = new Map(state.messages);
         const conversationMessages = messages.get(conversationId) || [];
         // Avoid duplicates (in case socket event also fires)
+        // Append (same as web) — API returns ASC order, FlatList reverses for inverted display
         if (!conversationMessages.some((m) => m.id === message.id)) {
           messages.set(conversationId, [...conversationMessages, message]);
         }
@@ -384,53 +386,81 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   // Socket Event Handlers
   handleNewMessage: (message: MessageEvent) => {
-    set((state) => {
-      const messages = new Map(state.messages);
-      const conversationMessages =
-        messages.get(message.conversationId) || [];
-      // Deduplicate -- sender already added via API response
-      if (conversationMessages.some((m) => m.id === message.id)) {
-        return state;
-      }
-      messages.set(message.conversationId, [
-        ...conversationMessages,
-        message,
-      ]);
+    const state = get();
+    const conversationMessages = state.messages.get(message.conversationId) || [];
 
-      // Update conversation list -- move this conversation to top and update lastMessage
-      const conversations = [...state.conversations];
-      const convIndex = conversations.findIndex(
-        (c) => c.id === message.conversationId
-      );
-      if (convIndex >= 0) {
-        const conv = { ...conversations[convIndex] };
-        conv.lastMessage = {
-          id: message.id,
-          content: message.content,
-          senderId: message.senderId,
-          conversationId: message.conversationId,
-          createdAt: message.createdAt,
-          reactions: {},
-        };
-        conv.updatedAt = message.createdAt;
-        conversations.splice(convIndex, 1);
-        conversations.unshift(conv);
-      }
+    // Deduplicate -- sender already added via API response
+    if (conversationMessages.some((m) => m.id === message.id)) {
+      return;
+    }
 
-      // Increment unread count if not the active conversation AND not our own message
-      const unreadCounts = new Map(state.unreadCounts);
-      const activeConvId = state.activeConversationId;
-      const currentUserId = useAuthStore.getState().user?.id;
-      if (
-        message.conversationId !== activeConvId &&
-        message.senderId !== currentUserId
-      ) {
-        const current = unreadCounts.get(message.conversationId) || 0;
-        unreadCounts.set(message.conversationId, current + 1);
-      }
+    const messages = new Map(state.messages);
+    // Append (same as web) — store in ASC order, FlatList reverses for display
+    messages.set(message.conversationId, [
+      ...conversationMessages,
+      message,
+    ]);
 
-      return { messages, conversations, unreadCounts };
-    });
+    // Update conversation list -- move this conversation to top and update lastMessage
+    const conversations = [...state.conversations];
+    const convIndex = conversations.findIndex(
+      (c) => c.id === message.conversationId
+    );
+    if (convIndex >= 0) {
+      const conv = { ...conversations[convIndex] };
+      conv.lastMessage = {
+        id: message.id,
+        content: message.content,
+        senderId: message.senderId,
+        conversationId: message.conversationId,
+        createdAt: message.createdAt,
+        reactions: {},
+      };
+      conv.updatedAt = message.createdAt;
+      conversations.splice(convIndex, 1);
+      conversations.unshift(conv);
+    }
+
+    // Increment unread count if not the active conversation AND not our own message
+    const unreadCounts = new Map(state.unreadCounts);
+    const activeConvId = state.activeConversationId;
+    const currentUserId = useAuthStore.getState().user?.id;
+    let shouldNotify = false;
+    let notifyConv: any = null;
+
+    if (
+      message.conversationId !== activeConvId &&
+      message.senderId !== currentUserId
+    ) {
+      const current = unreadCounts.get(message.conversationId) || 0;
+      unreadCounts.set(message.conversationId, current + 1);
+      shouldNotify = true;
+      notifyConv = conversations.find((c) => c.id === message.conversationId);
+    }
+
+    set({ messages, conversations, unreadCounts });
+
+    // Fire notifications OUTSIDE set() to avoid side effects in state updates
+    if (shouldNotify) {
+      const senderName = (message as any).sender?.displayName ||
+        (message as any).sender?.username ||
+        (message as any).senderName || 'Someone';
+      const participants = notifyConv?.participants || (notifyConv as any)?.members || [];
+      const isGroup = participants.length > 2 || !!notifyConv?.name;
+
+      notificationService.showMessageNotification({
+        conversationId: message.conversationId,
+        senderName,
+        content: message.content || 'New message',
+        isGroup,
+        groupName: isGroup ? (notifyConv?.name || 'Group Chat') : undefined,
+      });
+
+      // Update badge count
+      let totalUnread = 0;
+      unreadCounts.forEach((v) => { totalUnread += v; });
+      notificationService.setBadgeCount(totalUnread);
+    }
   },
 
   handleMessageEdited: (message: MessageEditedEvent) => {
@@ -584,6 +614,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       return { buzzActive, messages };
     });
+
+    // Show buzz notification
+    const currentUserId = useAuthStore.getState().user?.id;
+    if (data.senderId !== currentUserId) {
+      notificationService.showBuzzNotification({
+        conversationId: data.conversationId,
+        senderName: data.senderName,
+      });
+    }
 
     // Auto-clear buzz after 3 seconds
     setTimeout(() => {
@@ -746,6 +785,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set((state) => {
         const unreadCounts = new Map(state.unreadCounts);
         unreadCounts.set(conversationId, 0);
+
+        // Update badge count
+        let totalUnread = 0;
+        unreadCounts.forEach((v) => { totalUnread += v; });
+        notificationService.setBadgeCount(totalUnread);
+
         return { unreadCounts };
       });
       socket.markAsRead(conversationId);

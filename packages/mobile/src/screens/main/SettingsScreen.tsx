@@ -17,6 +17,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import { useSettingsStore } from '@/store/settingsStore';
+import { getFullUrl } from '@/utils/url';
 
 const PRIMARY = '#6C47FF';
 const DANGER = '#E53935';
@@ -153,7 +154,7 @@ export default function SettingsScreen() {
     );
   }, [authLogout]);
 
-  const avatarUrl = user?.avatarUrl || user?.avatar;
+  const avatarUrl = getFullUrl(user?.avatarUrl || user?.avatar);
   const initials = (user?.displayName || user?.username || user?.email || '?')[0].toUpperCase();
 
   const hasChanges =

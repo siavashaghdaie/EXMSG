@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,10 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Pressable,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { useChatStore } from '@/store/chatStore';
@@ -102,21 +105,68 @@ export default function ChatScreen() {
   const [inputText, setInputText] = useState('');
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [lindaThinking, setLindaThinking] = useState(false);
+  const [rightButtonMode, setRightButtonMode] = useState<'mic' | 'camera'>('mic');
+  const [attachedFile, setAttachedFile] = useState<any>(null);
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const messages = allMessages.get(conversationId) || [];
+  const messagesAsc = allMessages.get(conversationId) || [];
+  // Store keeps messages in ASC order (oldest first, same as web).
+  // Inverted FlatList needs DESC order (newest at index 0 = bottom of screen).
+  const messages = useMemo(() => [...messagesAsc].reverse(), [messagesAsc]);
+
+  // Load Linda messages from Linda API, or regular messages from messaging API
+  const loadLindaMessages = useCallback(async () => {
+    try {
+      const result = await api.getLindaConversations();
+      const conversations = result?.conversations || [];
+      const ownConv = conversations.find((c: any) => c.isOwn) || conversations[0];
+      if (ownConv) {
+        const data = await api.getLindaConversationMessages(ownConv.id);
+        const lindaMsgs = (data.messages || []).map((m: any) => ({
+          id: m.id,
+          conversationId,
+          senderId: m.role === 'user' ? (currentUser?.id || 'user') : 'linda',
+          content: m.role === 'assistant' ? stripActionTags(m.content) : m.content,
+          type: 'TEXT',
+          reactions: {},
+          createdAt: m.createdAt,
+          sender: m.role === 'user'
+            ? { id: currentUser?.id || '', username: currentUser?.username || '', displayName: currentUser?.displayName || '' }
+            : { id: 'linda', username: 'linda', displayName: 'Linda' },
+        }));
+        const store = useChatStore.getState();
+        const updated = new Map(store.messages);
+        updated.set(conversationId, lindaMsgs);
+        useChatStore.setState({ messages: updated, isLoadingMessages: false });
+      }
+    } catch (err) {
+      console.error('[ChatScreen] Failed to load Linda messages:', err);
+      // Fall back to regular messages
+      fetchMessages(conversationId);
+    }
+  }, [conversationId, currentUser]);
 
   useEffect(() => {
     setActiveConversationId(conversationId);
-    socket.joinConversation(conversationId);
-    fetchMessages(conversationId);
+    if (!isLinda) {
+      socket.joinConversation(conversationId);
+    }
+    if (isLinda) {
+      useChatStore.setState({ isLoadingMessages: true });
+      loadLindaMessages();
+    } else {
+      fetchMessages(conversationId);
+    }
 
     return () => {
-      socket.leaveConversation(conversationId);
+      if (!isLinda) {
+        socket.leaveConversation(conversationId);
+      }
       setActiveConversationId(null);
     };
-  }, [conversationId]);
+  }, [conversationId, isLinda]);
 
   // Typing indicator logic (not for Linda conversations)
   const handleTextChange = (text: string) => {
@@ -132,11 +182,75 @@ export default function ChatScreen() {
     }
   };
 
+  // Attachment (paperclip) handler
+  const handleAttachment = useCallback(async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const file = result.assets[0];
+        setAttachedFile({
+          uri: file.uri,
+          name: file.name,
+          mimeType: file.mimeType || 'application/octet-stream',
+          size: file.size,
+        });
+      }
+    } catch (err) {
+      console.error('[ChatScreen] Document picker error:', err);
+    }
+  }, []);
+
+  // Right button press: toggle between mic and camera
+  const handleRightButtonPress = useCallback(() => {
+    setRightButtonMode((prev) => (prev === 'mic' ? 'camera' : 'mic'));
+  }, []);
+
+  // Right button long press: activate mic or camera mode
+  const handleRightButtonLongPress = useCallback(async () => {
+    if (rightButtonMode === 'camera') {
+      try {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission needed', 'Please grant access to your photo library.');
+          return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images', 'videos'],
+          quality: 0.8,
+          allowsEditing: false,
+        });
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          const asset = result.assets[0];
+          const fileName = asset.uri.split('/').pop() || 'media';
+          setAttachedFile({
+            uri: asset.uri,
+            name: fileName,
+            mimeType: asset.type === 'video' ? 'video/mp4' : 'image/jpeg',
+            size: asset.fileSize,
+          });
+        }
+      } catch (err) {
+        console.error('[ChatScreen] Image picker error:', err);
+      }
+    } else {
+      // Mic mode - placeholder for voice recording
+      Alert.alert('Voice Message', 'Voice recording coming soon. Long press to record.');
+    }
+  }, [rightButtonMode]);
+
+  const handleRemoveAttachment = useCallback(() => {
+    setAttachedFile(null);
+  }, []);
+
   const handleSend = async () => {
     const text = inputText.trim();
     if (!text) return;
 
     setInputText('');
+    setAttachedFile(null);
     if (!isLinda) {
       socket.emitTypingStop(conversationId);
     }
@@ -146,19 +260,64 @@ export default function ChatScreen() {
         await editMessage(conversationId, editingMessageId, text);
         setEditingMessageId(null);
       } else if (isLinda) {
-        // For Linda conversations, use the Linda API
+        // For Linda conversations, use Linda API directly (not regular messaging)
+        // to avoid action-generated messages being re-fetched into the conversation
         setLindaThinking(true);
         try {
-          await api.chatWithLinda(text, conversationId);
-          // The response arrives via socket as a regular message
-          // Refresh messages to pick it up
-          setTimeout(() => {
-            fetchMessages(conversationId);
-            setLindaThinking(false);
-          }, 1000);
+          // Add user message locally
+          const userMsgId = `user-${Date.now()}`;
+          const userMsg = {
+            id: userMsgId,
+            conversationId,
+            senderId: currentUser?.id || '',
+            content: text,
+            type: 'TEXT',
+            reactions: {},
+            createdAt: new Date().toISOString(),
+            sender: {
+              id: currentUser?.id || '',
+              username: currentUser?.username || '',
+              displayName: currentUser?.displayName || currentUser?.username || '',
+            },
+          };
+          // Add to store (ASC order = append)
+          const store = useChatStore.getState();
+          const currentMsgs = store.messages.get(conversationId) || [];
+          const updatedMsgs = new Map(store.messages);
+          updatedMsgs.set(conversationId, [...currentMsgs, userMsg]);
+          useChatStore.setState({ messages: updatedMsgs });
+
+          // Call Linda's AI API
+          const response = await api.chatWithLinda(text, conversationId);
+
+          // Add Linda's response locally (don't re-fetch entire conversation)
+          const lindaResponse = stripActionTags(response.response || '');
+          if (lindaResponse) {
+            const lindaMsgId = `linda-${Date.now()}`;
+            const lindaMsg = {
+              id: lindaMsgId,
+              conversationId,
+              senderId: 'linda',
+              content: lindaResponse,
+              type: 'TEXT',
+              reactions: {},
+              createdAt: new Date().toISOString(),
+              sender: {
+                id: 'linda',
+                username: 'linda',
+                displayName: 'Linda',
+              },
+            };
+            const storeNow = useChatStore.getState();
+            const msgsNow = storeNow.messages.get(conversationId) || [];
+            const updatedNow = new Map(storeNow.messages);
+            updatedNow.set(conversationId, [...msgsNow, lindaMsg]);
+            useChatStore.setState({ messages: updatedNow });
+          }
+          setLindaThinking(false);
         } catch (err) {
           setLindaThinking(false);
-          Alert.alert('Error', 'Failed to send message to Linda');
+          Alert.alert('Error', 'Linda could not respond. Please try again.');
         }
       } else {
         await sendMessage(conversationId, text, replyingTo?.messageId);
@@ -367,7 +526,7 @@ export default function ChatScreen() {
   const renderLindaThinking = () => {
     if (!lindaThinking) return null;
     return (
-      <View style={[styles.bubble, styles.bubbleOther, styles.bubbleLinda, { transform: [{ scaleY: -1 }] }]}>
+      <View style={[styles.bubble, styles.bubbleOther, styles.bubbleLinda]}>
         <View style={styles.lindaSenderRow}>
           <View style={styles.lindaMiniAvatar}>
             <Text style={styles.lindaMiniAvatarText}>AI</Text>
@@ -379,6 +538,24 @@ export default function ChatScreen() {
     );
   };
 
+  // Find the other user in DM conversations for online status
+  const conversations = useChatStore((s) => s.conversations);
+  const lastSeenMap = usePresenceStore((s) => s.lastSeen);
+  const otherUserId = useMemo(() => {
+    if (isLinda || !currentUser) return null;
+    const conv = conversations.find((c: any) => c.id === conversationId);
+    if (!conv) return null;
+    const participants = (conv as any).participants || (conv as any).members || [];
+    if (participants.length !== 2) return null; // group chat
+    const other = participants.find((p: any) => p.id !== currentUser.id);
+    return other?.id || null;
+  }, [conversations, conversationId, currentUser, isLinda]);
+
+  const isOtherOnline = otherUserId ? onlineUsers.has(otherUserId) : false;
+  const otherLastSeen = otherUserId && !isOtherOnline
+    ? (lastSeenMap instanceof Map ? lastSeenMap.get(otherUserId) : undefined)
+    : undefined;
+
   // Header subtitle
   const getHeaderSubtitle = () => {
     if (typingNames.length > 0) {
@@ -387,7 +564,26 @@ export default function ChatScreen() {
     if (isLinda) {
       return <Text style={styles.headerStatusLinda}>AI Secretary</Text>;
     }
-    return <Text style={styles.headerStatus}>Online</Text>;
+    if (isOtherOnline) {
+      return <Text style={styles.headerStatus}>Online</Text>;
+    }
+    if (otherLastSeen) {
+      const date = new Date(otherLastSeen);
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMins / 60);
+      const diffDays = Math.floor(diffHours / 24);
+      let lastSeenStr = '';
+      if (diffMins < 1) lastSeenStr = 'Last seen just now';
+      else if (diffMins < 60) lastSeenStr = `Last seen ${diffMins}m ago`;
+      else if (diffHours < 24) lastSeenStr = `Last seen ${diffHours}h ago`;
+      else if (diffDays === 1) lastSeenStr = 'Last seen yesterday';
+      else lastSeenStr = `Last seen ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+      return <Text style={styles.headerStatusOffline}>{lastSeenStr}</Text>;
+    }
+    // Group chat or no info
+    return <Text style={styles.headerStatusOffline}>Offline</Text>;
   };
 
   return (
@@ -504,9 +700,33 @@ export default function ChatScreen() {
           </View>
         )}
 
+        {/* Attached file preview */}
+        {attachedFile && (
+          <View style={styles.attachmentPreview}>
+            <Text style={styles.attachmentPreviewIcon}>
+              {attachedFile.mimeType?.startsWith('image/') ? '\uD83D\uDDBC' :
+               attachedFile.mimeType?.startsWith('video/') ? '\uD83C\uDFA5' :
+               attachedFile.mimeType?.startsWith('audio/') ? '\uD83C\uDFA4' : '\uD83D\uDCCE'}
+            </Text>
+            <Text style={styles.attachmentPreviewName} numberOfLines={1}>{attachedFile.name}</Text>
+            <TouchableOpacity onPress={handleRemoveAttachment} style={styles.attachmentPreviewClose}>
+              <Text style={styles.attachmentPreviewCloseText}>{'\u2715'}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Composer */}
         <View style={styles.composerContainer}>
           <View style={styles.composer}>
+            {/* Attachment (paperclip) button */}
+            <TouchableOpacity
+              style={styles.composerActionButton}
+              onPress={handleAttachment}
+              activeOpacity={0.6}
+            >
+              <Text style={styles.composerActionIcon}>{'\uD83D\uDCCE'}</Text>
+            </TouchableOpacity>
+
             <TextInput
               style={styles.composerInput}
               placeholder={isLinda ? 'Ask Linda anything...' : 'Type a message...'}
@@ -516,17 +736,33 @@ export default function ChatScreen() {
               multiline
               maxLength={10000}
             />
-            <TouchableOpacity
-              style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
-              onPress={handleSend}
-              disabled={!inputText.trim() || isSending || lindaThinking}
-            >
-              {(isSending || lindaThinking) ? (
-                <ActivityIndicator size="small" color={COLORS.white} />
-              ) : (
-                <Text style={styles.sendIcon}>{'\u25B6'}</Text>
-              )}
-            </TouchableOpacity>
+
+            {/* Right side: Send button (when text/file present) or Mic/Camera toggle */}
+            {(inputText.trim() || attachedFile) ? (
+              <TouchableOpacity
+                style={[styles.sendButton]}
+                onPress={handleSend}
+                disabled={isSending || lindaThinking}
+                activeOpacity={0.7}
+              >
+                {(isSending || lindaThinking) ? (
+                  <ActivityIndicator size="small" color={COLORS.white} />
+                ) : (
+                  <Text style={styles.sendIcon}>{'\u25B6'}</Text>
+                )}
+              </TouchableOpacity>
+            ) : (
+              <Pressable
+                style={styles.composerActionButton}
+                onPress={handleRightButtonPress}
+                onLongPress={handleRightButtonLongPress}
+                delayLongPress={500}
+              >
+                <Text style={styles.composerActionIcon}>
+                  {rightButtonMode === 'mic' ? '\uD83C\uDFA4' : '\uD83D\uDCF7'}
+                </Text>
+              </Pressable>
+            )}
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -572,6 +808,7 @@ const styles = StyleSheet.create({
   },
   headerAiBadgeText: { color: COLORS.white, fontSize: 9, fontWeight: '700' },
   headerStatus: { fontSize: 12, color: COLORS.green },
+  headerStatusOffline: { fontSize: 12, color: COLORS.muted },
   headerStatusLinda: { fontSize: 12, color: COLORS.lindaPurple },
   headerTyping: { fontSize: 12, color: COLORS.green, fontStyle: 'italic' },
 
@@ -626,7 +863,7 @@ const styles = StyleSheet.create({
   dateHeaderContainer: {
     alignItems: 'center',
     marginVertical: 12,
-    transform: [{ scaleY: -1 }],
+
   },
   dateHeaderText: {
     fontSize: 12,
@@ -645,7 +882,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 16,
     marginVertical: 2,
-    transform: [{ scaleY: -1 }],
+
   },
   bubbleOwn: {
     alignSelf: 'flex-end',
@@ -760,12 +997,28 @@ const styles = StyleSheet.create({
   editIndicatorText: { fontSize: 12, color: '#F59E0B', fontWeight: '500' },
   editIndicatorClose: { fontSize: 18, color: COLORS.muted },
 
+  // Attachment preview
+  attachmentPreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0EAFF',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    gap: 8,
+  },
+  attachmentPreviewIcon: { fontSize: 18 },
+  attachmentPreviewName: { flex: 1, fontSize: 13, color: COLORS.text },
+  attachmentPreviewClose: { padding: 4 },
+  attachmentPreviewCloseText: { fontSize: 16, color: COLORS.muted },
+
   // Composer
   composerContainer: {
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
     backgroundColor: COLORS.white,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     paddingVertical: 8,
     paddingBottom: Platform.OS === 'ios' ? 8 : 8,
   },
@@ -774,9 +1027,21 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     backgroundColor: COLORS.inputBg,
     borderRadius: 24,
-    paddingLeft: 16,
+    paddingLeft: 4,
     paddingRight: 4,
     paddingVertical: 4,
+    gap: 4,
+  },
+  composerActionButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  composerActionIcon: {
+    fontSize: 20,
   },
   composerInput: {
     flex: 1,
@@ -784,6 +1049,7 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     maxHeight: 100,
     paddingVertical: 8,
+    paddingHorizontal: 4,
   },
   sendButton: {
     width: 36,
@@ -794,6 +1060,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 2,
   },
-  sendButtonDisabled: { backgroundColor: COLORS.muted },
   sendIcon: { color: COLORS.white, fontSize: 14 },
 });
