@@ -30,6 +30,7 @@ const COLORS = {
   inputBg: '#F1F5F9',
   green: '#10B981',
   white: '#FFFFFF',
+  lindaPurple: '#8B5CF6',
 };
 
 const AVATAR_COLORS = [
@@ -107,12 +108,13 @@ export default function ConversationListScreen() {
       const otherUser = otherMember?.user;
       const isLinda = otherUser?.username === 'linda' || otherUser?.email === 'linda@omnilink.system';
 
+      // DMs: show other user's display name; Groups: show conv name only (no suffix)
       const name = isDm
         ? (otherUser?.displayName || otherUser?.username || 'Unknown')
-        : (conv.name || 'Group');
+        : (conv.name || 'Group Chat');
 
-      const avatarLetter = name.charAt(0).toUpperCase();
-      const avatarColor = isLinda ? '#8B5CF6' : getAvatarColor(conv.id);
+      const avatarLetter = isLinda ? 'AI' : name.charAt(0).toUpperCase();
+      const avatarColor = isLinda ? COLORS.lindaPurple : getAvatarColor(conv.id);
 
       // Last message
       let lastMessage = '';
@@ -133,7 +135,7 @@ export default function ConversationListScreen() {
       // Unread
       const unread = unreadCounts?.[conv.id] || 0;
 
-      // Online
+      // Online - only for DMs; Linda is always online
       const isOnline = isLinda ? true : (otherUser ? onlineUsers.has(otherUser.id) : false);
 
       return {
@@ -163,7 +165,11 @@ export default function ConversationListScreen() {
   }, [conversationItems, searchQuery]);
 
   const handlePress = (item: ConversationItemData) => {
-    navigation.navigate('Chat', { conversationId: item.id, name: item.name });
+    navigation.navigate('Chat', {
+      conversationId: item.id,
+      name: item.name,
+      isLinda: item.isLinda,
+    });
   };
 
   const renderItem = ({ item }: { item: ConversationItemData }) => (
@@ -175,11 +181,7 @@ export default function ConversationListScreen() {
       {/* Avatar */}
       <View style={styles.avatarContainer}>
         <View style={[styles.avatar, { backgroundColor: item.avatarColor }]}>
-          {item.isLinda ? (
-            <Text style={styles.avatarText}>AI</Text>
-          ) : (
-            <Text style={styles.avatarText}>{item.avatarLetter}</Text>
-          )}
+          <Text style={styles.avatarText}>{item.avatarLetter}</Text>
         </View>
         {item.isOnline && <View style={styles.onlineDot} />}
       </View>
@@ -187,10 +189,19 @@ export default function ConversationListScreen() {
       {/* Content */}
       <View style={styles.itemContent}>
         <View style={styles.itemTopRow}>
-          <Text style={styles.itemName} numberOfLines={1}>
-            {item.isLinda ? 'Linda AI' : item.name}
-            {item.isGroup && ' (Group)'}
-          </Text>
+          <View style={styles.nameRow}>
+            {item.isGroup && (
+              <Text style={styles.groupIcon}>{'\uD83D\uDC65'} </Text>
+            )}
+            <Text style={styles.itemName} numberOfLines={1}>
+              {item.name}
+            </Text>
+            {item.isLinda && (
+              <View style={styles.aiBadge}>
+                <Text style={styles.aiBadgeText}>AI</Text>
+              </View>
+            )}
+          </View>
           <Text style={[styles.itemTime, item.unread > 0 && styles.itemTimeUnread]}>
             {formatTime(item.lastMessageTime)}
           </Text>
@@ -206,7 +217,7 @@ export default function ConversationListScreen() {
             </Text>
           )}
           {item.unread > 0 && (
-            <View style={styles.badge}>
+            <View style={[styles.badge, item.isLinda && styles.badgeLinda]}>
               <Text style={styles.badgeText}>
                 {item.unread > 99 ? '99+' : item.unread}
               </Text>
@@ -227,7 +238,7 @@ export default function ConversationListScreen() {
     }
     return (
       <View style={styles.emptyContainer}>
-        <Text style={styles.emptyIcon}>💬</Text>
+        <Text style={styles.emptyIcon}>{'\uD83D\uDCAC'}</Text>
         <Text style={styles.emptyTitle}>No conversations yet</Text>
         <Text style={styles.emptySubtitle}>
           Start chatting by tapping the + button
@@ -240,13 +251,21 @@ export default function ConversationListScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Chats</Text>
-        <TouchableOpacity
-          style={styles.composeButton}
-          onPress={() => Alert.alert('New Chat', 'New conversation screen coming soon')}
-        >
-          <Text style={styles.composeIcon}>+</Text>
-        </TouchableOpacity>
+        <Text style={styles.headerTitle}>OMNILINK</Text>
+        <View style={styles.headerButtons}>
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={() => navigation.navigate('Announcements')}
+          >
+            <Text style={styles.headerButtonIcon}>{'\uD83D\uDCE2'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.composeButton}
+            onPress={() => Alert.alert('New Chat', 'New conversation screen coming soon')}
+          >
+            <Text style={styles.composeIcon}>+</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Search */}
@@ -295,9 +314,26 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: COLORS.text,
+    fontSize: 22,
+    fontWeight: '800',
+    color: COLORS.primary,
+    letterSpacing: 1.5,
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  headerButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.inputBg,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerButtonIcon: {
+    fontSize: 18,
   },
   composeButton: {
     width: 36,
@@ -368,12 +404,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 4,
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 8,
+  },
+  groupIcon: {
+    fontSize: 14,
+    marginRight: 2,
+  },
   itemName: {
     fontSize: 16,
     fontWeight: '600',
     color: COLORS.text,
-    flex: 1,
-    marginRight: 8,
+    flexShrink: 1,
+  },
+  aiBadge: {
+    backgroundColor: COLORS.lindaPurple,
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    marginLeft: 6,
+  },
+  aiBadgeText: {
+    color: COLORS.white,
+    fontSize: 10,
+    fontWeight: '700',
   },
   itemTime: {
     fontSize: 12,
@@ -409,6 +466,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 6,
+  },
+  badgeLinda: {
+    backgroundColor: COLORS.lindaPurple,
   },
   badgeText: {
     color: COLORS.white,

@@ -2,15 +2,15 @@ import React from 'react';
 import { Text, StyleSheet } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import ChatNavigator from '@/navigation/ChatNavigator';
-import LindaChatScreen from '@/screens/main/LindaChatScreen';
-import AnnouncementScreen from '@/screens/main/AnnouncementScreen';
+import ContactsScreen from '@/screens/main/ContactsScreen';
+import AgentsScreen from '@/screens/main/AgentsScreen';
 import TasksScreen from '@/screens/main/TasksScreen';
 import SettingsScreen from '@/screens/main/SettingsScreen';
 
 export type MainTabParamList = {
   Chats: undefined;
-  Linda: undefined;
-  News: undefined;
+  Contacts: undefined;
+  Agents: undefined;
   Tasks: undefined;
   Settings: undefined;
 };
@@ -47,21 +47,20 @@ export default function MainNavigator() {
         }}
       />
       <Tab.Screen
-        name="Linda"
-        component={LindaChatScreen}
+        name="Contacts"
+        component={ContactsScreen}
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon label="🤖" focused={focused} />
+            <TabIcon label="👥" focused={focused} />
           ),
         }}
       />
       <Tab.Screen
-        name="News"
-        component={AnnouncementScreen}
+        name="Agents"
+        component={AgentsScreen}
         options={{
-          tabBarLabel: 'News',
           tabBarIcon: ({ focused }) => (
-            <TabIcon label="📢" focused={focused} />
+            <TabIcon label="🤖" focused={focused} />
           ),
         }}
       />

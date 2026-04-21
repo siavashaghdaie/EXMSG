@@ -33,8 +33,6 @@
         "projectId": "800b44c8-54a8-486f-8b1c-03b15dfb4b33"
       }
     },
-    "plugins": [
-      "expo-secure-store"
-    ]
+    "plugins": []
   }
 }

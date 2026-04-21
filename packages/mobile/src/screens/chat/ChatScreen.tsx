@@ -17,6 +17,7 @@ import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { usePresenceStore } from '@/store/presenceStore';
 import { socket } from '@/services/socket';
+import { api } from '@/services/api';
 import { ChatStackParamList } from '@/navigation/ChatNavigator';
 
 type ChatRouteProp = RouteProp<ChatStackParamList, 'Chat'>;
@@ -33,11 +34,23 @@ const COLORS = {
   myBubbleText: '#FFFFFF',
   otherBubble: '#F1F5F9',
   otherBubbleText: '#1E293B',
+  lindaPurple: '#8B5CF6',
   green: '#10B981',
   white: '#FFFFFF',
   inputBg: '#F1F5F9',
   red: '#EF4444',
 };
+
+// Strip Linda action tags from message content
+function stripActionTags(content: string): string {
+  if (!content) return '';
+  return content
+    .replace(/\[SEND_MESSAGE\][\s\S]*?\[\/SEND_MESSAGE\]/g, '')
+    .replace(/\[ASSIGN_TASK\][\s\S]*?\[\/ASSIGN_TASK\]/g, '')
+    .replace(/\[UPDATE_TASK\][\s\S]*?\[\/UPDATE_TASK\]/g, '')
+    .replace(/\[CREATE_ANNOUNCEMENT\][\s\S]*?\[\/CREATE_ANNOUNCEMENT\]/g, '')
+    .trim();
+}
 
 function formatMessageTime(dateStr: string): string {
   const date = new Date(dateStr);
@@ -56,10 +69,18 @@ function formatDateHeader(dateStr: string): string {
   return date.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
 }
 
+// Suggestion chips for Linda
+const LINDA_SUGGESTIONS = [
+  'What are my tasks?',
+  'Summarize today\'s activity',
+  'Create a new task',
+  'Who is online?',
+];
+
 export default function ChatScreen() {
   const navigation = useNavigation();
   const route = useRoute<ChatRouteProp>();
-  const { conversationId, name } = route.params;
+  const { conversationId, name, isLinda } = route.params;
 
   const currentUser = useAuthStore((s) => s.user);
   const {
@@ -80,6 +101,7 @@ export default function ChatScreen() {
 
   const [inputText, setInputText] = useState('');
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [lindaThinking, setLindaThinking] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -96,16 +118,18 @@ export default function ChatScreen() {
     };
   }, [conversationId]);
 
-  // Typing indicator logic
+  // Typing indicator logic (not for Linda conversations)
   const handleTextChange = (text: string) => {
     setInputText(text);
-    if (text.trim()) {
+    if (!isLinda && text.trim()) {
       socket.emitTypingStart(conversationId);
     }
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-    typingTimeoutRef.current = setTimeout(() => {
-      socket.emitTypingStop(conversationId);
-    }, 2000);
+    if (!isLinda) {
+      typingTimeoutRef.current = setTimeout(() => {
+        socket.emitTypingStop(conversationId);
+      }, 2000);
+    }
   };
 
   const handleSend = async () => {
@@ -113,12 +137,29 @@ export default function ChatScreen() {
     if (!text) return;
 
     setInputText('');
-    socket.emitTypingStop(conversationId);
+    if (!isLinda) {
+      socket.emitTypingStop(conversationId);
+    }
 
     try {
       if (editingMessageId) {
         await editMessage(conversationId, editingMessageId, text);
         setEditingMessageId(null);
+      } else if (isLinda) {
+        // For Linda conversations, use the Linda API
+        setLindaThinking(true);
+        try {
+          await api.chatWithLinda(text, conversationId);
+          // The response arrives via socket as a regular message
+          // Refresh messages to pick it up
+          setTimeout(() => {
+            fetchMessages(conversationId);
+            setLindaThinking(false);
+          }, 1000);
+        } catch (err) {
+          setLindaThinking(false);
+          Alert.alert('Error', 'Failed to send message to Linda');
+        }
       } else {
         await sendMessage(conversationId, text, replyingTo?.messageId);
         setReplyingTo(null);
@@ -128,8 +169,48 @@ export default function ChatScreen() {
     }
   };
 
+  const handleSuggestionPress = (suggestion: string) => {
+    setInputText(suggestion);
+  };
+
   const handleLongPress = (msg: any) => {
-    if (msg.senderId !== currentUser?.id) return;
+    // For Linda conversations, only allow reply (no edit/delete on Linda messages)
+    if (isLinda) {
+      if (msg.senderId === currentUser?.id) {
+        Alert.alert('Message Options', undefined, [
+          {
+            text: 'Reply',
+            onPress: () => {
+              setReplyingTo({
+                messageId: msg.id,
+                content: msg.content || '',
+                senderName: 'You',
+              });
+            },
+          },
+          { text: 'Cancel', style: 'cancel' },
+        ]);
+      }
+      return;
+    }
+
+    if (msg.senderId !== currentUser?.id) {
+      // Allow reply on other people's messages too
+      Alert.alert('Message Options', undefined, [
+        {
+          text: 'Reply',
+          onPress: () => {
+            setReplyingTo({
+              messageId: msg.id,
+              content: msg.content || '',
+              senderName: msg.sender?.displayName || 'Unknown',
+            });
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+      return;
+    }
 
     Alert.alert('Message Options', undefined, [
       {
@@ -178,6 +259,11 @@ export default function ChatScreen() {
     const isOwn = item.senderId === currentUser?.id;
     const isDeleted = item.isDeleted;
 
+    // For Linda messages, strip action tags
+    const displayContent = isLinda && !isOwn
+      ? stripActionTags(item.content)
+      : item.content;
+
     // Date header
     const prevMsg = index < messages.length - 1 ? messages[index + 1] : null;
     const showDateHeader = !prevMsg ||
@@ -205,12 +291,24 @@ export default function ChatScreen() {
         <TouchableOpacity
           onLongPress={() => handleLongPress(item)}
           activeOpacity={0.8}
-          style={[styles.bubble, isOwn ? styles.bubbleOwn : styles.bubbleOther]}
+          style={[
+            styles.bubble,
+            isOwn ? styles.bubbleOwn : styles.bubbleOther,
+            isLinda && !isOwn && styles.bubbleLinda,
+          ]}
         >
-          {!isOwn && (
+          {!isOwn && !isLinda && (
             <Text style={styles.senderName}>
               {item.sender?.displayName || 'Unknown'}
             </Text>
+          )}
+          {!isOwn && isLinda && (
+            <View style={styles.lindaSenderRow}>
+              <View style={styles.lindaMiniAvatar}>
+                <Text style={styles.lindaMiniAvatarText}>AI</Text>
+              </View>
+              <Text style={styles.lindaSenderName}>Linda</Text>
+            </View>
           )}
 
           {isDeleted ? (
@@ -220,7 +318,7 @@ export default function ChatScreen() {
           ) : (
             <>
               <Text style={[styles.messageText, isOwn ? styles.messageTextOwn : styles.messageTextOther]}>
-                {item.content}
+                {displayContent}
               </Text>
 
               {/* Attachments */}
@@ -229,7 +327,7 @@ export default function ChatScreen() {
                   {item.attachments.map((att: any) => (
                     <View key={att.id} style={styles.attachmentItem}>
                       <Text style={styles.attachmentIcon}>
-                        {att.mimeType?.startsWith('image/') ? '🖼' : att.mimeType?.startsWith('audio/') ? '🎤' : '📎'}
+                        {att.mimeType?.startsWith('image/') ? '\uD83D\uDDBC' : att.mimeType?.startsWith('audio/') ? '\uD83C\uDFA4' : '\uD83D\uDCCE'}
                       </Text>
                       <Text style={[styles.attachmentName, isOwn && { color: '#E0D5FF' }]} numberOfLines={1}>
                         {att.fileName}
@@ -265,20 +363,57 @@ export default function ChatScreen() {
     );
   };
 
+  // Linda thinking indicator component
+  const renderLindaThinking = () => {
+    if (!lindaThinking) return null;
+    return (
+      <View style={[styles.bubble, styles.bubbleOther, styles.bubbleLinda, { transform: [{ scaleY: -1 }] }]}>
+        <View style={styles.lindaSenderRow}>
+          <View style={styles.lindaMiniAvatar}>
+            <Text style={styles.lindaMiniAvatarText}>AI</Text>
+          </View>
+          <Text style={styles.lindaSenderName}>Linda is thinking...</Text>
+        </View>
+        <ActivityIndicator size="small" color={COLORS.lindaPurple} style={{ marginTop: 4 }} />
+      </View>
+    );
+  };
+
+  // Header subtitle
+  const getHeaderSubtitle = () => {
+    if (typingNames.length > 0) {
+      return <Text style={styles.headerTyping}>{typingNames.join(', ')} typing...</Text>;
+    }
+    if (isLinda) {
+      return <Text style={styles.headerStatusLinda}>AI Secretary</Text>;
+    }
+    return <Text style={styles.headerStatus}>Online</Text>;
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Text style={styles.backArrow}>‹</Text>
+          <Text style={styles.backArrow}>{'\u2039'}</Text>
         </TouchableOpacity>
+        {isLinda && (
+          <View style={styles.headerLindaAvatar}>
+            <Text style={styles.headerLindaAvatarText}>AI</Text>
+          </View>
+        )}
         <View style={styles.headerInfo}>
-          <Text style={styles.headerName} numberOfLines={1}>{name}</Text>
-          {typingNames.length > 0 ? (
-            <Text style={styles.headerTyping}>{typingNames.join(', ')} typing...</Text>
-          ) : (
-            <Text style={styles.headerStatus}>Online</Text>
-          )}
+          <View style={styles.headerNameRow}>
+            <Text style={styles.headerName} numberOfLines={1}>
+              {isLinda ? 'Linda' : name}
+            </Text>
+            {isLinda && (
+              <View style={styles.headerAiBadge}>
+                <Text style={styles.headerAiBadgeText}>AI</Text>
+              </View>
+            )}
+          </View>
+          {getHeaderSubtitle()}
         </View>
       </View>
 
@@ -295,16 +430,55 @@ export default function ChatScreen() {
           renderItem={renderItem}
           inverted
           contentContainerStyle={styles.messagesList}
+          ListHeaderComponent={renderLindaThinking}
           ListEmptyComponent={
             isLoadingMessages ? (
               <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 40 }} />
             ) : (
               <View style={styles.emptyChat}>
-                <Text style={styles.emptyChatText}>No messages yet. Say hello!</Text>
+                {isLinda ? (
+                  <View style={styles.lindaGreeting}>
+                    <View style={styles.lindaGreetingAvatar}>
+                      <Text style={styles.lindaGreetingAvatarText}>AI</Text>
+                    </View>
+                    <Text style={styles.lindaGreetingTitle}>Hi! I'm Linda</Text>
+                    <Text style={styles.lindaGreetingSubtitle}>
+                      Your AI secretary. I can help with tasks, announcements, messages, and more.
+                    </Text>
+                    <View style={styles.suggestionsContainer}>
+                      {LINDA_SUGGESTIONS.map((s, i) => (
+                        <TouchableOpacity
+                          key={i}
+                          style={styles.suggestionChip}
+                          onPress={() => handleSuggestionPress(s)}
+                        >
+                          <Text style={styles.suggestionText}>{s}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                ) : (
+                  <Text style={styles.emptyChatText}>No messages yet. Say hello!</Text>
+                )}
               </View>
             )
           }
         />
+
+        {/* Linda suggestion chips (when messages exist but few) */}
+        {isLinda && messages.length > 0 && messages.length < 3 && (
+          <View style={styles.inlineSuggestions}>
+            {LINDA_SUGGESTIONS.slice(0, 2).map((s, i) => (
+              <TouchableOpacity
+                key={i}
+                style={styles.inlineSuggestionChip}
+                onPress={() => handleSuggestionPress(s)}
+              >
+                <Text style={styles.inlineSuggestionText}>{s}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         {/* Reply preview */}
         {replyingTo && (
@@ -315,7 +489,7 @@ export default function ChatScreen() {
               <Text style={styles.replyPreviewText} numberOfLines={1}>{replyingTo.content}</Text>
             </View>
             <TouchableOpacity onPress={() => setReplyingTo(null)}>
-              <Text style={styles.replyPreviewClose}>✕</Text>
+              <Text style={styles.replyPreviewClose}>{'\u2715'}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -325,7 +499,7 @@ export default function ChatScreen() {
           <View style={styles.editIndicator}>
             <Text style={styles.editIndicatorText}>Editing message</Text>
             <TouchableOpacity onPress={() => { setEditingMessageId(null); setInputText(''); }}>
-              <Text style={styles.editIndicatorClose}>✕</Text>
+              <Text style={styles.editIndicatorClose}>{'\u2715'}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -335,7 +509,7 @@ export default function ChatScreen() {
           <View style={styles.composer}>
             <TextInput
               style={styles.composerInput}
-              placeholder="Type a message..."
+              placeholder={isLinda ? 'Ask Linda anything...' : 'Type a message...'}
               placeholderTextColor={COLORS.muted}
               value={inputText}
               onChangeText={handleTextChange}
@@ -345,12 +519,12 @@ export default function ChatScreen() {
             <TouchableOpacity
               style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
               onPress={handleSend}
-              disabled={!inputText.trim() || isSending}
+              disabled={!inputText.trim() || isSending || lindaThinking}
             >
-              {isSending ? (
+              {(isSending || lindaThinking) ? (
                 <ActivityIndicator size="small" color={COLORS.white} />
               ) : (
-                <Text style={styles.sendIcon}>▶</Text>
+                <Text style={styles.sendIcon}>{'\u25B6'}</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -376,15 +550,77 @@ const styles = StyleSheet.create({
   },
   backButton: { padding: 4, marginRight: 8 },
   backArrow: { fontSize: 32, color: COLORS.primary, fontWeight: '300' },
+  headerLindaAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.lindaPurple,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  headerLindaAvatarText: { color: COLORS.white, fontSize: 12, fontWeight: '700' },
   headerInfo: { flex: 1 },
+  headerNameRow: { flexDirection: 'row', alignItems: 'center' },
   headerName: { fontSize: 17, fontWeight: '600', color: COLORS.text },
+  headerAiBadge: {
+    backgroundColor: COLORS.lindaPurple,
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    marginLeft: 6,
+  },
+  headerAiBadgeText: { color: COLORS.white, fontSize: 9, fontWeight: '700' },
   headerStatus: { fontSize: 12, color: COLORS.green },
+  headerStatusLinda: { fontSize: 12, color: COLORS.lindaPurple },
   headerTyping: { fontSize: 12, color: COLORS.green, fontStyle: 'italic' },
 
   // Messages list
   messagesList: { paddingHorizontal: 12, paddingVertical: 8 },
   emptyChat: { alignItems: 'center', paddingTop: 40, transform: [{ scaleY: -1 }] },
   emptyChatText: { fontSize: 14, color: COLORS.muted },
+
+  // Linda greeting
+  lindaGreeting: { alignItems: 'center', paddingHorizontal: 20 },
+  lindaGreetingAvatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: COLORS.lindaPurple,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  lindaGreetingAvatarText: { color: COLORS.white, fontSize: 22, fontWeight: '700' },
+  lindaGreetingTitle: { fontSize: 20, fontWeight: '700', color: COLORS.text, marginBottom: 6 },
+  lindaGreetingSubtitle: { fontSize: 14, color: COLORS.secondary, textAlign: 'center', marginBottom: 16 },
+  suggestionsContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8 },
+  suggestionChip: {
+    backgroundColor: '#F0EAFF',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: COLORS.lindaPurple + '30',
+  },
+  suggestionText: { fontSize: 13, color: COLORS.lindaPurple, fontWeight: '500' },
+
+  // Inline suggestions
+  inlineSuggestions: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    gap: 8,
+  },
+  inlineSuggestionChip: {
+    backgroundColor: '#F0EAFF',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: COLORS.lindaPurple + '30',
+  },
+  inlineSuggestionText: { fontSize: 12, color: COLORS.lindaPurple, fontWeight: '500' },
 
   // Date header
   dateHeaderContainer: {
@@ -421,6 +657,27 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.otherBubble,
     borderBottomLeftRadius: 4,
   },
+  bubbleLinda: {
+    backgroundColor: '#F5F0FF',
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.lindaPurple,
+  },
+  lindaSenderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  lindaMiniAvatar: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: COLORS.lindaPurple,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 6,
+  },
+  lindaMiniAvatarText: { color: COLORS.white, fontSize: 8, fontWeight: '700' },
+  lindaSenderName: { fontSize: 12, fontWeight: '600', color: COLORS.lindaPurple },
   senderName: {
     fontSize: 12,
     fontWeight: '600',
