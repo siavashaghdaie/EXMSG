@@ -77,6 +77,8 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
   const [addMemberEmail, setAddMemberEmail] = useState('');
   const [addMemberDisplayName, setAddMemberDisplayName] = useState('');
   const [addMemberRole, setAddMemberRole] = useState<'OWNER' | 'ADMIN' | 'MEMBER'>('MEMBER');
+  const [addMemberDepartmentId, setAddMemberDepartmentId] = useState('');
+  const [departmentsList, setDepartmentsList] = useState<Array<{ id: string; name: string }>>([]);
   const [addMemberLoading, setAddMemberLoading] = useState(false);
   const [addMemberError, setAddMemberError] = useState<string | null>(null);
   const [addMemberSuccess, setAddMemberSuccess] = useState<{
@@ -105,6 +107,10 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
   useEffect(() => {
     if (currentOrgId) {
       loadDashboard();
+      // Load departments for the Add Member modal
+      api.getDepartments(currentOrgId).then((res) => {
+        setDepartmentsList(res?.departments?.map((d: any) => ({ id: d.id, name: d.name })) || []);
+      }).catch(() => {});
       // If a tab other than overview is active, refresh that too
       if (activeTab === 'members') loadMembers(1);
       if (activeTab === 'messages') loadMessages();
@@ -225,6 +231,16 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
         },
         currentOrgId || undefined
       );
+      // If a department was selected, assign the new member to it
+      const newUserId = result?.member?.userId || result?.member?.id;
+      if (addMemberDepartmentId && newUserId) {
+        try {
+          await api.addDepartmentMember(addMemberDepartmentId, newUserId, currentOrgId || undefined);
+        } catch (deptErr) {
+          console.warn('Failed to assign department (member still added):', deptErr);
+        }
+      }
+
       setAddMemberSuccess({
         email: result?.member?.email || addMemberEmail,
         inviteSent: result?.inviteSent ?? false,
@@ -233,6 +249,7 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
       setAddMemberEmail('');
       setAddMemberDisplayName('');
       setAddMemberRole('MEMBER');
+      setAddMemberDepartmentId('');
       // Refresh list + dashboard counters
       await Promise.all([loadMembers(1), loadDashboard()]);
     } catch (err) {
@@ -1329,6 +1346,24 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
                     <option value="OWNER">Owner — full control</option>
                   </select>
                 </div>
+
+                {departmentsList.length > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                      Department <span className="text-slate-400">(optional)</span>
+                    </label>
+                    <select
+                      value={addMemberDepartmentId}
+                      onChange={(e) => setAddMemberDepartmentId(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">No department</option>
+                      {departmentsList.map((d) => (
+                        <option key={d.id} value={d.id}>{d.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 {addMemberError && (
                   <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-300">

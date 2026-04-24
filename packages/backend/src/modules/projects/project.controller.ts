@@ -101,6 +101,11 @@ export class ProjectController {
         return;
       }
 
+      if (!orgId) {
+        res.status(400).json({ error: 'You must belong to a workspace before creating projects. Please create or join a workspace first.' });
+        return;
+      }
+
       // Create project
       const project = await prisma.project.create({
         data: {
@@ -111,7 +116,7 @@ export class ProjectController {
           storageUrl: storageUrl ? String(storageUrl).trim() : undefined,
           teamLeadId: teamLeadId || null,
           createdById: userId,
-          ...(orgId && { organizationId: orgId }),
+          organizationId: orgId,
         },
       });
 
@@ -316,12 +321,17 @@ export class ProjectController {
         return;
       }
 
+      if (!orgId) {
+        res.status(400).json({ error: 'Workspace required to create projects' });
+        return;
+      }
+
       // Create new project
       const project = await prisma.project.create({
         data: {
           name: name.trim(),
           createdById: userId,
-          ...(orgId && { organizationId: orgId }),
+          organizationId: orgId,
         },
       });
 

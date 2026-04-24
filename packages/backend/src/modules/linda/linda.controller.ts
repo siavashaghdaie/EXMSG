@@ -935,6 +935,8 @@ export class LindaController {
       const descMatch = block.match(/description:\s*(.+)/i);
       const priorityMatch = block.match(/priority:\s*(LOW|MEDIUM|HIGH|CRITICAL)/i);
       const deadlineMatch = block.match(/deadline:\s*(\d{4}-\d{2}-\d{2})/i);
+      const projectMatch = block.match(/project:\s*(.+)/i);
+      const departmentMatch = block.match(/department:\s*(.+)/i);
 
       if (!assigneeMatch || !titleMatch) {
         actions.push({ type: 'assign_task', target: assigneeMatch?.[1] || 'unknown', status: 'missing_fields' });
@@ -958,6 +960,54 @@ export class LindaController {
         }
 
         const lindaId = await getLindaBotUserId();
+
+        // Resolve project (find or create by name)
+        let projectId: string | undefined;
+        if (projectMatch) {
+          const projectName = projectMatch[1].trim();
+          // Get the requester's org
+          const requesterMembership = await prisma.organizationMember.findFirst({
+            where: { userId: requestingUserId },
+            select: { organizationId: true },
+          });
+          const orgId = requesterMembership?.organizationId;
+          if (orgId) {
+            let project = await prisma.project.findUnique({
+              where: { organizationId_name: { organizationId: orgId, name: projectName } },
+            });
+            if (!project) {
+              project = await prisma.project.create({
+                data: { name: projectName, createdById: lindaId, organizationId: orgId },
+              });
+              await prisma.projectMember.create({ data: { projectId: project.id, userId: requestingUserId, role: 'LEAD' } });
+            }
+            projectId = project.id;
+            // Auto-add assignee to project
+            await prisma.projectMember.upsert({
+              where: { projectId_userId: { projectId: project.id, userId: targetUser.id } },
+              create: { projectId: project.id, userId: targetUser.id },
+              update: {},
+            });
+          }
+        }
+
+        // Resolve department by name
+        let departmentId: string | undefined;
+        if (departmentMatch) {
+          const deptName = departmentMatch[1].trim();
+          const requesterMembership = await prisma.organizationMember.findFirst({
+            where: { userId: requestingUserId },
+            select: { organizationId: true },
+          });
+          const orgId = requesterMembership?.organizationId;
+          if (orgId) {
+            const dept = await prisma.department.findUnique({
+              where: { organizationId_name: { organizationId: orgId, name: deptName } },
+            });
+            if (dept) departmentId = dept.id;
+          }
+        }
+
         const task = await prisma.task.create({
           data: {
             title: titleMatch[1].trim(),
@@ -969,6 +1019,8 @@ export class LindaController {
             deadline: deadlineMatch ? new Date(deadlineMatch[1]) : null,
             status: 'NOT_STARTED',
             lindaFollowing: true,
+            ...(projectId && { projectId }),
+            ...(departmentId && { departmentId }),
           },
         });
 
@@ -1366,6 +1418,8 @@ title: Task title here
 description: Optional task description
 priority: LOW | MEDIUM | HIGH | CRITICAL
 deadline: YYYY-MM-DD (optional)
+project: Project name (optional — auto-creates project if new, adds assignee to project)
+department: Department name (optional — tags task with department)
 [/ASSIGN_TASK]
 
 Format for updating a task:
@@ -1397,6 +1451,11 @@ TASK MANAGEMENT:
 - You CAN update task status and priority using [UPDATE_TASK] blocks
 - When asked to follow up on tasks, check the task context and report back
 - When asked to mark a task as done/complete, use [UPDATE_TASK] with status: COMPLETED
+- You CAN assign tasks to specific projects using the "project:" field — if the project doesn't exist it will be auto-created
+- You CAN tag tasks with departments using the "department:" field — the department must already exist
+- When a user mentions a project name, include it in the project: field
+- Users in the same project can see each other's tasks (project boards)
+- Users in the same department can see each other's tasks
 - When asked to change priority, use [UPDATE_TASK] with the new priority
 
 FILE GENERATION (VERY IMPORTANT):
