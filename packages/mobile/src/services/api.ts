@@ -883,8 +883,8 @@ class APIClient {
 
   // ─── Task Management API ───────────────────────────────────────────────
 
-  async getTasks(status?: string): Promise<any[]> {
-    const res = await this.client.get('/tasks', { params: { status } });
+  async getTasks(params?: { status?: string; view?: string; departmentId?: string; projectId?: string }): Promise<any[]> {
+    const res = await this.client.get('/tasks', { params });
     return res.data.tasks || [];
   }
 
@@ -897,6 +897,10 @@ class APIClient {
     labels?: string[];
     lindaFollowing?: boolean;
     lindaFollowInterval?: string;
+    departmentId?: string;
+    projectId?: string;
+    projectName?: string;
+    visibleToDepartmentIds?: string[];
   }): Promise<any> {
     const res = await this.client.post('/tasks', data);
     return res.data.task;
@@ -1003,6 +1007,67 @@ class APIClient {
   async resendOrgAdminInvite(userId: string, orgId?: string): Promise<{ success: boolean; message: string; email: string }> {
     const res = await this.client.post(`/org-admin/members/${userId}/resend-invite`, {}, { params: { orgId } });
     return res.data;
+  }
+
+  // ─── Project Management ────────────────────────────────────────────────
+
+  async getProjects(params?: { status?: string; search?: string }): Promise<{ projects: any[] }> {
+    const res = await this.client.get('/projects', { params });
+    return res.data;
+  }
+
+  async getProject(projectId: string): Promise<{ project: any }> {
+    const res = await this.client.get(`/projects/${projectId}`);
+    return res.data;
+  }
+
+  async createProject(data: { name: string; description?: string; specsAndGoals?: string; gitUrl?: string; storageUrl?: string; teamLeadId?: string; memberIds?: string[] }): Promise<any> {
+    const res = await this.client.post('/projects', data);
+    return res.data;
+  }
+
+  async updateProject(projectId: string, data: Record<string, any>): Promise<any> {
+    const res = await this.client.patch(`/projects/${projectId}`, data);
+    return res.data;
+  }
+
+  async deleteProject(projectId: string): Promise<void> {
+    await this.client.delete(`/projects/${projectId}`);
+  }
+
+  async addProjectMember(projectId: string, userId: string, role?: string): Promise<any> {
+    const res = await this.client.post(`/projects/${projectId}/members`, { userId, role });
+    return res.data;
+  }
+
+  async removeProjectMember(projectId: string, userId: string): Promise<void> {
+    await this.client.delete(`/projects/${projectId}/members/${userId}`);
+  }
+
+  async getProjectMates(): Promise<{ mates: any[] }> {
+    const res = await this.client.get('/projects/mates');
+    return res.data;
+  }
+
+  // ─── Department Management ────────────────────────────────────────────
+
+  async getDepartments(orgId?: string): Promise<{ departments: any[] }> {
+    const res = await this.client.get('/org-admin/departments', { params: { orgId } });
+    return res.data;
+  }
+
+  async createDepartment(name: string, description?: string, orgId?: string): Promise<any> {
+    const res = await this.client.post('/org-admin/departments', { name, description }, { params: { orgId } });
+    return res.data;
+  }
+
+  async addDepartmentMember(departmentId: string, userId: string, orgId?: string): Promise<any> {
+    const res = await this.client.post(`/org-admin/departments/${departmentId}/members`, { userId }, { params: { orgId } });
+    return res.data;
+  }
+
+  async removeDepartmentMember(departmentId: string, userId: string, orgId?: string): Promise<void> {
+    await this.client.delete(`/org-admin/departments/${departmentId}/members/${userId}`, { params: { orgId } });
   }
 
   // ─── Status/Stories API ─────────────────────────────────────────────────

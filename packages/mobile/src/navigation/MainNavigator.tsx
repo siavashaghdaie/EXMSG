@@ -5,6 +5,7 @@ import ChatNavigator from '@/navigation/ChatNavigator';
 import ContactsScreen from '@/screens/main/ContactsScreen';
 import AgentsScreen from '@/screens/main/AgentsScreen';
 import TasksScreen from '@/screens/main/TasksScreen';
+import ProjectsScreen from '@/screens/main/ProjectsScreen';
 import SettingsScreen from '@/screens/main/SettingsScreen';
 
 export type MainTabParamList = {
@@ -12,6 +13,7 @@ export type MainTabParamList = {
   Contacts: undefined;
   Agents: undefined;
   Tasks: undefined;
+  Projects: undefined;
   Settings: undefined;
 };
 
@@ -34,6 +36,9 @@ export default function MainNavigator() {
         tabBarStyle: {
           borderTopWidth: StyleSheet.hairlineWidth,
           borderTopColor: '#e0e0e0',
+        },
+        tabBarLabelStyle: {
+          fontSize: 10,
         },
       }}
     >
@@ -70,6 +75,15 @@ export default function MainNavigator() {
         options={{
           tabBarIcon: ({ focused }) => (
             <TabIcon label="📋" focused={focused} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Projects"
+        component={ProjectsScreen}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon label="📂" focused={focused} />
           ),
         }}
       />
