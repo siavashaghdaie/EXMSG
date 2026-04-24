@@ -237,6 +237,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
       labels: task.labels,
       lindaFollowing: task.lindaFollowing || false,
       lindaFollowInterval: task.lindaFollowInterval || 'daily',
+      visibleToDepartmentIds: (task as any).visibleToDepartments?.map((d: any) => d.id) || [],
     });
     setSelectedAssignee(task.assignedTo);
     setAssigneeSearch('');

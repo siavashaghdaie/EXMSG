@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Search, Users, Building2, Plus, Mail, Loader2 } from 'lucide-react';
+import { X, Search, Users, Building2, Mail } from 'lucide-react';
 import { api, SearchUsersResponse } from '@/services/api';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';

@@ -872,7 +872,7 @@ class APIClient {
     return res.data.tasks || [];
   }
 
-  async createTask(data: { title: string; description?: string; assignedToId?: string; deadline?: string; priority?: string; labels?: string[]; lindaFollowing?: boolean; lindaFollowInterval?: string }): Promise<any> {
+  async createTask(data: { title: string; description?: string; assignedToId?: string; deadline?: string; priority?: string; labels?: string[]; lindaFollowing?: boolean; lindaFollowInterval?: string; visibleToDepartmentIds?: string[] }): Promise<any> {
     const res = await this.client.post('/tasks', data);
     return res.data.task;
   }

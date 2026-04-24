@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Trash2, Users, X, Search, ChevronDown, ChevronUp, Pencil } from 'lucide-react';
+import { Plus, Trash2, Users, X, Search, ChevronDown, ChevronUp } from 'lucide-react';
 import { api } from '@/services/api';
 import Avatar from '@/components/common/Avatar';
 
