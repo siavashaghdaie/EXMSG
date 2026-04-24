@@ -15,6 +15,7 @@ import AgentsPage from '@/components/agents/AgentsPage';
 import PanelOwnerWizard from '@/components/auth/PanelOwnerWizard';
 import OrgAdminDashboard from '@/components/org-admin/OrgAdminDashboard';
 import InterPanelPage from '@/components/inter-panel/InterPanelPage';
+import ProjectsPage from '@/components/projects/ProjectsPage';
 
 export const ChatLayout: React.FC = () => {
   const navigate = useNavigate();
@@ -32,6 +33,7 @@ export const ChatLayout: React.FC = () => {
   const [showAgents, setShowAgents] = useState(false);
   const [showOrgDashboard, setShowOrgDashboard] = useState(false);
   const [showInterPanel, setShowInterPanel] = useState(false);
+  const [showProjects, setShowProjects] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
   const [, setAnnouncementCount] = useState(0);
   const [taskCount, setTaskCount] = useState(0);
@@ -46,6 +48,7 @@ export const ChatLayout: React.FC = () => {
     setShowAgents(false);
     setShowOrgDashboard(false);
     setShowInterPanel(false);
+    setShowProjects(false);
   };
 
   // Check whether to show the welcome wizard on first login (ALL users)
@@ -198,7 +201,7 @@ export const ChatLayout: React.FC = () => {
   const shouldShowContent = isMobile ? !showSidebar : true;
 
   // Determine if a sub-page (settings, agents, tasks, etc.) is open — these should keep BottomNav visible
-  const isSubPageOpen = showSettings || showAgents || showTaskWall || showAdminDashboard || showAnnouncements || showOrgDashboard || showInterPanel;
+  const isSubPageOpen = showSettings || showAgents || showTaskWall || showAdminDashboard || showAnnouncements || showOrgDashboard || showInterPanel || showProjects;
   // On mobile, show BottomNav when: sidebar is visible OR a sub-page is open (not in a conversation)
   const showBottomNav = isMobile && (shouldShowSidebar || isSubPageOpen);
 
@@ -207,6 +210,7 @@ export const ChatLayout: React.FC = () => {
     if (showSettings) return 'settings';
     if (showAgents) return 'agents';
     if (showTaskWall) return 'tasks';
+    if (showProjects) return 'projects';
     return undefined; // let BottomNav auto-detect from URL
   };
 
@@ -246,6 +250,11 @@ export const ChatLayout: React.FC = () => {
               setShowInterPanel(true);
               if (isMobile) setShowSidebar(false);
             }}
+            onProjectsClick={() => {
+              closeAllSubPages();
+              setShowProjects(true);
+              if (isMobile) setShowSidebar(false);
+            }}
           />
         </div>
       )}
@@ -275,6 +284,13 @@ export const ChatLayout: React.FC = () => {
               <TaskWall onClose={() => {
                 setShowTaskWall(false);
                 refreshTaskCount();
+                if (isMobile) {
+                  setShowSidebar(true);
+                }
+              }} />
+            ) : showProjects ? (
+              <ProjectsPage onClose={() => {
+                setShowProjects(false);
                 if (isMobile) {
                   setShowSidebar(true);
                 }
@@ -333,6 +349,11 @@ export const ChatLayout: React.FC = () => {
           onSettingsClick={() => {
             closeAllSubPages();
             setShowSettings(true);
+            setShowSidebar(false);
+          }}
+          onProjectsClick={() => {
+            closeAllSubPages();
+            setShowProjects(true);
             setShowSidebar(false);
           }}
           onChatsClick={() => {

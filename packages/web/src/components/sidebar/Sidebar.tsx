@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Search, Settings, Plus, Bell, Clipboard, LayoutDashboard, Globe } from 'lucide-react';
+import { Search, Settings, Plus, Bell, Clipboard, LayoutDashboard, Globe, FolderKanban } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { usePresenceStore } from '@/store/presenceStore';
@@ -19,6 +19,7 @@ interface SidebarProps {
   onAnnouncementsClick?: () => void;
   onTasksClick?: () => void;
   onInterPanelClick?: () => void;
+  onProjectsClick?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -29,7 +30,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onClose,
   onAnnouncementsClick,
   onTasksClick,
-  onInterPanelClick
+  onInterPanelClick,
+  onProjectsClick,
 }) => {
   const navigate = useNavigate();
   const { conversationId } = useParams<{ conversationId?: string }>();
@@ -330,6 +332,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         {taskCount > 9 ? '9+' : taskCount}
                       </span>
                     )}
+                  </button>
+                  <button
+                    onClick={() => onProjectsClick?.()}
+                    className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors"
+                    title="Projects"
+                  >
+                    <FolderKanban className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                   </button>
                   <button
                     onClick={handleSettingsClick}

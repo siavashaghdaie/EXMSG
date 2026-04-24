@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { MessageSquare, Users, Bot, Clipboard, Settings } from 'lucide-react';
+import { MessageSquare, Users, Bot, Clipboard, Settings, FolderKanban } from 'lucide-react';
 
 interface NavItem {
   id: string;
@@ -12,6 +12,7 @@ interface NavItem {
 interface BottomNavProps {
   onAgentsClick?: () => void;
   onTasksClick?: () => void;
+  onProjectsClick?: () => void;
   onSettingsClick?: () => void;
   onContactsClick?: () => void;
   onChatsClick?: () => void;
@@ -23,6 +24,7 @@ interface BottomNavProps {
 export const BottomNav: React.FC<BottomNavProps> = ({
   onAgentsClick,
   onTasksClick,
+  onProjectsClick,
   onSettingsClick,
   onContactsClick,
   onChatsClick,
@@ -70,6 +72,12 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       path: '/tasks',
     },
     {
+      id: 'projects',
+      label: 'Projects',
+      icon: <FolderKanban size={24} />,
+      path: '/projects',
+    },
+    {
       id: 'settings',
       label: 'Settings',
       icon: <Settings size={24} />,
@@ -108,6 +116,8 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                   onAgentsClick?.();
                 } else if (item.id === 'tasks') {
                   onTasksClick?.();
+                } else if (item.id === 'projects') {
+                  onProjectsClick?.();
                 } else if (item.id === 'settings') {
                   onSettingsClick ? onSettingsClick() : navigate(item.path);
                 } else if (item.id === 'contacts') {
