@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   ArrowLeft, Plus, Search, X, GitBranch, HardDrive, Target,
-  Users, UserCheck, Calendar, MoreHorizontal, Trash2, ExternalLink, FolderKanban,
+  Users, UserCheck, Trash2, ExternalLink, FolderKanban,
 } from 'lucide-react';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
@@ -210,7 +210,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
                         <p className="text-sm font-medium text-slate-900 dark:text-white mb-1">{task.title}</p>
                         {task.description && <p className="text-xs text-slate-500 dark:text-slate-400 mb-2 line-clamp-2">{task.description}</p>}
                         <div className="flex items-center gap-2">
-                          <Avatar name={task.assignedTo?.displayName || task.assignedTo?.username} src={task.assignedTo?.avatarUrl} size="xs" />
+                          <Avatar name={task.assignedTo?.displayName || task.assignedTo?.username} src={task.assignedTo?.avatarUrl} size="sm" />
                           <span className="text-xs text-slate-600 dark:text-slate-400">{task.assignedTo?.displayName || task.assignedTo?.username}</span>
                         </div>
                       </div>
@@ -385,7 +385,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
             <div className="flex flex-wrap gap-2">
               {projectMates.map((mate) => (
                 <div key={mate.userId} className="flex items-center gap-2 bg-violet-50 dark:bg-violet-900/20 px-3 py-1.5 rounded-full">
-                  <Avatar name={mate.displayName || mate.username} src={mate.avatarUrl} size="xs" />
+                  <Avatar name={mate.displayName || mate.username} src={mate.avatarUrl} size="sm" />
                   <span className="text-xs font-medium text-violet-700 dark:text-violet-300">{mate.displayName || mate.username}</span>
                   <span className="text-[10px] text-violet-500 dark:text-violet-400">
                     {mate.projects.map((p: any) => p.name).join(', ')}
@@ -452,13 +452,13 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
                   <div className="flex items-center gap-2 mb-3">
                     {p.teamLead && (
                       <div className="flex items-center gap-1.5 bg-violet-50 dark:bg-violet-900/20 px-2 py-1 rounded-full">
-                        <Avatar name={p.teamLead.displayName} src={p.teamLead.avatarUrl} size="xs" />
+                        <Avatar name={p.teamLead.displayName} src={p.teamLead.avatarUrl} size="sm" />
                         <span className="text-[10px] font-medium text-violet-700 dark:text-violet-300">Lead</span>
                       </div>
                     )}
                     <div className="flex -space-x-2">
                       {p.members.slice(0, 4).map((m) => (
-                        <Avatar key={m.id} name={m.user.displayName || m.user.username} src={m.user.avatarUrl} size="xs" />
+                        <Avatar key={m.id} name={m.user.displayName || m.user.username} src={m.user.avatarUrl} size="sm" />
                       ))}
                       {p.members.length > 4 && (
                         <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[10px] font-medium text-slate-600 dark:text-slate-400 border-2 border-white dark:border-slate-800">+{p.members.length - 4}</div>
