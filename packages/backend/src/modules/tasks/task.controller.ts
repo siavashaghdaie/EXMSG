@@ -15,31 +15,76 @@ export class TaskController {
   async getTasks(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.user!.userId;
-      const { status, assignedTo } = req.query;
+      const { status, assignedTo, departmentId, projectId, view } = req.query;
 
-      // Find departments the user belongs to (for department-based task visibility)
+      // Find departments and projects the user belongs to
       const userDeptMemberships = await prisma.departmentMember.findMany({
         where: { userId },
         select: { departmentId: true },
       });
       const userDeptIds = userDeptMemberships.map((m) => m.departmentId);
 
-      const where: any = {
-        AND: [
-          {
-            OR: [
-              { assignedToId: userId },
-              { createdById: userId },
-              // Tasks visible to any department the user belongs to
-              ...(userDeptIds.length > 0
-                ? [{ visibleToDepartments: { some: { id: { in: userDeptIds } } } }]
-                : []),
-            ],
-          },
-        ],
-      };
+      const userProjectMemberships = await prisma.projectMember.findMany({
+        where: { userId },
+        select: { projectId: true },
+      });
+      const userProjectIds = userProjectMemberships.map((m) => m.projectId);
 
-      // Scope to organization (include tasks with null orgId for legacy/bot-created tasks)
+      const where: any = { AND: [] };
+
+      // View modes: 'my' (default), 'department', 'project', 'all'
+      const viewMode = (view as string) || 'my';
+
+      if (viewMode === 'department') {
+        // Show all tasks tagged with user's departments
+        if (userDeptIds.length > 0) {
+          where.AND.push({ departmentId: { in: userDeptIds } });
+        } else {
+          // User has no departments — return empty
+          res.json({ tasks: [] });
+          return;
+        }
+      } else if (viewMode === 'project') {
+        // Show all tasks from user's projects
+        if (userProjectIds.length > 0) {
+          where.AND.push({ projectId: { in: userProjectIds } });
+        } else {
+          res.json({ tasks: [] });
+          return;
+        }
+      } else {
+        // Default 'my' or 'all': tasks assigned to me, created by me, or visible via department/project
+        where.AND.push({
+          OR: [
+            { assignedToId: userId },
+            { createdById: userId },
+            // Tasks in the same department
+            ...(userDeptIds.length > 0
+              ? [{ departmentId: { in: userDeptIds } }]
+              : []),
+            // Tasks in the same project
+            ...(userProjectIds.length > 0
+              ? [{ projectId: { in: userProjectIds } }]
+              : []),
+            // Tasks with explicit department visibility
+            ...(userDeptIds.length > 0
+              ? [{ visibleToDepartments: { some: { id: { in: userDeptIds } } } }]
+              : []),
+          ],
+        });
+      }
+
+      // Filter by specific department
+      if (departmentId && typeof departmentId === 'string') {
+        where.AND.push({ departmentId });
+      }
+
+      // Filter by specific project
+      if (projectId && typeof projectId === 'string') {
+        where.AND.push({ projectId });
+      }
+
+      // Scope to organization
       if (req.orgId) {
         where.AND.push({
           OR: [
@@ -50,7 +95,7 @@ export class TaskController {
       }
 
       if (status) {
-        where.status = status as string;
+        where.AND.push({ status: status as string });
       }
 
       const tasks = await prisma.task.findMany({
@@ -59,6 +104,8 @@ export class TaskController {
           assignedTo: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
           createdBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
           orderedBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
+          department: { select: { id: true, name: true } },
+          project: { select: { id: true, name: true } },
           visibleToDepartments: { select: { id: true, name: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -75,11 +122,48 @@ export class TaskController {
   async createTask(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.user!.userId;
-      const { title, description, assignedToId, deadline, priority, labels, lindaFollowing, lindaFollowInterval, orderedById, visibleToDepartmentIds } = req.body;
+      const { title, description, assignedToId, deadline, priority, labels, lindaFollowing, lindaFollowInterval, orderedById, visibleToDepartmentIds, departmentId, projectId, projectName } = req.body;
 
       if (!title) {
         res.status(400).json({ error: 'Task title is required' });
         return;
+      }
+
+      // Auto-create project if projectName is given but no projectId
+      let resolvedProjectId = projectId || null;
+      if (!resolvedProjectId && projectName && typeof projectName === 'string' && projectName.trim()) {
+        const orgId = req.orgId;
+        // Find or create the project
+        let project = orgId
+          ? await prisma.project.findUnique({
+              where: { organizationId_name: { organizationId: orgId, name: projectName.trim() } },
+            })
+          : await prisma.project.findFirst({ where: { name: projectName.trim(), createdById: userId } });
+
+        if (!project) {
+          project = await prisma.project.create({
+            data: {
+              name: projectName.trim(),
+              createdById: userId,
+              ...(orgId && { organizationId: orgId }),
+            },
+          });
+          // Add creator as member
+          await prisma.projectMember.create({
+            data: { projectId: project.id, userId, role: 'LEAD' },
+          });
+        }
+        resolvedProjectId = project.id;
+
+        // Auto-add the assignee to the project if not already a member
+        const targetUserId = assignedToId || userId;
+        if (targetUserId !== userId) {
+          await prisma.projectMember.upsert({
+            where: { projectId_userId: { projectId: project.id, userId: targetUserId } },
+            create: { projectId: project.id, userId: targetUserId },
+            update: {},
+          });
+        }
       }
 
       const task = await prisma.task.create({
@@ -96,6 +180,8 @@ export class TaskController {
           lindaFollowing: lindaFollowing || false,
           lindaFollowInterval: lindaFollowInterval || null,
           ...(req.orgId && { organizationId: req.orgId }),
+          ...(departmentId && { departmentId }),
+          ...(resolvedProjectId && { projectId: resolvedProjectId }),
           // Connect department visibility (optional)
           ...(Array.isArray(visibleToDepartmentIds) && visibleToDepartmentIds.length > 0 && {
             visibleToDepartments: {

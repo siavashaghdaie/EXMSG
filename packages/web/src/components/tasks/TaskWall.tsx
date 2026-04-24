@@ -36,7 +36,7 @@ interface Task {
   updatedAt: string;
 }
 
-type TaskFilter = 'my-tasks' | 'assigned-by-me' | 'all';
+type TaskFilter = 'my-tasks' | 'assigned-by-me' | 'department' | 'project' | 'all';
 
 interface TaskWallProps {
   onClose?: () => void;
@@ -64,8 +64,14 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
     lindaFollowing: false,
     lindaFollowInterval: 'daily' as string,
     visibleToDepartmentIds: [] as string[],
+    departmentId: '' as string,
+    projectId: '' as string,
+    projectName: '' as string,
   });
   const [departments, setDepartments] = useState<Array<{ id: string; name: string }>>([]);
+  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedDeptFilter, setSelectedDeptFilter] = useState<string>('');
+  const [selectedProjectFilter, setSelectedProjectFilter] = useState<string>('');
   const [labelInput, setLabelInput] = useState('');
 
   // Assignee search state
@@ -111,7 +117,15 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
   const fetchTasks = async () => {
     setLoading(true);
     try {
-      const allTasks = await api.getTasks();
+      const params: any = {};
+      if (filter === 'department') {
+        params.view = 'department';
+        if (selectedDeptFilter) params.departmentId = selectedDeptFilter;
+      } else if (filter === 'project') {
+        params.view = 'project';
+        if (selectedProjectFilter) params.projectId = selectedProjectFilter;
+      }
+      const allTasks = await api.getTasks(params);
 
       // Filter tasks based on selected filter
       let filtered = allTasks;
@@ -139,12 +153,15 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
 
   useEffect(() => {
     fetchTasks();
-  }, [filter, searchQuery]);
+  }, [filter, searchQuery, selectedDeptFilter, selectedProjectFilter]);
 
-  // Load departments for the "Visible to Departments" selector
+  // Load departments and projects for selectors
   useEffect(() => {
     api.getDepartments().then((res) => {
       setDepartments(res?.departments?.map((d: any) => ({ id: d.id, name: d.name })) || []);
+    }).catch(() => {});
+    api.getProjects().then((res) => {
+      setProjects(res?.projects?.map((p: any) => ({ id: p.id, name: p.name })) || []);
     }).catch(() => {});
   }, []);
 
@@ -179,6 +196,9 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
           lindaFollowing: formData.lindaFollowing,
           lindaFollowInterval: formData.lindaFollowing ? formData.lindaFollowInterval : undefined,
           visibleToDepartmentIds: formData.visibleToDepartmentIds.length > 0 ? formData.visibleToDepartmentIds : undefined,
+          departmentId: formData.departmentId || undefined,
+          projectId: formData.projectId || undefined,
+          projectName: formData.projectName || undefined,
         });
         console.log('Task created:', created);
         // Refetch all tasks to ensure consistency with server
@@ -238,6 +258,9 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
       lindaFollowing: task.lindaFollowing || false,
       lindaFollowInterval: task.lindaFollowInterval || 'daily',
       visibleToDepartmentIds: (task as any).visibleToDepartments?.map((d: any) => d.id) || [],
+      departmentId: (task as any).department?.id || '',
+      projectId: (task as any).project?.id || '',
+      projectName: '',
     });
     setSelectedAssignee(task.assignedTo);
     setAssigneeSearch('');
@@ -256,6 +279,9 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
       lindaFollowing: false,
       lindaFollowInterval: 'daily',
       visibleToDepartmentIds: [],
+      departmentId: '',
+      projectId: '',
+      projectName: '',
     });
     setLabelInput('');
     setSelectedAssignee(null);
@@ -373,6 +399,22 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                   {label}
                 </span>
               ))}
+            </div>
+          )}
+
+          {/* Department & Project badges */}
+          {((task as any).department || (task as any).project) && (
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {(task as any).department && (
+                <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full font-medium">
+                  {(task as any).department.name}
+                </span>
+              )}
+              {(task as any).project && (
+                <span className="text-xs bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 px-2 py-0.5 rounded-full font-medium">
+                  {(task as any).project.name}
+                </span>
+              )}
             </div>
           )}
 
@@ -565,17 +607,19 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
 
         {/* Filter tabs */}
         <div className={`flex gap-2 ${isMobile ? 'flex-wrap' : ''}`}>
-          {(['my-tasks', 'assigned-by-me', 'all'] as const).map((filterOption) => {
+          {(['my-tasks', 'assigned-by-me', 'department', 'project', 'all'] as const).map((filterOption) => {
             const labels: Record<TaskFilter, string> = {
               'my-tasks': 'Assigned',
               'assigned-by-me': 'Planned',
+              'department': 'Department',
+              'project': 'Project',
               'all': 'All',
             };
 
             return (
               <button
                 key={filterOption}
-                onClick={() => setFilter(filterOption)}
+                onClick={() => { setFilter(filterOption); setSelectedDeptFilter(''); setSelectedProjectFilter(''); }}
                 className={`px-3 md:px-4 py-2 rounded-lg font-medium transition-colors text-sm ${
                   filter === filterOption
                     ? 'bg-primary-600 dark:bg-primary-500 text-white'
@@ -587,6 +631,38 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
             );
           })}
         </div>
+
+        {/* Department/Project sub-filter */}
+        {filter === 'department' && departments.length > 0 && (
+          <div className="flex gap-2 flex-wrap mt-2">
+            <button
+              onClick={() => setSelectedDeptFilter('')}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${!selectedDeptFilter ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-surface-800 text-gray-600 dark:text-gray-400'}`}
+            >All Departments</button>
+            {departments.map((d) => (
+              <button
+                key={d.id}
+                onClick={() => setSelectedDeptFilter(d.id)}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${selectedDeptFilter === d.id ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-surface-800 text-gray-600 dark:text-gray-400'}`}
+              >{d.name}</button>
+            ))}
+          </div>
+        )}
+        {filter === 'project' && projects.length > 0 && (
+          <div className="flex gap-2 flex-wrap mt-2">
+            <button
+              onClick={() => setSelectedProjectFilter('')}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${!selectedProjectFilter ? 'bg-violet-600 text-white' : 'bg-gray-100 dark:bg-surface-800 text-gray-600 dark:text-gray-400'}`}
+            >All Projects</button>
+            {projects.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setSelectedProjectFilter(p.id)}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${selectedProjectFilter === p.id ? 'bg-violet-600 text-white' : 'bg-gray-100 dark:bg-surface-800 text-gray-600 dark:text-gray-400'}`}
+              >{p.name}</button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Content */}
@@ -832,6 +908,63 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                   onChange={(e) => setFormData({ ...formData, deadline: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-surface-800 text-gray-900 dark:text-white border border-gray-300 dark:border-surface-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
+              </div>
+
+              {/* Department */}
+              {departments.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Department
+                  </label>
+                  <select
+                    value={formData.departmentId}
+                    onChange={(e) => setFormData({ ...formData, departmentId: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-surface-800 text-gray-900 dark:text-white border border-gray-300 dark:border-surface-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="">No department</option>
+                    {departments.map((d) => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Project */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Project
+                </label>
+                {projects.length > 0 ? (
+                  <select
+                    value={formData.projectId}
+                    onChange={(e) => setFormData({ ...formData, projectId: e.target.value, projectName: '' })}
+                    className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-surface-800 text-gray-900 dark:text-white border border-gray-300 dark:border-surface-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="">No project</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                    <option value="__new__">+ New Project...</option>
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={formData.projectName}
+                    onChange={(e) => setFormData({ ...formData, projectName: e.target.value, projectId: '' })}
+                    placeholder="Type a project name to create one..."
+                    className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-surface-800 text-gray-900 dark:text-white border border-gray-300 dark:border-surface-700 focus:outline-none focus:ring-2 focus:ring-primary-500 placeholder-gray-400"
+                  />
+                )}
+                {formData.projectId === '__new__' && (
+                  <input
+                    type="text"
+                    value={formData.projectName}
+                    onChange={(e) => setFormData({ ...formData, projectName: e.target.value, projectId: '' })}
+                    placeholder="Enter new project name..."
+                    className="w-full mt-2 px-3 py-2 rounded-lg bg-gray-50 dark:bg-surface-800 text-gray-900 dark:text-white border border-gray-300 dark:border-surface-700 focus:outline-none focus:ring-2 focus:ring-primary-500 placeholder-gray-400"
+                    autoFocus
+                  />
+                )}
               </div>
 
               {/* Labels */}

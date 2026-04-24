@@ -28,6 +28,7 @@ model Organization {
 
   members      OrganizationMember[]
   departments  Department[]
+  projects     Project[]
   channels     Channel[]
   inviteTokens InviteToken[]
   conversations Conversation[]
@@ -98,6 +99,9 @@ model User {
   otpCodes           OtpCode[]
   sentInvites        InviteToken[]    @relation("InvitedByUser")
   departmentMembers  DepartmentMember[]
+  projectMembers     ProjectMember[]
+  projectsCreated    Project[]        @relation("ProjectsCreated")
+  projectsLead       Project[]        @relation("ProjectTeamLead")
 
   @@map("users")
 }
@@ -324,6 +328,13 @@ model Task {
 
   sourceMessageId String?
 
+  // Department and Project tagging
+  departmentId String?  @map("department_id")
+  department   Department? @relation("TaskDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
+
+  projectId    String?  @map("project_id")
+  project      Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
   lindaFollowing       Boolean  @default(false) @map("linda_following")
   lindaFollowInterval  String?  @map("linda_follow_interval")
 
@@ -338,6 +349,8 @@ model Task {
   @@index([assignedToId])
   @@index([createdById])
   @@index([status])
+  @@index([departmentId])
+  @@index([projectId])
   @@map("tasks")
 }
 
@@ -356,6 +369,7 @@ model Department {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   members      DepartmentMember[]
   visibleTasks Task[]       @relation("TaskDepartmentVisibility")
+  tasks        Task[]       @relation("TaskDepartment")
 
   @@unique([organizationId, name])
   @@index([organizationId])
@@ -374,6 +388,55 @@ model DepartmentMember {
   @@unique([departmentId, userId])
   @@index([userId])
   @@map("department_members")
+}
+
+// ============================================
+// PROJECTS
+// ============================================
+
+model Project {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  description    String?
+  specsAndGoals  String?  @map("specs_and_goals")  // Rich text for specifications, goals, milestones
+  gitUrl         String?  @map("git_url")
+  storageUrl     String?  @map("storage_url")       // Google Drive, Dropbox, etc.
+  avatarUrl      String?  @map("avatar_url")
+  status         String   @default("ACTIVE")         // ACTIVE, PAUSED, COMPLETED, ARCHIVED
+
+  teamLeadId     String?  @map("team_lead_id")
+  teamLead       User?    @relation("ProjectTeamLead", fields: [teamLeadId], references: [id], onDelete: SetNull)
+
+  createdById    String   @map("created_by_id")
+  createdBy      User     @relation("ProjectsCreated", fields: [createdById], references: [id])
+
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members        ProjectMember[]
+  tasks          Task[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@index([teamLeadId])
+  @@map("projects")
+}
+
+model ProjectMember {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  userId    String   @map("user_id")
+  role      String   @default("MEMBER") // LEAD, MEMBER
+  joinedAt  DateTime @default(now()) @map("joined_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([userId])
+  @@map("project_members")
 }
 
 // ============================================

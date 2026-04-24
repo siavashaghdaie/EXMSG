@@ -867,12 +867,12 @@ class APIClient {
   }
 
   // Task Management API
-  async getTasks(status?: string): Promise<any[]> {
-    const res = await this.client.get('/tasks', { params: { status } });
+  async getTasks(params?: { status?: string; view?: string; departmentId?: string; projectId?: string }): Promise<any[]> {
+    const res = await this.client.get('/tasks', { params });
     return res.data.tasks || [];
   }
 
-  async createTask(data: { title: string; description?: string; assignedToId?: string; deadline?: string; priority?: string; labels?: string[]; lindaFollowing?: boolean; lindaFollowInterval?: string; visibleToDepartmentIds?: string[] }): Promise<any> {
+  async createTask(data: { title: string; description?: string; assignedToId?: string; deadline?: string; priority?: string; labels?: string[]; lindaFollowing?: boolean; lindaFollowInterval?: string; visibleToDepartmentIds?: string[]; departmentId?: string; projectId?: string; projectName?: string }): Promise<any> {
     const res = await this.client.post('/tasks', data);
     return res.data.task;
   }
@@ -975,6 +975,50 @@ class APIClient {
 
   async resendOrgAdminInvite(userId: string, orgId?: string): Promise<{ success: boolean; message: string; email: string }> {
     const res = await this.client.post(`/org-admin/members/${userId}/resend-invite`, {}, { params: { orgId } });
+    return res.data;
+  }
+
+  // ─── Project Management ────────────────────────────────────────────────
+  async getProjects(params?: { status?: string; search?: string }): Promise<{ projects: any[] }> {
+    const res = await this.client.get('/projects', { params });
+    return res.data;
+  }
+
+  async getProject(projectId: string): Promise<{ project: any }> {
+    const res = await this.client.get(`/projects/${projectId}`);
+    return res.data;
+  }
+
+  async createProject(data: { name: string; description?: string; specsAndGoals?: string; gitUrl?: string; storageUrl?: string; teamLeadId?: string; memberIds?: string[] }): Promise<any> {
+    const res = await this.client.post('/projects', data);
+    return res.data;
+  }
+
+  async updateProject(projectId: string, data: Record<string, any>): Promise<any> {
+    const res = await this.client.patch(`/projects/${projectId}`, data);
+    return res.data;
+  }
+
+  async deleteProject(projectId: string): Promise<void> {
+    await this.client.delete(`/projects/${projectId}`);
+  }
+
+  async findOrCreateProject(name: string): Promise<{ project: any; created: boolean }> {
+    const res = await this.client.post('/projects/find-or-create', { name });
+    return res.data;
+  }
+
+  async addProjectMember(projectId: string, userId: string, role?: string): Promise<any> {
+    const res = await this.client.post(`/projects/${projectId}/members`, { userId, role });
+    return res.data;
+  }
+
+  async removeProjectMember(projectId: string, userId: string): Promise<void> {
+    await this.client.delete(`/projects/${projectId}/members/${userId}`);
+  }
+
+  async getProjectMates(): Promise<{ mates: any[] }> {
+    const res = await this.client.get('/projects/mates');
     return res.data;
   }
 
