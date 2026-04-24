@@ -79,6 +79,13 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
   const [addMemberRole, setAddMemberRole] = useState<'OWNER' | 'ADMIN' | 'MEMBER'>('MEMBER');
   const [addMemberDepartmentId, setAddMemberDepartmentId] = useState('');
   const [departmentsList, setDepartmentsList] = useState<Array<{ id: string; name: string }>>([]);
+
+  // --- Edit Member modal ---
+  const [editMemberOpen, setEditMemberOpen] = useState(false);
+  const [editMember, setEditMember] = useState<any>(null);
+  const [editForm, setEditForm] = useState({ displayName: '', bio: '', status: '', role: 'MEMBER', departmentId: '' });
+  const [editMemberLoading, setEditMemberLoading] = useState(false);
+  const [editMemberError, setEditMemberError] = useState('');
   const [addMemberLoading, setAddMemberLoading] = useState(false);
   const [addMemberError, setAddMemberError] = useState<string | null>(null);
   const [addMemberSuccess, setAddMemberSuccess] = useState<{
@@ -284,6 +291,46 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
       alert(result.message || `Invitation resent to ${email}`);
     } catch (err) {
       alert(extractError(err));
+    }
+  };
+
+  const openEditMember = (member: any) => {
+    setEditMember(member);
+    setEditForm({
+      displayName: member.displayName || '',
+      bio: member.bio || '',
+      status: member.status || '',
+      role: member.role || 'MEMBER',
+      departmentId: member.department?.id || '',
+    });
+    setEditMemberError('');
+    setEditMemberOpen(true);
+  };
+
+  const handleSaveEditMember = async () => {
+    if (!editMember) return;
+    setEditMemberLoading(true);
+    setEditMemberError('');
+    try {
+      await api.updateOrgAdminMemberRole(editMember.id, editForm.role as any, currentOrgId || undefined);
+      // The backend PATCH now also accepts displayName, bio, status, departmentId
+      // We need to call it with all fields — the updateOrgAdminMemberRole sends { role }
+      // but we need to send more. Let me call the API directly:
+      await (api as any).client.patch(`/org-admin/members/${editMember.id}`, {
+        displayName: editForm.displayName,
+        bio: editForm.bio,
+        status: editForm.status,
+        role: editForm.role,
+        departmentId: editForm.departmentId || null,
+      }, { params: { orgId: currentOrgId } });
+
+      setEditMemberOpen(false);
+      setEditMember(null);
+      await loadMembers(page);
+    } catch (err) {
+      setEditMemberError(extractError(err));
+    } finally {
+      setEditMemberLoading(false);
     }
   };
 
@@ -748,6 +795,11 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
                                   <p className="text-sm font-medium text-slate-900 dark:text-white truncate">
                                     {member.displayName}
                                   </p>
+                                  {member.department && (
+                                    <span className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded font-medium">
+                                      {member.department.name}
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </td>
@@ -809,10 +861,16 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
                                   </button>
                                 )}
                                 <button
-                                  onClick={() => loadMemberActivity(member.id)}
+                                  onClick={() => openEditMember(member)}
                                   className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
                                 >
-                                  View
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={() => loadMemberActivity(member.id)}
+                                  className="text-xs font-medium text-slate-500 dark:text-slate-400 hover:underline"
+                                >
+                                  Activity
                                 </button>
                                 <select
                                   value={member.role}
@@ -1389,6 +1447,72 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Edit Member Modal */}
+      {editMemberOpen && editMember && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Edit Member</h3>
+              <button onClick={() => setEditMemberOpen(false)} className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500"><X size={18} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+                <Avatar name={editMember.displayName} src={editMember.avatarUrl} size="md" />
+                <div>
+                  <p className="font-medium text-slate-900 dark:text-white">{editMember.displayName}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{editMember.email}</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Display Name</label>
+                <input type="text" value={editForm.displayName} onChange={(e) => setEditForm({ ...editForm, displayName: e.target.value })} className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Bio</label>
+                <textarea value={editForm.bio} onChange={(e) => setEditForm({ ...editForm, bio: e.target.value })} rows={2} className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" placeholder="Member bio..." />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Status</label>
+                <input type="text" value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })} placeholder="What are they up to?" className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Role</label>
+                <select value={editForm.role} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })} className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="MEMBER">Member</option>
+                  <option value="ADMIN">Admin</option>
+                  <option value="OWNER">Owner</option>
+                </select>
+              </div>
+
+              {departmentsList.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Department</label>
+                  <select value={editForm.departmentId} onChange={(e) => setEditForm({ ...editForm, departmentId: e.target.value })} className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">No department</option>
+                    {departmentsList.map((d) => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {editMemberError && (
+                <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-300">{editMemberError}</div>
+              )}
+
+              <div className="flex items-center gap-2 pt-2">
+                <button type="button" onClick={() => setEditMemberOpen(false)} className="flex-1 px-4 py-2 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-lg text-sm font-semibold transition">Cancel</button>
+                <button onClick={handleSaveEditMember} disabled={editMemberLoading} className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition">{editMemberLoading ? 'Saving...' : 'Save Changes'}</button>
+              </div>
+            </div>
           </div>
         </div>
       )}

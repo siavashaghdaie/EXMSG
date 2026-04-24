@@ -115,10 +115,17 @@ export class OrgAdminController {
                 username: true,
                 displayName: true,
                 avatarUrl: true,
+                bio: true,
+                status: true,
                 isOnline: true,
                 lastSeenAt: true,
                 emailVerified: true,
                 passwordHash: true,
+                departmentMembers: {
+                  where: { department: { organizationId: orgId } },
+                  include: { department: { select: { id: true, name: true } } },
+                  take: 1,
+                },
               },
             },
           },
@@ -156,12 +163,16 @@ export class OrgAdminController {
           const invitePending = !member.user.emailVerified ||
             member.user.passwordHash.startsWith('INVITE_PENDING_');
 
+          const deptMember = (member.user as any).departmentMembers?.[0];
           return {
             id: member.user.id,
+            userId: member.userId,
             email: member.user.email,
             username: member.user.username,
             displayName: member.user.displayName,
             avatarUrl: member.user.avatarUrl,
+            bio: (member.user as any).bio || null,
+            status: (member.user as any).status || null,
             role: member.role,
             isOnline: member.user.isOnline,
             lastSeenAt: member.user.lastSeenAt,
@@ -169,6 +180,7 @@ export class OrgAdminController {
             invitePending,
             messagesToday,
             taskCount,
+            department: deptMember?.department || null,
           };
         })
       );
@@ -751,20 +763,15 @@ export class OrgAdminController {
     }
   }
 
-  // PATCH /api/org-admin/members/:userId — change a member's org role
+  // PATCH /api/org-admin/members/:userId — update member role, profile, and department
   async updateMemberRole(req: Request, res: Response): Promise<void> {
     try {
       const orgId = req.orgId;
       const { userId } = req.params;
-      const { role } = req.body || {};
+      const { role, displayName, bio, status, departmentId } = req.body || {};
 
       if (!orgId) {
         res.status(400).json({ error: 'Organization ID required' });
-        return;
-      }
-
-      if (role !== 'OWNER' && role !== 'ADMIN' && role !== 'MEMBER') {
-        res.status(400).json({ error: 'role must be OWNER, ADMIN, or MEMBER' });
         return;
       }
 
@@ -777,9 +784,51 @@ export class OrgAdminController {
         return;
       }
 
-      const updated = await prisma.organizationMember.update({
-        where: { id: existing.id },
-        data: { role: role as IncomingOrgRole },
+      // Update org role if provided
+      if (role && ['OWNER', 'ADMIN', 'MEMBER'].includes(role)) {
+        await prisma.organizationMember.update({
+          where: { id: existing.id },
+          data: { role: role as IncomingOrgRole },
+        });
+      }
+
+      // Update user profile fields if provided
+      const userUpdates: any = {};
+      if (displayName !== undefined) userUpdates.displayName = String(displayName).trim();
+      if (bio !== undefined) userUpdates.bio = bio ? String(bio).trim() : null;
+      if (status !== undefined) userUpdates.status = status ? String(status).trim() : null;
+
+      if (Object.keys(userUpdates).length > 0) {
+        await prisma.user.update({
+          where: { id: userId },
+          data: userUpdates,
+        });
+      }
+
+      // Handle department assignment
+      if (departmentId !== undefined) {
+        // Remove from all current departments in this org
+        const orgDepts = await prisma.department.findMany({
+          where: { organizationId: orgId },
+          select: { id: true },
+        });
+        const orgDeptIds = orgDepts.map((d) => d.id);
+        if (orgDeptIds.length > 0) {
+          await prisma.departmentMember.deleteMany({
+            where: { userId, departmentId: { in: orgDeptIds } },
+          });
+        }
+        // Add to new department if specified
+        if (departmentId) {
+          await prisma.departmentMember.create({
+            data: { departmentId, userId },
+          });
+        }
+      }
+
+      // Fetch updated member
+      const refreshed = await prisma.organizationMember.findUnique({
+        where: { organizationId_userId: { organizationId: orgId, userId } },
         include: {
           user: {
             select: {
@@ -788,6 +837,8 @@ export class OrgAdminController {
               username: true,
               displayName: true,
               avatarUrl: true,
+              bio: true,
+              status: true,
               isOnline: true,
               lastSeenAt: true,
             },
@@ -795,20 +846,30 @@ export class OrgAdminController {
         },
       });
 
+      // Get department info
+      const deptMembership = await prisma.departmentMember.findFirst({
+        where: { userId, department: { organizationId: orgId } },
+        include: { department: { select: { id: true, name: true } } },
+      });
+
       res.json({
         member: {
-          id: updated.user.id,
-          email: updated.user.email,
-          username: updated.user.username,
-          displayName: updated.user.displayName,
-          avatarUrl: updated.user.avatarUrl,
-          role: updated.role,
-          isOnline: updated.user.isOnline,
-          lastSeenAt: updated.user.lastSeenAt,
+          id: refreshed!.user.id,
+          userId: refreshed!.userId,
+          email: refreshed!.user.email,
+          username: refreshed!.user.username,
+          displayName: refreshed!.user.displayName,
+          avatarUrl: refreshed!.user.avatarUrl,
+          bio: (refreshed!.user as any).bio || null,
+          status: (refreshed!.user as any).status || null,
+          role: refreshed!.role,
+          isOnline: refreshed!.user.isOnline,
+          lastSeenAt: refreshed!.user.lastSeenAt,
+          department: deptMembership?.department || null,
         },
       });
     } catch (error) {
-      console.error('Update member role error:', error);
+      console.error('Update member error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }
