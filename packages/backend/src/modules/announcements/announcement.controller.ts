@@ -240,12 +240,8 @@ export class AnnouncementController {
       const announcements = await db.announcement.findMany({
         where: {
           expiresAt: { gt: now },
-          ...(req.orgId && {
-            OR: [
-              { organizationId: req.orgId },
-              { organizationId: null },
-            ],
-          }),
+          // Strictly scope to the current workspace — no global fallback
+          ...(req.orgId ? { organizationId: req.orgId } : {}),
         },
         include: includeClause,
         orderBy: [

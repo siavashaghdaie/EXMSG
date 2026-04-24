@@ -103,4 +103,29 @@ router.get('/org-admin/reports/tasks', (req, res) =>
   controller.getTaskReport(req, res)
 );
 
+// ─── Department Management ──────────────────────────────────────────────
+router.get('/org-admin/departments', (req, res) =>
+  controller.getDepartments(req, res)
+);
+
+router.post('/org-admin/departments', (req, res) =>
+  controller.createDepartment(req, res)
+);
+
+router.patch('/org-admin/departments/:departmentId', (req, res) =>
+  controller.updateDepartment(req, res)
+);
+
+router.delete('/org-admin/departments/:departmentId', (req, res) =>
+  controller.deleteDepartment(req, res)
+);
+
+router.post('/org-admin/departments/:departmentId/members', (req, res) =>
+  controller.addDepartmentMember(req, res)
+);
+
+router.delete('/org-admin/departments/:departmentId/members/:userId', (req, res) =>
+  controller.removeDepartmentMember(req, res)
+);
+
 export { router as orgAdminRoutes };

@@ -17,12 +17,23 @@ export class TaskController {
       const userId = req.user!.userId;
       const { status, assignedTo } = req.query;
 
+      // Find departments the user belongs to (for department-based task visibility)
+      const userDeptMemberships = await prisma.departmentMember.findMany({
+        where: { userId },
+        select: { departmentId: true },
+      });
+      const userDeptIds = userDeptMemberships.map((m) => m.departmentId);
+
       const where: any = {
         AND: [
           {
             OR: [
               { assignedToId: userId },
               { createdById: userId },
+              // Tasks visible to any department the user belongs to
+              ...(userDeptIds.length > 0
+                ? [{ visibleToDepartments: { some: { id: { in: userDeptIds } } } }]
+                : []),
             ],
           },
         ],
@@ -48,6 +59,7 @@ export class TaskController {
           assignedTo: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
           createdBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
           orderedBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
+          visibleToDepartments: { select: { id: true, name: true } },
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -63,7 +75,7 @@ export class TaskController {
   async createTask(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.user!.userId;
-      const { title, description, assignedToId, deadline, priority, labels, lindaFollowing, lindaFollowInterval, orderedById } = req.body;
+      const { title, description, assignedToId, deadline, priority, labels, lindaFollowing, lindaFollowInterval, orderedById, visibleToDepartmentIds } = req.body;
 
       if (!title) {
         res.status(400).json({ error: 'Task title is required' });
@@ -84,11 +96,18 @@ export class TaskController {
           lindaFollowing: lindaFollowing || false,
           lindaFollowInterval: lindaFollowInterval || null,
           ...(req.orgId && { organizationId: req.orgId }),
+          // Connect department visibility (optional)
+          ...(Array.isArray(visibleToDepartmentIds) && visibleToDepartmentIds.length > 0 && {
+            visibleToDepartments: {
+              connect: visibleToDepartmentIds.map((id: string) => ({ id })),
+            },
+          }),
         },
         include: {
           assignedTo: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
           createdBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
           orderedBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
+          visibleToDepartments: { select: { id: true, name: true } },
         },
       });
 

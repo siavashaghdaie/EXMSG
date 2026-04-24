@@ -27,6 +27,7 @@ model Organization {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   members      OrganizationMember[]
+  departments  Department[]
   channels     Channel[]
   inviteTokens InviteToken[]
   conversations Conversation[]
@@ -96,6 +97,7 @@ model User {
   lindaMemories      LindaMemory[]
   otpCodes           OtpCode[]
   sentInvites        InviteToken[]    @relation("InvitedByUser")
+  departmentMembers  DepartmentMember[]
 
   @@map("users")
 }
@@ -330,11 +332,48 @@ model Task {
 
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  visibleToDepartments Department[] @relation("TaskDepartmentVisibility")
+
   @@index([organizationId])
   @@index([assignedToId])
   @@index([createdById])
   @@index([status])
   @@map("tasks")
+}
+
+// ============================================
+// DEPARTMENTS
+// ============================================
+
+model Department {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  description    String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members      DepartmentMember[]
+  visibleTasks Task[]       @relation("TaskDepartmentVisibility")
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("departments")
+}
+
+model DepartmentMember {
+  id           String   @id @default(uuid())
+  departmentId String   @map("department_id")
+  userId       String   @map("user_id")
+  joinedAt     DateTime @default(now()) @map("joined_at")
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([departmentId, userId])
+  @@index([userId])
+  @@map("department_members")
 }
 
 // ============================================

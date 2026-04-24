@@ -21,18 +21,36 @@ import { getFullUrl } from '@/utils/url';
 
 const PRIMARY = '#6C47FF';
 const DANGER = '#E53935';
-const SECTION_BG = '#f5f5f5';
-const BORDER = '#e0e0e0';
-const TEXT_PRIMARY = '#1a1a1a';
-const TEXT_SECONDARY = '#666';
 const APP_VERSION = '1.0.0';
 
 type ThemeMode = 'light' | 'dark' | 'system';
+
+const THEME_COLORS = {
+  light: {
+    bg: '#FFFFFF',
+    sectionBg: '#f5f5f5',
+    border: '#e0e0e0',
+    textPrimary: '#1a1a1a',
+    textSecondary: '#666',
+    inputBg: '#fff',
+    cardBg: '#fff',
+  },
+  dark: {
+    bg: '#0F172A',
+    sectionBg: '#1E293B',
+    border: '#334155',
+    textPrimary: '#F1F5F9',
+    textSecondary: '#94A3B8',
+    inputBg: '#1E293B',
+    cardBg: '#1E293B',
+  },
+};
 
 export default function SettingsScreen() {
   const { user, logout: authLogout, updateUser } = useAuthStore();
   const {
     themeMode,
+    effectiveTheme,
     notificationsEnabled,
     soundEnabled,
     vibrationEnabled,
@@ -41,6 +59,9 @@ export default function SettingsScreen() {
     setSoundEnabled,
     setVibrationEnabled,
   } = useSettingsStore();
+
+  const isDark = effectiveTheme === 'dark';
+  const C = THEME_COLORS[isDark ? 'dark' : 'light'];
 
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
   const [bio, setBio] = useState(user?.bio ?? '');
@@ -163,15 +184,15 @@ export default function SettingsScreen() {
     status !== (user?.status ?? '');
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: C.bg }]}>
       <ScrollView
-        style={styles.container}
+        style={[styles.container, { backgroundColor: C.bg }]}
         contentContainerStyle={styles.contentContainer}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
-        <Text style={styles.screenTitle}>Settings</Text>
+        <Text style={[styles.screenTitle, { color: C.textPrimary }]}>Settings</Text>
 
         {/* Feedback messages */}
         {!!successMessage && (
@@ -186,9 +207,9 @@ export default function SettingsScreen() {
         )}
 
         {/* Profile Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Profile</Text>
-          <View style={styles.sectionContent}>
+        <View style={[styles.section, { backgroundColor: C.sectionBg }]}>
+          <Text style={[styles.sectionTitle, { color: C.textPrimary }]}>Profile</Text>
+          <View style={[styles.sectionContent, { backgroundColor: C.cardBg, borderColor: C.border }]}>
             {/* Avatar */}
             <View style={styles.avatarRow}>
               <TouchableOpacity
@@ -214,8 +235,8 @@ export default function SettingsScreen() {
               </TouchableOpacity>
 
               <View style={styles.avatarInfo}>
-                <Text style={styles.usernameText}>@{user?.username || 'user'}</Text>
-                <Text style={styles.emailText}>{user?.email || ''}</Text>
+                <Text style={[styles.usernameText, { color: C.textPrimary }]}>@{user?.username || 'user'}</Text>
+                <Text style={[styles.emailText, { color: C.textSecondary }]}>{user?.email || ''}</Text>
                 {!!user?.orgRole && (
                   <View style={styles.roleBadge}>
                     <Text style={styles.roleBadgeText}>{user.orgRole}</Text>
@@ -225,9 +246,9 @@ export default function SettingsScreen() {
             </View>
 
             {/* Display Name */}
-            <Text style={styles.fieldLabel}>Display Name</Text>
+            <Text style={[styles.fieldLabel, { color: C.textSecondary }]}>Display Name</Text>
             <TextInput
-              style={styles.textInput}
+              style={[styles.textInput, { backgroundColor: C.inputBg, color: C.textPrimary, borderColor: C.border }]}
               value={displayName}
               onChangeText={setDisplayName}
               placeholder="Your display name"
@@ -237,9 +258,9 @@ export default function SettingsScreen() {
             />
 
             {/* Bio */}
-            <Text style={styles.fieldLabel}>Bio</Text>
+            <Text style={[styles.fieldLabel, { color: C.textSecondary }]}>Bio</Text>
             <TextInput
-              style={[styles.textInput, styles.textArea]}
+              style={[styles.textInput, styles.textArea, { backgroundColor: C.inputBg, color: C.textPrimary, borderColor: C.border }]}
               value={bio}
               onChangeText={setBio}
               placeholder="Tell us about yourself..."
@@ -251,9 +272,9 @@ export default function SettingsScreen() {
             />
 
             {/* Status */}
-            <Text style={styles.fieldLabel}>Status</Text>
+            <Text style={[styles.fieldLabel, { color: C.textSecondary }]}>Status</Text>
             <TextInput
-              style={styles.textInput}
+              style={[styles.textInput, { backgroundColor: C.inputBg, color: C.textPrimary, borderColor: C.border }]}
               value={status}
               onChangeText={setStatus}
               placeholder="What are you up to?"
@@ -281,12 +302,12 @@ export default function SettingsScreen() {
         </View>
 
         {/* Preferences Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Preferences</Text>
-          <View style={styles.sectionContent}>
+        <View style={[styles.section, { backgroundColor: C.sectionBg }]}>
+          <Text style={[styles.sectionTitle, { color: C.textPrimary }]}>Preferences</Text>
+          <View style={[styles.sectionContent, { backgroundColor: C.cardBg, borderColor: C.border }]}>
             {/* Theme Toggle */}
-            <Text style={styles.fieldLabel}>Theme</Text>
-            <View style={styles.segmentedControl}>
+            <Text style={[styles.fieldLabel, { color: C.textSecondary }]}>Theme</Text>
+            <View style={[styles.segmentedControl, { backgroundColor: C.inputBg, borderColor: C.border }]}>
               {(['light', 'dark', 'system'] as ThemeMode[]).map((mode) => (
                 <TouchableOpacity
                   key={mode}
@@ -312,8 +333,8 @@ export default function SettingsScreen() {
             {/* Notification Switches */}
             <View style={styles.switchRow}>
               <View style={styles.switchInfo}>
-                <Text style={styles.switchLabel}>Notifications</Text>
-                <Text style={styles.switchDescription}>Receive push notifications</Text>
+                <Text style={[styles.switchLabel, { color: C.textPrimary }]}>Notifications</Text>
+                <Text style={[styles.switchDescription, { color: C.textSecondary }]}>Receive push notifications</Text>
               </View>
               <Switch
                 value={notificationsEnabled}
@@ -324,12 +345,12 @@ export default function SettingsScreen() {
               />
             </View>
 
-            <View style={styles.divider} />
+            <View style={[styles.divider, { backgroundColor: C.border }]} />
 
             <View style={styles.switchRow}>
               <View style={styles.switchInfo}>
-                <Text style={styles.switchLabel}>Sound</Text>
-                <Text style={styles.switchDescription}>Play notification sounds</Text>
+                <Text style={[styles.switchLabel, { color: C.textPrimary }]}>Sound</Text>
+                <Text style={[styles.switchDescription, { color: C.textSecondary }]}>Play notification sounds</Text>
               </View>
               <Switch
                 value={soundEnabled}
@@ -340,12 +361,12 @@ export default function SettingsScreen() {
               />
             </View>
 
-            <View style={styles.divider} />
+            <View style={[styles.divider, { backgroundColor: C.border }]} />
 
             <View style={styles.switchRow}>
               <View style={styles.switchInfo}>
-                <Text style={styles.switchLabel}>Vibration</Text>
-                <Text style={styles.switchDescription}>Vibrate on notifications</Text>
+                <Text style={[styles.switchLabel, { color: C.textPrimary }]}>Vibration</Text>
+                <Text style={[styles.switchDescription, { color: C.textSecondary }]}>Vibrate on notifications</Text>
               </View>
               <Switch
                 value={vibrationEnabled}
@@ -359,9 +380,9 @@ export default function SettingsScreen() {
         </View>
 
         {/* Account Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Account</Text>
-          <View style={styles.sectionContent}>
+        <View style={[styles.section, { backgroundColor: C.sectionBg }]}>
+          <Text style={[styles.sectionTitle, { color: C.textPrimary }]}>Account</Text>
+          <View style={[styles.sectionContent, { backgroundColor: C.cardBg, borderColor: C.border }]}>
             <TouchableOpacity
               style={styles.logoutButton}
               onPress={handleLogout}
@@ -373,7 +394,7 @@ export default function SettingsScreen() {
         </View>
 
         {/* App Version */}
-        <Text style={styles.versionText}>Exclusive Messenger v{APP_VERSION}</Text>
+        <Text style={[styles.versionText, { color: C.textSecondary }]}>Exclusive Messenger v{APP_VERSION}</Text>
 
         <View style={{ height: 40 }} />
       </ScrollView>

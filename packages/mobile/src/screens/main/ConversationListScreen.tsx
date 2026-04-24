@@ -507,7 +507,7 @@ export default function ConversationListScreen() {
           activeOpacity={0.8}
         >
           <Text style={styles.newChatIcon}>+</Text>
-          <Text style={styles.newChatText}>New Chat</Text>
+          <Text style={styles.newChatText}>NEW</Text>
         </TouchableOpacity>
       </View>
 

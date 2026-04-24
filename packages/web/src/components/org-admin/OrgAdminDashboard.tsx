@@ -24,12 +24,13 @@ import {
 import { api } from '@/services/api';
 import Avatar from '@/components/common/Avatar';
 import PanelSettingsTab from './PanelSettingsTab';
+import DepartmentsTab from './DepartmentsTab';
 
 interface OrgAdminDashboardProps {
   onBack: () => void;
 }
 
-type TabType = 'overview' | 'members' | 'messages' | 'tasks' | 'reports' | 'settings';
+type TabType = 'overview' | 'members' | 'departments' | 'messages' | 'tasks' | 'reports' | 'settings';
 
 interface OrgSummary {
   id: string;
@@ -491,11 +492,12 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
       )}
 
       {/* Tab Navigation */}
-      <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 sticky top-16 z-10">
-        <div className="flex gap-1">
+      <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 sticky top-16 z-10 overflow-x-auto">
+        <div className="flex gap-1 min-w-max">
           {[
             { id: 'overview' as TabType, label: 'Overview' },
             { id: 'members' as TabType, label: 'Members' },
+            { id: 'departments' as TabType, label: 'Departments' },
             { id: 'messages' as TabType, label: 'Messages' },
             { id: 'tasks' as TabType, label: 'Tasks' },
             { id: 'reports' as TabType, label: 'Reports' },
@@ -516,7 +518,7 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
         </div>
       </div>
 
-      <div className="flex-1 p-4 md:p-6 overflow-y-auto">
+      <div className="flex-1 px-3 py-4 md:p-6 overflow-y-auto">
         {/* Overview Tab */}
         {activeTab === 'overview' && dashboardData && (
           <div className="space-y-6">
@@ -658,7 +660,7 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
           <div className="space-y-4">
             {/* Search Bar + Add Member button */}
             <div className="flex items-center gap-3 flex-wrap">
-              <div className="relative flex-1 min-w-64">
+              <div className="relative flex-1 min-w-0 sm:min-w-64">
                 <Search
                   size={18}
                   className="absolute left-3 top-2.5 text-slate-400 dark:text-slate-500"
@@ -916,6 +918,11 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
               </>
             )}
           </div>
+        )}
+
+        {/* Departments Tab */}
+        {activeTab === 'departments' && (
+          <DepartmentsTab orgId={currentOrgId} />
         )}
 
         {/* Messages Tab */}

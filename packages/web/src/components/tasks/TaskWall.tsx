@@ -63,7 +63,9 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
     labels: [] as string[],
     lindaFollowing: false,
     lindaFollowInterval: 'daily' as string,
+    visibleToDepartmentIds: [] as string[],
   });
+  const [departments, setDepartments] = useState<Array<{ id: string; name: string }>>([]);
   const [labelInput, setLabelInput] = useState('');
 
   // Assignee search state
@@ -139,6 +141,13 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
     fetchTasks();
   }, [filter, searchQuery]);
 
+  // Load departments for the "Visible to Departments" selector
+  useEffect(() => {
+    api.getDepartments().then((res) => {
+      setDepartments(res?.departments?.map((d: any) => ({ id: d.id, name: d.name })) || []);
+    }).catch(() => {});
+  }, []);
+
   // Handle create/update task
   const handleSaveTask = async () => {
     if (!formData.title.trim()) {
@@ -169,6 +178,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
           labels: formData.labels,
           lindaFollowing: formData.lindaFollowing,
           lindaFollowInterval: formData.lindaFollowing ? formData.lindaFollowInterval : undefined,
+          visibleToDepartmentIds: formData.visibleToDepartmentIds.length > 0 ? formData.visibleToDepartmentIds : undefined,
         });
         console.log('Task created:', created);
         // Refetch all tasks to ensure consistency with server
@@ -244,6 +254,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
       labels: [],
       lindaFollowing: false,
       lindaFollowInterval: 'daily',
+      visibleToDepartmentIds: [],
     });
     setLabelInput('');
     setSelectedAssignee(null);
@@ -907,6 +918,44 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                     </div>
                   )}
                 </div>
+
+                {/* Visible to Departments */}
+                {departments.length > 0 && !editingTask && (
+                  <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 border border-blue-100 dark:border-blue-800">
+                    <label className="block text-sm font-semibold text-blue-900 dark:text-blue-200 mb-2">
+                      👥 Visible to Departments
+                    </label>
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mb-3">
+                      All members of selected departments will see this task, even if not directly assigned.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {departments.map((dept) => {
+                        const selected = formData.visibleToDepartmentIds.includes(dept.id);
+                        return (
+                          <button
+                            key={dept.id}
+                            type="button"
+                            onClick={() => {
+                              setFormData((prev) => ({
+                                ...prev,
+                                visibleToDepartmentIds: selected
+                                  ? prev.visibleToDepartmentIds.filter((id) => id !== dept.id)
+                                  : [...prev.visibleToDepartmentIds, dept.id],
+                              }));
+                            }}
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
+                              selected
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-white dark:bg-surface-800 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-800/30'
+                            }`}
+                          >
+                            {dept.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

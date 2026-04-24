@@ -978,6 +978,35 @@ class APIClient {
     return res.data;
   }
 
+  // ─── Department Management ─────────────────────────────────────────────
+  async getDepartments(orgId?: string): Promise<{ departments: any[] }> {
+    const res = await this.client.get('/org-admin/departments', { params: { orgId } });
+    return res.data;
+  }
+
+  async createDepartment(name: string, description?: string, orgId?: string): Promise<any> {
+    const res = await this.client.post('/org-admin/departments', { name, description }, { params: { orgId } });
+    return res.data;
+  }
+
+  async updateDepartment(departmentId: string, data: { name?: string; description?: string }, orgId?: string): Promise<any> {
+    const res = await this.client.patch(`/org-admin/departments/${departmentId}`, data, { params: { orgId } });
+    return res.data;
+  }
+
+  async deleteDepartment(departmentId: string, orgId?: string): Promise<void> {
+    await this.client.delete(`/org-admin/departments/${departmentId}`, { params: { orgId } });
+  }
+
+  async addDepartmentMember(departmentId: string, userId: string, orgId?: string): Promise<any> {
+    const res = await this.client.post(`/org-admin/departments/${departmentId}/members`, { userId }, { params: { orgId } });
+    return res.data;
+  }
+
+  async removeDepartmentMember(departmentId: string, userId: string, orgId?: string): Promise<void> {
+    await this.client.delete(`/org-admin/departments/${departmentId}/members/${userId}`, { params: { orgId } });
+  }
+
   // Status/Stories API
   async createTextStatus(content: string, bgColor?: string): Promise<StatusItem> {
     const { data } = await this.client.post('/status/text', { content, bgColor });

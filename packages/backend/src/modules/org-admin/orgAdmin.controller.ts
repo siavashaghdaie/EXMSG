@@ -955,7 +955,7 @@ export class OrgAdminController {
     }
   }
 
-  // POST /api/org-admin/organizations — create a new organization (SUPER_ADMIN only)
+  // POST /api/org-admin/organizations — create a new organization (any authenticated user)
   async createOrganization(req: Request, res: Response): Promise<void> {
     try {
       if (!req.user?.userId) {
@@ -968,8 +968,8 @@ export class OrgAdminController {
         select: { id: true, role: true },
       });
 
-      if (!caller || caller.role !== 'SUPER_ADMIN') {
-        res.status(403).json({ error: 'Only Panel Owners can create organizations' });
+      if (!caller) {
+        res.status(401).json({ error: 'User not found' });
         return;
       }
 
@@ -1002,7 +1002,7 @@ export class OrgAdminController {
         },
       });
 
-      // Add the Panel Owner as OWNER of the new org so they can immediately manage it
+      // Add the creator as OWNER of the new org so they can immediately manage it
       await prisma.organizationMember.create({
         data: {
           organizationId: org.id,
@@ -1248,5 +1248,180 @@ export class OrgAdminController {
     });
 
     return result;
+  }
+
+  // ─── Department Management ──────────────────────────────────────────────
+
+  async getDepartments(req: Request, res: Response): Promise<void> {
+    try {
+      const orgId = req.orgId;
+      if (!orgId) { res.status(400).json({ error: 'Organization ID required' }); return; }
+
+      const departments = await prisma.department.findMany({
+        where: { organizationId: orgId },
+        include: {
+          members: {
+            include: {
+              user: { select: { id: true, username: true, displayName: true, avatarUrl: true, email: true } },
+            },
+          },
+          _count: { select: { members: true, visibleTasks: true } },
+        },
+        orderBy: { name: 'asc' },
+      });
+
+      res.json({ departments });
+    } catch (error) {
+      console.error('Get departments error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  async createDepartment(req: Request, res: Response): Promise<void> {
+    try {
+      const orgId = req.orgId;
+      if (!orgId) { res.status(400).json({ error: 'Organization ID required' }); return; }
+
+      const { name, description } = req.body || {};
+      if (!name || typeof name !== 'string' || !name.trim()) {
+        res.status(400).json({ error: 'Department name is required' });
+        return;
+      }
+
+      const existing = await prisma.department.findUnique({
+        where: { organizationId_name: { organizationId: orgId, name: name.trim() } },
+      });
+      if (existing) {
+        res.status(409).json({ error: 'A department with this name already exists' });
+        return;
+      }
+
+      const department = await prisma.department.create({
+        data: {
+          organizationId: orgId,
+          name: name.trim(),
+          description: description ? String(description).trim() : undefined,
+        },
+        include: { _count: { select: { members: true } } },
+      });
+
+      res.status(201).json({ department });
+    } catch (error) {
+      console.error('Create department error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  async updateDepartment(req: Request, res: Response): Promise<void> {
+    try {
+      const orgId = req.orgId;
+      const { departmentId } = req.params;
+      if (!orgId) { res.status(400).json({ error: 'Organization ID required' }); return; }
+
+      const { name, description } = req.body || {};
+
+      const dept = await prisma.department.findFirst({
+        where: { id: departmentId, organizationId: orgId },
+      });
+      if (!dept) { res.status(404).json({ error: 'Department not found' }); return; }
+
+      const data: any = {};
+      if (name && typeof name === 'string' && name.trim()) data.name = name.trim();
+      if (description !== undefined) data.description = description ? String(description).trim() : null;
+
+      const updated = await prisma.department.update({
+        where: { id: departmentId },
+        data,
+        include: { _count: { select: { members: true } } },
+      });
+
+      res.json({ department: updated });
+    } catch (error) {
+      console.error('Update department error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  async deleteDepartment(req: Request, res: Response): Promise<void> {
+    try {
+      const orgId = req.orgId;
+      const { departmentId } = req.params;
+      if (!orgId) { res.status(400).json({ error: 'Organization ID required' }); return; }
+
+      const dept = await prisma.department.findFirst({
+        where: { id: departmentId, organizationId: orgId },
+      });
+      if (!dept) { res.status(404).json({ error: 'Department not found' }); return; }
+
+      await prisma.department.delete({ where: { id: departmentId } });
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Delete department error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  async addDepartmentMember(req: Request, res: Response): Promise<void> {
+    try {
+      const orgId = req.orgId;
+      const { departmentId } = req.params;
+      const { userId } = req.body || {};
+      if (!orgId) { res.status(400).json({ error: 'Organization ID required' }); return; }
+      if (!userId) { res.status(400).json({ error: 'userId is required' }); return; }
+
+      // Verify department belongs to org
+      const dept = await prisma.department.findFirst({
+        where: { id: departmentId, organizationId: orgId },
+      });
+      if (!dept) { res.status(404).json({ error: 'Department not found' }); return; }
+
+      // Verify user is an org member
+      const orgMember = await prisma.organizationMember.findUnique({
+        where: { organizationId_userId: { organizationId: orgId, userId } },
+      });
+      if (!orgMember) { res.status(400).json({ error: 'User is not a member of this organization' }); return; }
+
+      // Check for existing membership
+      const existing = await prisma.departmentMember.findUnique({
+        where: { departmentId_userId: { departmentId, userId } },
+      });
+      if (existing) { res.status(409).json({ error: 'User is already in this department' }); return; }
+
+      const member = await prisma.departmentMember.create({
+        data: { departmentId, userId },
+        include: {
+          user: { select: { id: true, username: true, displayName: true, avatarUrl: true, email: true } },
+        },
+      });
+
+      res.status(201).json({ member });
+    } catch (error) {
+      console.error('Add department member error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  async removeDepartmentMember(req: Request, res: Response): Promise<void> {
+    try {
+      const orgId = req.orgId;
+      const { departmentId, userId } = req.params;
+      if (!orgId) { res.status(400).json({ error: 'Organization ID required' }); return; }
+
+      const dept = await prisma.department.findFirst({
+        where: { id: departmentId, organizationId: orgId },
+      });
+      if (!dept) { res.status(404).json({ error: 'Department not found' }); return; }
+
+      const membership = await prisma.departmentMember.findUnique({
+        where: { departmentId_userId: { departmentId, userId } },
+      });
+      if (!membership) { res.status(404).json({ error: 'User is not in this department' }); return; }
+
+      await prisma.departmentMember.delete({ where: { id: membership.id } });
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Remove department member error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
   }
 }
