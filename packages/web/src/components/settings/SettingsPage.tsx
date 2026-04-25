@@ -18,7 +18,7 @@ export default function SettingsPage({ onBack }: SettingsPageProps) {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [selectedTab, setSelectedTab] = useState<SettingsTab | null>(isMobile ? null : 'profile');
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
-  const [username, setUsername] = useState(user?.username || '');
+  const [displayName, setDisplayName] = useState(user?.displayName || user?.username || '');
   const [bio, setBio] = useState(user?.bio || '');
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
@@ -93,7 +93,7 @@ export default function SettingsPage({ onBack }: SettingsPageProps) {
     setIsSaving(true);
     setSaveMessage('');
     try {
-      const updated = await api.updateProfile({ username, bio });
+      const updated = await api.updateProfile({ displayName, bio });
       if (updateUser) updateUser(updated);
       setSaveMessage('Profile saved successfully!');
       setTimeout(() => setSaveMessage(''), 3000);
@@ -360,8 +360,8 @@ export default function SettingsPage({ onBack }: SettingsPageProps) {
                 </label>
                 <input
                   type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition"
                 />
               </div>

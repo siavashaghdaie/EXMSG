@@ -209,7 +209,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
           lindaFollowInterval: formData.lindaFollowing ? formData.lindaFollowInterval : undefined,
           visibleToDepartmentIds: formData.visibleToDepartmentIds.length > 0 ? formData.visibleToDepartmentIds : undefined,
           departmentId: formData.departmentId || undefined,
-          projectId: formData.projectId || undefined,
+          projectId: (formData.projectId && formData.projectId !== '__new__') ? formData.projectId : undefined,
           projectName: formData.projectName || undefined,
         });
         console.log('Task created:', created);
@@ -1206,7 +1206,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                   <input
                     type="text"
                     value={formData.projectName}
-                    onChange={(e) => setFormData({ ...formData, projectName: e.target.value, projectId: '' })}
+                    onChange={(e) => setFormData({ ...formData, projectName: e.target.value })}
                     placeholder="Enter new project name..."
                     className="w-full mt-2 px-3 py-2 rounded-lg bg-gray-50 dark:bg-surface-800 text-gray-900 dark:text-white border border-gray-300 dark:border-surface-700 focus:outline-none focus:ring-2 focus:ring-primary-500 placeholder-gray-400"
                     autoFocus

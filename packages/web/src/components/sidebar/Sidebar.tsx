@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Search, Settings, Plus, Bell, Clipboard, LayoutDashboard, Globe, FolderKanban } from 'lucide-react';
+import { Search, Settings, Plus, Bell, Clipboard, LayoutDashboard, FolderKanban, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { usePresenceStore } from '@/store/presenceStore';
@@ -12,6 +12,8 @@ import StoryViewerModal from '@/components/common/StoryViewerModal';
 
 interface SidebarProps {
   isMobile?: boolean;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
   onNavigateChat?: () => void;
   onSettingsClick?: () => void;
   onDashboardClick?: () => void;
@@ -24,6 +26,8 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({
   isMobile = false,
+  collapsed = false,
+  onToggleCollapse,
   onNavigateChat,
   onSettingsClick,
   onDashboardClick,
@@ -221,6 +225,150 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
+  // ─── Collapsed Icon Rail (desktop only) ───
+  if (collapsed && !isMobile) {
+    return (
+      <>
+        <div className="relative bg-white dark:bg-surface-900 border-r border-gray-200 dark:border-surface-700 flex flex-col w-16 h-screen items-center py-3 gap-1 flex-shrink-0">
+          {/* Expand button */}
+          <button
+            onClick={onToggleCollapse}
+            className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors mb-2"
+            title="Expand sidebar"
+          >
+            <PanelLeftOpen className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+          </button>
+
+          {/* Avatar */}
+          <button
+            onClick={handleAvatarClick}
+            className="relative mb-2"
+            title={user?.displayName || user?.username || 'Profile'}
+          >
+            <Avatar src={user?.avatar || (user as any)?.avatarUrl} name={user?.displayName || user?.username || user?.email || 'User'} username={user?.username || user?.email || 'User'} size="md" />
+            {hasActiveStory && (
+              <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-amber-400 rounded-full border-2 border-white dark:border-surface-900" />
+            )}
+          </button>
+
+          <div className="w-8 border-t border-gray-200 dark:border-surface-700 my-1" />
+
+          {/* Dashboard (admin only) */}
+          {isOrgAdmin && (
+            <button
+              onClick={handleDashboardClick}
+              className={`p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative ${dashboardBlink ? 'animate-pulse' : ''}`}
+              title="Admin Dashboard"
+            >
+              <LayoutDashboard className={`w-5 h-5 ${dashboardBlink ? 'text-primary-600 dark:text-primary-400' : 'text-gray-500 dark:text-gray-400'}`} />
+              {dashboardBlink && (
+                <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary-500 rounded-full" />
+              )}
+            </button>
+          )}
+
+          {/* Announcements */}
+          <button
+            onClick={() => onAnnouncementsClick?.()}
+            className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative"
+            title="Announcements"
+          >
+            <Bell className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            {announcementCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] flex items-center justify-center bg-red-500 text-white text-[9px] font-bold rounded-full px-1 leading-none shadow-sm border-2 border-white dark:border-surface-900">
+                {announcementCount > 9 ? '9+' : announcementCount}
+              </span>
+            )}
+          </button>
+
+          {/* Tasks */}
+          <button
+            onClick={onTasksClick}
+            className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative"
+            title="Tasks"
+          >
+            <Clipboard className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            {taskCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] flex items-center justify-center bg-red-500 text-white text-[9px] font-bold rounded-full px-1 leading-none shadow-sm border-2 border-white dark:border-surface-900">
+                {taskCount > 9 ? '9+' : taskCount}
+              </span>
+            )}
+          </button>
+
+          {/* Projects */}
+          <button
+            onClick={() => onProjectsClick?.()}
+            className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors"
+            title="Projects"
+          >
+            <FolderKanban className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+          </button>
+
+          {/* Search — opens full sidebar */}
+          <button
+            onClick={onToggleCollapse}
+            className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors"
+            title="Search conversations"
+          >
+            <Search className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+          </button>
+
+          {/* Spacer */}
+          <div className="flex-1" />
+
+          {/* + NEW */}
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="p-2 bg-primary-600 dark:bg-primary-500 text-white rounded-lg hover:bg-primary-700 dark:hover:bg-primary-600 transition-colors shadow-md"
+            title="New conversation"
+          >
+            <Plus className="w-5 h-5" />
+          </button>
+
+          {/* Settings */}
+          <button
+            onClick={handleSettingsClick}
+            className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors mt-1"
+            title="Settings"
+          >
+            <Settings className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+          </button>
+        </div>
+
+        {/* Modals still need to render */}
+        {showStoryCreation && (
+          <StoryCreationModal
+            isOpen={showStoryCreation}
+            onClose={() => setShowStoryCreation(false)}
+            onStoryCreated={() => {
+              setHasActiveStory(true);
+              setShowStoryCreation(false);
+              api.getContactStatuses().then(r => setContactStories(r?.users || [])).catch(() => {});
+            }}
+          />
+        )}
+        {showStoryViewer && storyViewUserId && (
+          <StoryViewerModal
+            isOpen={showStoryViewer}
+            userId={storyViewUserId}
+            onClose={() => {
+              setShowStoryViewer(false);
+              setStoryViewUserId(null);
+              api.getContactStatuses().then(r => setContactStories(r?.users || [])).catch(() => {});
+            }}
+            onStoryDeleted={() => setHasActiveStory(false)}
+          />
+        )}
+        <NewConversationModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          onPanelsClick={() => onInterPanelClick?.()}
+        />
+      </>
+    );
+  }
+
+  // ─── Full (expanded) sidebar ───
   return (
     <>
       <div className={`relative bg-white dark:bg-surface-900 border-r border-gray-200 dark:border-surface-700 flex flex-col ${isMobile ? 'w-full h-full' : 'w-80 h-screen'}`}>
@@ -232,29 +380,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <h1 className="text-xl font-bold text-gray-900 dark:text-white">
                   OMNILINK
                 </h1>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-0.5">
                   {isOrgAdmin && (
                     <button
                       onClick={handleDashboardClick}
-                      className={`p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative ${dashboardBlink ? 'animate-pulse' : ''}`}
+                      className={`p-1.5 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative ${dashboardBlink ? 'animate-pulse' : ''}`}
                       title="Admin Dashboard"
                     >
-                      <LayoutDashboard className={`w-5 h-5 ${dashboardBlink ? 'text-primary-600 dark:text-primary-400' : 'text-gray-600 dark:text-gray-400'}`} />
+                      <LayoutDashboard className={`w-4 h-4 ${dashboardBlink ? 'text-primary-600 dark:text-primary-400' : 'text-gray-600 dark:text-gray-400'}`} />
                       {dashboardBlink && (
-                        <span className="absolute top-0.5 right-0.5 w-2.5 h-2.5 bg-primary-500 rounded-full animate-ping" />
+                        <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary-500 rounded-full animate-ping" />
                       )}
                       {dashboardBlink && (
-                        <span className="absolute top-0.5 right-0.5 w-2.5 h-2.5 bg-primary-500 rounded-full" />
+                        <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary-500 rounded-full" />
                       )}
-                    </button>
-                  )}
-                  {user?.orgRole === 'OWNER' && (
-                    <button
-                      onClick={() => onInterPanelClick?.()}
-                      className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors"
-                      title="Inter-Panel Connections"
-                    >
-                      <Globe className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                     </button>
                   )}
                   <button
@@ -263,12 +402,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         onAnnouncementsClick();
                       }
                     }}
-                    className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative"
+                    className="p-1.5 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative"
                     title="Announcements"
                   >
-                    <Bell className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                    <Bell className="w-4 h-4 text-gray-600 dark:text-gray-400" />
                     {announcementCount > 0 && (
-                      <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] flex items-center justify-center bg-red-500 text-white text-[9px] font-bold rounded-full px-1 leading-none shadow-sm border-2 border-white dark:border-surface-900">
+                      <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center bg-red-500 text-white text-[8px] font-bold rounded-full px-0.5 leading-none shadow-sm border border-white dark:border-surface-900">
                         {announcementCount > 9 ? '9+' : announcementCount}
                       </span>
                     )}
@@ -280,29 +419,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <h1 className="text-xl font-bold text-gray-900 dark:text-white">
                   OMNILINK
                 </h1>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
                   {isOrgAdmin && (
                     <button
                       onClick={handleDashboardClick}
-                      className={`p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative ${dashboardBlink ? 'animate-pulse' : ''}`}
+                      className={`p-1.5 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative ${dashboardBlink ? 'animate-pulse' : ''}`}
                       title="Admin Dashboard"
                     >
-                      <LayoutDashboard className={`w-5 h-5 ${dashboardBlink ? 'text-primary-600 dark:text-primary-400' : 'text-gray-600 dark:text-gray-400'}`} />
+                      <LayoutDashboard className={`w-4 h-4 ${dashboardBlink ? 'text-primary-600 dark:text-primary-400' : 'text-gray-600 dark:text-gray-400'}`} />
                       {dashboardBlink && (
-                        <span className="absolute top-0.5 right-0.5 w-2.5 h-2.5 bg-primary-500 rounded-full animate-ping" />
+                        <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary-500 rounded-full animate-ping" />
                       )}
                       {dashboardBlink && (
-                        <span className="absolute top-0.5 right-0.5 w-2.5 h-2.5 bg-primary-500 rounded-full" />
+                        <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary-500 rounded-full" />
                       )}
-                    </button>
-                  )}
-                  {user?.orgRole === 'OWNER' && (
-                    <button
-                      onClick={() => onInterPanelClick?.()}
-                      className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors"
-                      title="Inter-Panel Connections"
-                    >
-                      <Globe className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                     </button>
                   )}
                   <button
@@ -311,42 +441,51 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         onAnnouncementsClick();
                       }
                     }}
-                    className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative"
+                    className="p-1.5 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative"
                     title="Announcements"
                   >
-                    <Bell className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                    <Bell className="w-4 h-4 text-gray-600 dark:text-gray-400" />
                     {announcementCount > 0 && (
-                      <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] flex items-center justify-center bg-red-500 text-white text-[9px] font-bold rounded-full px-1 leading-none shadow-sm border-2 border-white dark:border-surface-900">
+                      <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center bg-red-500 text-white text-[8px] font-bold rounded-full px-0.5 leading-none shadow-sm border border-white dark:border-surface-900">
                         {announcementCount > 9 ? '9+' : announcementCount}
                       </span>
                     )}
                   </button>
                   <button
                     onClick={onTasksClick}
-                    className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative"
+                    className="p-1.5 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative"
                     title="Tasks"
                   >
-                    <Clipboard className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                    <Clipboard className="w-4 h-4 text-gray-600 dark:text-gray-400" />
                     {taskCount > 0 && (
-                      <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] flex items-center justify-center bg-red-500 text-white text-[9px] font-bold rounded-full px-1 leading-none shadow-sm border-2 border-white dark:border-surface-900">
+                      <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center bg-red-500 text-white text-[8px] font-bold rounded-full px-0.5 leading-none shadow-sm border border-white dark:border-surface-900">
                         {taskCount > 9 ? '9+' : taskCount}
                       </span>
                     )}
                   </button>
                   <button
                     onClick={() => onProjectsClick?.()}
-                    className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors"
+                    className="p-1.5 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors"
                     title="Projects"
                   >
-                    <FolderKanban className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                    <FolderKanban className="w-4 h-4 text-gray-600 dark:text-gray-400" />
                   </button>
                   <button
                     onClick={handleSettingsClick}
-                    className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors"
+                    className="p-1.5 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors"
                     title="Settings"
                   >
-                    <Settings className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                    <Settings className="w-4 h-4 text-gray-600 dark:text-gray-400" />
                   </button>
+                  {onToggleCollapse && (
+                    <button
+                      onClick={onToggleCollapse}
+                      className="p-1.5 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors"
+                      title="Collapse sidebar"
+                    >
+                      <PanelLeftClose className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                    </button>
+                  )}
                 </div>
               </>
             )}
@@ -534,6 +673,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <NewConversationModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
+        onPanelsClick={() => onInterPanelClick?.()}
       />
     </>
   );

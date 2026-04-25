@@ -736,7 +736,7 @@ class APIClient {
     return response.data;
   }
 
-  async updateProfile(updates: Partial<{ username: string; avatar: string; bio: string }>): Promise<UserProfile> {
+  async updateProfile(updates: Partial<{ displayName: string; username: string; avatar: string; bio: string }>): Promise<UserProfile> {
     const response = await this.client.patch<UserProfile>('/users/profile', updates);
     return response.data;
   }

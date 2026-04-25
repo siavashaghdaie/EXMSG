@@ -37,6 +37,17 @@ export const ChatLayout: React.FC = () => {
   const [showWizard, setShowWizard] = useState(false);
   const [, setAnnouncementCount] = useState(0);
   const [taskCount, setTaskCount] = useState(0);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    return localStorage.getItem('omnilink_sidebar_collapsed') === 'true';
+  });
+
+  const toggleSidebarCollapsed = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem('omnilink_sidebar_collapsed', String(next));
+      return next;
+    });
+  };
 
   // Helper: close ALL sub-pages so that <Outlet/> (ChatView) can render.
   // Call this before opening any sub-page or navigating to a chat.
@@ -221,6 +232,8 @@ export const ChatLayout: React.FC = () => {
         <div className={isMobile ? 'w-full' : ''} style={isMobile && showBottomNav ? { height: 'calc(100% - 59px)' } : isMobile ? { height: '100%' } : undefined}>
           <Sidebar
             isMobile={isMobile}
+            collapsed={!isMobile && sidebarCollapsed}
+            onToggleCollapse={toggleSidebarCollapsed}
             onNavigateChat={() => {
               closeAllSubPages();
               if (isMobile) setShowSidebar(false);
