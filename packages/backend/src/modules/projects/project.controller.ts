@@ -1,7 +1,5 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { prisma } from '../../config/database';
 
 const projectInclude = {
   teamLead: { select: { id: true, username: true, displayName: true, avatarUrl: true, email: true } },
@@ -153,7 +151,7 @@ export class ProjectController {
         }
       }
 
-      // Auto-create linked group conversation for this project
+      // Auto-create linked group conversation for this project (non-blocking)
       try {
         const convMemberIds = new Set<string>([userId]); // creator
         if (teamLeadId && teamLeadId !== userId) convMemberIds.add(teamLeadId);
@@ -167,7 +165,7 @@ export class ProjectController {
           data: {
             type: 'GROUP',
             name: `Project: ${name.trim()}`,
-            organizationId: orgId,
+            ...(orgId && { organizationId: orgId }),
             members: {
               create: Array.from(convMemberIds).map(uid => ({
                 userId: uid,
@@ -177,19 +175,30 @@ export class ProjectController {
           },
         });
 
-        await prisma.project.update({
-          where: { id: project.id },
-          data: { conversationId: conversation.id },
-        });
+        try {
+          await prisma.project.update({
+            where: { id: project.id },
+            data: { conversationId: conversation.id },
+          });
+        } catch (linkErr) {
+          console.error('Link project conversation error:', linkErr);
+        }
       } catch (convErr) {
         console.error('Auto-create project conversation error:', convErr);
       }
 
       // Fetch the full project with relations
-      const full = await prisma.project.findUnique({
-        where: { id: project.id },
-        include: projectInclude,
-      });
+      let full: any;
+      try {
+        full = await prisma.project.findUnique({
+          where: { id: project.id },
+          include: projectInclude,
+        });
+      } catch (fetchErr) {
+        console.error('Fetch full project error:', fetchErr);
+        // Return basic project data if full fetch fails
+        full = project;
+      }
 
       res.status(201).json({ project: full });
     } catch (error: any) {

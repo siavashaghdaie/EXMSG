@@ -208,7 +208,8 @@ export class TaskController {
         },
       });
 
-      // Auto-create linked group conversation for this task
+      // Auto-create linked group conversation for this task (non-blocking)
+      let conversationId: string | null = null;
       try {
         const memberIds = new Set<string>([userId]); // creator
         if (assignedToId && assignedToId !== userId) memberIds.add(assignedToId);
@@ -228,17 +229,22 @@ export class TaskController {
           },
         });
 
-        await prisma.task.update({
-          where: { id: task.id },
-          data: { conversationId: conversation.id },
-        });
+        conversationId = conversation.id;
 
-        (task as any).conversationId = conversation.id;
+        // Link conversation to task — separate try so task still returns on failure
+        try {
+          await prisma.task.update({
+            where: { id: task.id },
+            data: { conversationId: conversation.id },
+          });
+        } catch (linkErr) {
+          console.error('Link task conversation error:', linkErr);
+        }
       } catch (convErr) {
         console.error('Auto-create task conversation error:', convErr);
       }
 
-      res.status(201).json({ task });
+      res.status(201).json({ task: { ...task, conversationId } });
     } catch (error) {
       console.error('Create task error:', error);
       res.status(500).json({ error: 'Internal server error' });

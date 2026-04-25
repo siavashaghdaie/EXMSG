@@ -97,6 +97,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
   interface ChecklistFormItem {
     title: string;
     assigneeId?: string;
+    assigneeName?: string;
     dueDate?: string;
   }
   interface ChecklistForm {
@@ -105,6 +106,34 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
   }
   const [formChecklists, setFormChecklists] = useState<ChecklistForm[]>([]);
   const [newChecklistTitle, setNewChecklistTitle] = useState('');
+
+  // Checklist item assignee search (separate from task assignee search)
+  const [itemAssigneeSearch, setItemAssigneeSearch] = useState('');
+  const [itemAssigneeResults, setItemAssigneeResults] = useState<Array<{ id: string; username: string; email: string; avatar?: string }>>([]);
+  const [itemAssigneeTarget, setItemAssigneeTarget] = useState<{ clIdx: number; itemIdx: number } | null>(null);
+  const [, setItemAssigneeLoading] = useState(false);
+
+  // Debounced user search for checklist item assignee
+  useEffect(() => {
+    if (!itemAssigneeSearch || itemAssigneeSearch.length < 2) {
+      setItemAssigneeResults([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setItemAssigneeLoading(true);
+      try {
+        const results = await api.searchUsers(itemAssigneeSearch, 10);
+        setItemAssigneeResults(results);
+      } catch (error) {
+        console.error('Error searching users for checklist item:', error);
+      } finally {
+        setItemAssigneeLoading(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [itemAssigneeSearch]);
 
   // Assignee search state
   const [assigneeSearch, setAssigneeSearch] = useState('');
@@ -444,6 +473,9 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
     setShowAssigneeDropdown(false);
     setFormChecklists([]);
     setNewChecklistTitle('');
+    setItemAssigneeSearch('');
+    setItemAssigneeResults([]);
+    setItemAssigneeTarget(null);
   };
 
   // Add label to form
@@ -1509,11 +1541,14 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                         </button>
                       </div>
 
-                      {/* Checklist items */}
+                      {/* Checklist items with assignee per item */}
                       {cl.items.map((item, itemIdx) => (
                         <div key={itemIdx} className="flex items-center gap-2 mb-1.5 ml-2">
                           <CheckSquare className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
                           <span className="text-xs text-gray-700 dark:text-gray-300 flex-1 truncate">{item.title}</span>
+                          {item.assigneeName && (
+                            <span className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-full">{item.assigneeName}</span>
+                          )}
                           {item.dueDate && (
                             <span className="text-[10px] text-gray-400">{new Date(item.dueDate).toLocaleDateString()}</span>
                           )}
@@ -1538,7 +1573,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                         <div className="flex gap-1">
                           <input
                             type="text"
-                            placeholder="Add item..."
+                            placeholder="Add item (press Enter)..."
                             className="flex-1 px-2 py-1 text-xs rounded bg-white dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white placeholder-gray-400"
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
@@ -1553,44 +1588,77 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                             }}
                           />
                         </div>
-                        {cl.items.length > 0 && cl.items[cl.items.length - 1] && (
-                          <div className="flex gap-1">
-                            <input
-                              type="date"
-                              min={new Date().toISOString().split('T')[0]}
-                              className="flex-1 px-2 py-1 text-xs rounded bg-white dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white"
-                              onChange={(e) => {
-                                if (e.target.value) {
-                                  const updated = [...formChecklists];
-                                  const lastIdx = updated[clIdx].items.length - 1;
-                                  updated[clIdx].items[lastIdx] = { ...updated[clIdx].items[lastIdx], dueDate: e.target.value };
-                                  setFormChecklists(updated);
-                                }
-                              }}
-                              placeholder="Due date for last item"
-                            />
-                            <select
-                              className="flex-1 px-2 py-1 text-xs rounded bg-white dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white"
-                              onChange={(e) => {
-                                if (e.target.value) {
-                                  const updated = [...formChecklists];
-                                  const lastIdx = updated[clIdx].items.length - 1;
-                                  updated[clIdx].items[lastIdx] = { ...updated[clIdx].items[lastIdx], assigneeId: e.target.value };
-                                  setFormChecklists(updated);
-                                }
-                              }}
-                              defaultValue=""
-                            >
-                              <option value="">Assign last item...</option>
-                              {assigneeResults.length > 0
-                                ? assigneeResults.map((u) => (
-                                    <option key={u.id} value={u.id}>{u.username}</option>
-                                  ))
-                                : selectedAssignee && (
-                                    <option value={selectedAssignee.id}>{selectedAssignee.displayName || selectedAssignee.username}</option>
-                                  )
-                              }
-                            </select>
+                        {cl.items.length > 0 && (
+                          <div className="space-y-1.5">
+                            {cl.items.map((item, itemIdx) => (
+                              <div key={`opts-${itemIdx}`} className="flex gap-1 items-center">
+                                <span className="text-[10px] text-gray-500 w-16 truncate">{item.title}</span>
+                                <input
+                                  type="date"
+                                  min={new Date().toISOString().split('T')[0]}
+                                  value={item.dueDate || ''}
+                                  className="flex-1 px-2 py-1 text-xs rounded bg-white dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white"
+                                  onChange={(e) => {
+                                    const updated = [...formChecklists];
+                                    updated[clIdx].items[itemIdx] = { ...updated[clIdx].items[itemIdx], dueDate: e.target.value || undefined };
+                                    setFormChecklists(updated);
+                                  }}
+                                />
+                                <div className="flex-1 relative">
+                                  {item.assigneeName ? (
+                                    <div className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700">
+                                      <span className="truncate text-blue-700 dark:text-blue-300">{item.assigneeName}</span>
+                                      <button onClick={() => {
+                                        const updated = [...formChecklists];
+                                        updated[clIdx].items[itemIdx] = { ...updated[clIdx].items[itemIdx], assigneeId: undefined, assigneeName: undefined };
+                                        setFormChecklists(updated);
+                                      }} className="flex-shrink-0">
+                                        <X className="w-3 h-3 text-blue-400" />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <input
+                                      type="text"
+                                      placeholder="Assign to..."
+                                      className="w-full px-2 py-1 text-xs rounded bg-white dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white placeholder-gray-400"
+                                      onFocus={() => {
+                                        setItemAssigneeTarget({ clIdx, itemIdx });
+                                        setItemAssigneeSearch('');
+                                        setItemAssigneeResults([]);
+                                      }}
+                                      onChange={(e) => {
+                                        setItemAssigneeTarget({ clIdx, itemIdx });
+                                        setItemAssigneeSearch(e.target.value);
+                                      }}
+                                    />
+                                  )}
+                                  {itemAssigneeTarget?.clIdx === clIdx && itemAssigneeTarget?.itemIdx === itemIdx && itemAssigneeResults.length > 0 && (
+                                    <div className="absolute z-20 mt-1 w-full bg-white dark:bg-surface-800 border border-gray-200 dark:border-surface-700 rounded-lg shadow-lg max-h-32 overflow-y-auto">
+                                      {itemAssigneeResults.map((u) => (
+                                        <button
+                                          key={u.id}
+                                          onClick={() => {
+                                            const updated = [...formChecklists];
+                                            updated[clIdx].items[itemIdx] = { ...updated[clIdx].items[itemIdx], assigneeId: u.id, assigneeName: u.username };
+                                            setFormChecklists(updated);
+                                            setItemAssigneeTarget(null);
+                                            setItemAssigneeSearch('');
+                                            setItemAssigneeResults([]);
+                                          }}
+                                          className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-surface-700 text-left"
+                                        >
+                                          <Avatar name={u.username} src={u.avatar} size="sm" />
+                                          <div className="flex-1 min-w-0">
+                                            <p className="text-xs font-medium text-gray-900 dark:text-white truncate">{u.username}</p>
+                                            <p className="text-[10px] text-gray-500 truncate">{u.email}</p>
+                                          </div>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         )}
                       </div>
