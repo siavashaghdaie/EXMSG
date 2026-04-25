@@ -1086,6 +1086,21 @@ class APIClient {
     await this.client.delete(`/tasks/${taskId}/comments/${commentId}`);
   }
 
+  // Task Attachments
+  async getTaskAttachments(taskId: string): Promise<any[]> {
+    const res = await this.client.get(`/tasks/${taskId}/attachments`);
+    return res.data.attachments || [];
+  }
+
+  async addTaskAttachment(taskId: string, data: { type: string; name: string; url: string; size?: number; mimeType?: string }): Promise<any> {
+    const res = await this.client.post(`/tasks/${taskId}/attachments`, data);
+    return res.data.attachment;
+  }
+
+  async deleteTaskAttachment(taskId: string, attachmentId: string): Promise<void> {
+    await this.client.delete(`/tasks/${taskId}/attachments/${attachmentId}`);
+  }
+
   // ─── Department Management ─────────────────────────────────────────────
   async getDepartments(orgId?: string): Promise<{ departments: any[] }> {
     const res = await this.client.get('/org-admin/departments', { params: { orgId } });

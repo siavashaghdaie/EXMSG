@@ -153,6 +153,38 @@ export class ProjectController {
         }
       }
 
+      // Auto-create linked group conversation for this project
+      try {
+        const convMemberIds = new Set<string>([userId]); // creator
+        if (teamLeadId && teamLeadId !== userId) convMemberIds.add(teamLeadId);
+        if (Array.isArray(memberIds)) {
+          for (const mid of memberIds) {
+            if (mid !== userId) convMemberIds.add(mid);
+          }
+        }
+
+        const conversation = await prisma.conversation.create({
+          data: {
+            type: 'GROUP',
+            name: `Project: ${name.trim()}`,
+            organizationId: orgId,
+            members: {
+              create: Array.from(convMemberIds).map(uid => ({
+                userId: uid,
+                role: uid === userId ? 'ADMIN' : 'MEMBER',
+              })),
+            },
+          },
+        });
+
+        await prisma.project.update({
+          where: { id: project.id },
+          data: { conversationId: conversation.id },
+        });
+      } catch (convErr) {
+        console.error('Auto-create project conversation error:', convErr);
+      }
+
       // Fetch the full project with relations
       const full = await prisma.project.findUnique({
         where: { id: project.id },

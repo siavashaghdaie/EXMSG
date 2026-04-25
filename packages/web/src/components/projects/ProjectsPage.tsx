@@ -5,6 +5,7 @@ import {
   Users, UserCheck, Trash2, ExternalLink, FolderKanban,
   Archive, RotateCcw, CheckSquare, Calendar,
   UserPlus, ThumbsUp, ThumbsDown, MessageCircle, Pencil,
+  Paperclip, Link2, FileText, BarChart3, Settings, MessageSquare,
 } from 'lucide-react';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
@@ -63,13 +64,14 @@ interface Project {
   teamLead?: { id: string; username: string; displayName: string; avatarUrl?: string };
   createdBy: { id: string; username: string; displayName: string; avatarUrl?: string };
   members: Array<{ id: string; role: string; user: { id: string; username: string; displayName: string; avatarUrl?: string; email: string } }>;
+  conversationId?: string;
   _count: { tasks: number; members: number };
   tasks?: TaskData[];
   createdAt: string;
   updatedAt: string;
 }
 
-type ViewMode = 'list' | 'detail' | 'board';
+type ViewMode = 'list' | 'detail' | 'board' | 'roadmap';
 
 const priorityColors: Record<string, string> = {
   LOW: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
@@ -105,8 +107,13 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
 
   // New task form
   const [showNewTask, setShowNewTask] = useState<string | null>(null); // status column key
+  const [ganttNoDeadlineMode, setGanttNoDeadlineMode] = useState<'bar' | 'milestone'>('bar');
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskAssignee, setNewTaskAssignee] = useState('');
+  const [newTaskDescription, setNewTaskDescription] = useState('');
+  const [newTaskPriority, setNewTaskPriority] = useState('MEDIUM');
+  const [newTaskDeadline, setNewTaskDeadline] = useState('');
+  const [newTaskAssigneeSearch, setNewTaskAssigneeSearch] = useState('');
 
   // Edit task inline
   const [editingTask, setEditingTask] = useState<string | null>(null);
@@ -117,8 +124,26 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
   const [showAddChecklist, setShowAddChecklist] = useState(false);
   const [newItemTitles, setNewItemTitles] = useState<Record<string, string>>({});
 
+  // Attachments
+  const [showAttachmentForm, setShowAttachmentForm] = useState<string | null>(null);
+  const [attachmentType, setAttachmentType] = useState<'link' | 'file'>('link');
+  const [attachmentName, setAttachmentName] = useState('');
+  const [attachmentUrl, setAttachmentUrl] = useState('');
+
   // Show archived
   const [showArchived, setShowArchived] = useState(false);
+
+  // Edit project in list view
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [editProjectForm, setEditProjectForm] = useState({
+    name: '', description: '', specsAndGoals: '', gitUrl: '', storageUrl: '', status: 'ACTIVE',
+  });
+
+  // Edit project in detail view
+  const [editingDetail, setEditingDetail] = useState(false);
+  const [detailForm, setDetailForm] = useState({
+    name: '', description: '', specsAndGoals: '', gitUrl: '', storageUrl: '', status: 'ACTIVE',
+  });
 
   // Comments & reactions
   const [expandedComments, setExpandedComments] = useState<string | null>(null);
@@ -192,6 +217,38 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
         setSelectedProject(res.project);
       }
     } catch (err) { console.error('Delete comment error:', err); }
+  };
+
+  const handleAddAttachment = async (taskId: string) => {
+    if (!attachmentName.trim() || !attachmentUrl.trim()) return;
+    try {
+      await api.addTaskAttachment(taskId, {
+        type: attachmentType,
+        name: attachmentName.trim(),
+        url: attachmentUrl.trim(),
+      });
+      setAttachmentName('');
+      setAttachmentUrl('');
+      setShowAttachmentForm(null);
+      if (selectedProject) {
+        const res = await api.getProject(selectedProject.id);
+        setSelectedProject(res.project);
+      }
+    } catch (err) {
+      console.error('Add attachment error:', err);
+    }
+  };
+
+  const handleDeleteAttachment = async (taskId: string, attachmentId: string) => {
+    try {
+      await api.deleteTaskAttachment(taskId, attachmentId);
+      if (selectedProject) {
+        const res = await api.getProject(selectedProject.id);
+        setSelectedProject(res.project);
+      }
+    } catch (err) {
+      console.error('Delete attachment error:', err);
+    }
   };
 
   const loadProjects = useCallback(async () => {
@@ -282,6 +339,43 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
     }
   };
 
+  const handleUpdateProject = async (projectId: string) => {
+    try {
+      await api.updateProject(projectId, {
+        name: editProjectForm.name.trim(),
+        description: editProjectForm.description.trim() || undefined,
+        specsAndGoals: editProjectForm.specsAndGoals.trim() || undefined,
+        gitUrl: editProjectForm.gitUrl.trim() || undefined,
+        storageUrl: editProjectForm.storageUrl.trim() || undefined,
+        status: editProjectForm.status,
+      });
+      setEditingProjectId(null);
+      loadProjects();
+      if (selectedProject?.id === projectId) await refreshProject();
+    } catch (err: any) {
+      alert(err?.response?.data?.error || 'Failed to update project');
+    }
+  };
+
+  const handleUpdateProjectDetail = async () => {
+    if (!selectedProject) return;
+    try {
+      await api.updateProject(selectedProject.id, {
+        name: detailForm.name.trim(),
+        description: detailForm.description.trim() || undefined,
+        specsAndGoals: detailForm.specsAndGoals.trim() || undefined,
+        gitUrl: detailForm.gitUrl.trim() || undefined,
+        storageUrl: detailForm.storageUrl.trim() || undefined,
+        status: detailForm.status,
+      });
+      setEditingDetail(false);
+      await refreshProject();
+      loadProjects();
+    } catch (err: any) {
+      alert(err?.response?.data?.error || 'Failed to update project');
+    }
+  };
+
   const handleAddMember = async (userId: string) => {
     if (!selectedProject) return;
     try {
@@ -310,12 +404,19 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
     try {
       await api.createTask({
         title: newTaskTitle.trim(),
+        description: newTaskDescription.trim() || undefined,
         projectId: selectedProject.id,
         assignedToId: newTaskAssignee || user?.id,
+        priority: newTaskPriority,
+        deadline: newTaskDeadline || undefined,
         ...(status !== 'NOT_STARTED' && { status }),
       });
       setNewTaskTitle('');
+      setNewTaskDescription('');
       setNewTaskAssignee('');
+      setNewTaskPriority('MEDIUM');
+      setNewTaskDeadline('');
+      setNewTaskAssigneeSearch('');
       setShowNewTask(null);
       await refreshProject();
     } catch (err: any) {
@@ -605,6 +706,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
               <input
                 type="date"
                 defaultValue={task.deadline ? new Date(task.deadline).toISOString().split('T')[0] : ''}
+                min={new Date().toISOString().split('T')[0]}
                 onChange={(e) => handleUpdateTask(task.id, { deadline: e.target.value || null })}
                 className="px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500"
               />
@@ -735,6 +837,17 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
           <button onClick={() => { setViewMode('detail'); }} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"><ArrowLeft size={18} /></button>
           <FolderKanban size={20} className="text-violet-600 dark:text-violet-400" />
           <h1 className="text-lg font-bold text-slate-900 dark:text-white truncate flex-1">{selectedProject.name} — Board</h1>
+          <button onClick={() => { setSelectedProject(selectedProject); setViewMode('detail'); }} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition" title="Project Settings">
+            <Settings size={18} className="text-slate-500 dark:text-slate-400" />
+          </button>
+          <button onClick={() => setViewMode('roadmap')} className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium flex items-center gap-1.5 hover:bg-slate-200 dark:hover:bg-slate-600 transition">
+            <BarChart3 size={14} /> Roadmap
+          </button>
+          {selectedProject.conversationId && (
+            <button onClick={() => navigate(`/chat/${selectedProject.conversationId}`)} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium flex items-center gap-1.5 hover:bg-green-700 transition">
+              <MessageSquare size={14} /> Chat
+            </button>
+          )}
           <button
             onClick={() => setShowArchived(!showArchived)}
             className={`px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1.5 transition ${showArchived
@@ -817,6 +930,13 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
                             </button>
                             <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
                               <button
+                                onClick={(e) => { e.stopPropagation(); setShowAttachmentForm(showAttachmentForm === task.id ? null : task.id); }}
+                                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400"
+                                title="Add attachment"
+                              >
+                                <Paperclip size={12} />
+                              </button>
+                              <button
                                 onClick={(e) => { e.stopPropagation(); handleArchiveTask(task.id, !task.archived); }}
                                 className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400"
                                 title={task.archived ? 'Unarchive' : 'Archive'}
@@ -884,6 +1004,38 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
                               )}
                             </div>
                           )}
+
+                          {/* Attachments display */}
+                          {(task as any).attachments?.length > 0 && (
+                            <div className="mt-1 space-y-0.5" onClick={(e) => e.stopPropagation()}>
+                              {(task as any).attachments.map((att: any) => (
+                                <div key={att.id} className="flex items-center gap-1">
+                                  <a href={att.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-primary-600 dark:text-primary-400 hover:underline flex-1 min-w-0">
+                                    {att.type === 'link' ? <Link2 className="w-3 h-3 flex-shrink-0" /> : <FileText className="w-3 h-3 flex-shrink-0" />}
+                                    <span className="truncate">{att.name}</span>
+                                    <ExternalLink className="w-2.5 h-2.5 opacity-50" />
+                                  </a>
+                                  <button onClick={() => handleDeleteAttachment(task.id, att.id)} className="p-0.5 text-slate-400 hover:text-red-500"><X size={10} /></button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Attachment form */}
+                          {showAttachmentForm === task.id && (
+                            <div className="mt-2 p-2 bg-slate-50 dark:bg-slate-700 rounded-lg space-y-1.5" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex gap-1">
+                                <button onClick={() => setAttachmentType('link')} className={`px-2 py-0.5 text-[10px] rounded ${attachmentType === 'link' ? 'bg-violet-600 text-white' : 'bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300'}`}>Link</button>
+                                <button onClick={() => setAttachmentType('file')} className={`px-2 py-0.5 text-[10px] rounded ${attachmentType === 'file' ? 'bg-violet-600 text-white' : 'bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300'}`}>File</button>
+                              </div>
+                              <input type="text" value={attachmentName} onChange={(e) => setAttachmentName(e.target.value)} placeholder="Name..." className="w-full px-2 py-1 text-[10px] rounded bg-white dark:bg-slate-600 border border-slate-200 dark:border-slate-500 focus:outline-none focus:ring-1 focus:ring-violet-500" />
+                              <input type="url" value={attachmentUrl} onChange={(e) => setAttachmentUrl(e.target.value)} placeholder="URL..." className="w-full px-2 py-1 text-[10px] rounded bg-white dark:bg-slate-600 border border-slate-200 dark:border-slate-500 focus:outline-none focus:ring-1 focus:ring-violet-500" onKeyDown={(e) => { if (e.key === 'Enter') handleAddAttachment(task.id); }} />
+                              <div className="flex gap-1">
+                                <button onClick={() => handleAddAttachment(task.id)} disabled={!attachmentName.trim() || !attachmentUrl.trim()} className="px-2 py-0.5 text-[10px] bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50">Add</button>
+                                <button onClick={() => { setShowAttachmentForm(null); setAttachmentName(''); setAttachmentUrl(''); }} className="px-2 py-0.5 text-[10px] text-slate-500 hover:text-slate-700">Cancel</button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -894,19 +1046,77 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
                   {!showArchived && (
                     <>
                       {showNewTask === status ? (
-                        <div className="mt-2 bg-white dark:bg-slate-800 rounded-lg p-2 border border-slate-200 dark:border-slate-700">
+                        <div className="mt-2 bg-white dark:bg-slate-800 rounded-lg p-2 border border-slate-200 dark:border-slate-700 space-y-2">
                           <input
                             type="text"
                             value={newTaskTitle}
                             onChange={(e) => setNewTaskTitle(e.target.value)}
                             placeholder="Enter a title..."
-                            className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-sm focus:outline-none focus:ring-1 focus:ring-violet-500 mb-2"
-                            onKeyDown={(e) => { if (e.key === 'Enter') handleCreateTask(status); if (e.key === 'Escape') setShowNewTask(null); }}
+                            className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-sm focus:outline-none focus:ring-1 focus:ring-violet-500"
+                            onKeyDown={(e) => { if (e.key === 'Escape') setShowNewTask(null); }}
                             autoFocus
                           />
+                          <textarea
+                            value={newTaskDescription}
+                            onChange={(e) => setNewTaskDescription(e.target.value)}
+                            placeholder="Description (optional)..."
+                            rows={2}
+                            className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-violet-500 resize-none"
+                          />
+                          <div className="flex gap-1.5 flex-wrap">
+                            <select
+                              value={newTaskPriority}
+                              onChange={(e) => setNewTaskPriority(e.target.value)}
+                              className="px-2 py-1 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-violet-500"
+                            >
+                              <option value="LOW">Low</option>
+                              <option value="MEDIUM">Medium</option>
+                              <option value="HIGH">High</option>
+                              <option value="CRITICAL">Critical</option>
+                            </select>
+                            <input
+                              type="date"
+                              value={newTaskDeadline}
+                              onChange={(e) => setNewTaskDeadline(e.target.value)}
+                              min={new Date().toISOString().split('T')[0]}
+                              className="px-2 py-1 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-violet-500"
+                              placeholder="Deadline"
+                            />
+                          </div>
+                          {/* Assignee search */}
+                          <div className="relative">
+                            <input
+                              type="text"
+                              value={newTaskAssigneeSearch}
+                              onChange={(e) => {
+                                setNewTaskAssigneeSearch(e.target.value);
+                                if (!e.target.value) setNewTaskAssignee('');
+                              }}
+                              placeholder="Assign to (search member)..."
+                              className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-violet-500"
+                            />
+                            {newTaskAssigneeSearch.length >= 1 && !newTaskAssignee && selectedProject && (
+                              <div className="absolute z-10 top-full left-0 right-0 mt-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded shadow-lg max-h-32 overflow-y-auto">
+                                {selectedProject.members
+                                  .filter(m => (m.user.displayName || m.user.username).toLowerCase().includes(newTaskAssigneeSearch.toLowerCase()))
+                                  .slice(0, 6)
+                                  .map(m => (
+                                    <button
+                                      key={m.user.id}
+                                      onClick={() => { setNewTaskAssignee(m.user.id); setNewTaskAssigneeSearch(m.user.displayName || m.user.username); }}
+                                      className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 text-left"
+                                    >
+                                      <Avatar name={m.user.displayName || m.user.username} src={m.user.avatarUrl} size="sm" />
+                                      <span className="text-xs text-slate-700 dark:text-slate-300 truncate">{m.user.displayName || m.user.username}</span>
+                                    </button>
+                                  ))
+                                }
+                              </div>
+                            )}
+                          </div>
                           <div className="flex gap-2">
                             <button onClick={() => handleCreateTask(status)} disabled={!newTaskTitle.trim()} className="px-3 py-1 bg-violet-600 text-white text-xs rounded hover:bg-violet-700 disabled:opacity-50">Add Card</button>
-                            <button onClick={() => { setShowNewTask(null); setNewTaskTitle(''); }} className="px-3 py-1 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">Cancel</button>
+                            <button onClick={() => { setShowNewTask(null); setNewTaskTitle(''); setNewTaskDescription(''); setNewTaskPriority('MEDIUM'); setNewTaskDeadline(''); setNewTaskAssignee(''); setNewTaskAssigneeSearch(''); }} className="px-3 py-1 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">Cancel</button>
                           </div>
                         </div>
                       ) : (
@@ -929,6 +1139,185 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
     );
   }
 
+  // ─── Project Roadmap / Gantt View ──────────────────────────────────────────────
+  if (viewMode === 'roadmap' && selectedProject) {
+    const allTasks = selectedProject.tasks || [];
+    const activeTasks = allTasks.filter(t => !t.archived);
+
+    // Calculate timeline bounds
+    const now = new Date();
+    const dates = activeTasks.flatMap(t => {
+      const d: Date[] = [new Date(t.createdAt)];
+      if (t.deadline) d.push(new Date(t.deadline));
+      return d;
+    });
+    if (dates.length === 0) dates.push(now);
+    const minDate = new Date(Math.min(...dates.map(d => d.getTime())) - 3 * 86400000); // 3 days padding
+    const maxDate = new Date(Math.max(...dates.map(d => d.getTime()), now.getTime()) + 14 * 86400000); // 14 days padding
+    const totalDays = Math.max(7, Math.ceil((maxDate.getTime() - minDate.getTime()) / 86400000));
+    const dayWidth = 40; // px per day
+    const chartWidth = totalDays * dayWidth;
+
+    // Generate month/day labels
+    const dayLabels: { date: Date; x: number }[] = [];
+    for (let i = 0; i <= totalDays; i++) {
+      const d = new Date(minDate.getTime() + i * 86400000);
+      dayLabels.push({ date: d, x: i * dayWidth });
+    }
+
+    const getBarX = (date: Date) => Math.max(0, ((date.getTime() - minDate.getTime()) / 86400000)) * dayWidth;
+
+    const statusBarColors: Record<string, string> = {
+      NOT_STARTED: '#9CA3AF', IN_PROGRESS: '#3B82F6', PENDING_REVIEW: '#F59E0B',
+      COMPLETED: '#22C55E', BLOCKED: '#EF4444',
+    };
+    // Sort tasks: by deadline (no deadline last), then by creation date
+    const sortedTasks = [...activeTasks].sort((a, b) => {
+      if (a.deadline && b.deadline) return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
+      if (a.deadline) return -1;
+      if (b.deadline) return 1;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+
+    const rowHeight = 36;
+
+    return (
+      <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900">
+        <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-3 flex items-center gap-3">
+          <button onClick={() => setViewMode('detail')} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"><ArrowLeft size={18} /></button>
+          <BarChart3 size={20} className="text-violet-600 dark:text-violet-400" />
+          <h1 className="text-lg font-bold text-slate-900 dark:text-white truncate flex-1">{selectedProject.name} — Gantt Roadmap</h1>
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700 rounded-lg p-0.5">
+            <button onClick={() => setGanttNoDeadlineMode('bar')} className={`px-2 py-1 text-xs rounded-md transition ${ganttNoDeadlineMode === 'bar' ? 'bg-white dark:bg-slate-600 shadow text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>7-day bars</button>
+            <button onClick={() => setGanttNoDeadlineMode('milestone')} className={`px-2 py-1 text-xs rounded-md transition ${ganttNoDeadlineMode === 'milestone' ? 'bg-white dark:bg-slate-600 shadow text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>Milestones</button>
+          </div>
+          <button onClick={() => openProjectBoard(selectedProject.id)} className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium flex items-center gap-1.5 hover:bg-slate-200 dark:hover:bg-slate-600 transition">
+            <FolderKanban size={14} /> Board
+          </button>
+        </div>
+
+        {activeTasks.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center text-slate-400">No tasks to display</div>
+        ) : (
+          <div className="flex-1 overflow-auto">
+            <div className="flex" style={{ minWidth: chartWidth + 260 }}>
+              {/* Left panel: task names */}
+              <div className="w-[260px] flex-shrink-0 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 sticky left-0 z-10">
+                <div className="h-[50px] border-b border-slate-200 dark:border-slate-700 px-3 flex items-center">
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Task</span>
+                </div>
+                {sortedTasks.map((task) => (
+                  <div key={task.id} className="flex items-center gap-2 px-3 border-b border-slate-100 dark:border-slate-700/50 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/30 transition" style={{ height: rowHeight }} onClick={() => { setSelectedTask(task); setShowTaskDetail(true); }}>
+                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: statusBarColors[task.status] || '#9CA3AF' }} />
+                    <span className="text-xs text-slate-900 dark:text-white truncate flex-1" title={task.title}>{task.title}</span>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${priorityColors[task.priority]}`}>{task.priority[0]}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Right panel: Gantt bars */}
+              <div className="flex-1 overflow-x-auto">
+                {/* Time axis */}
+                <div className="h-[50px] border-b border-slate-200 dark:border-slate-700 relative" style={{ width: chartWidth }}>
+                  {dayLabels.map((dl, i) => {
+                    const d = dl.date;
+                    const isMonthStart = d.getDate() === 1;
+                    const isToday = d.toDateString() === now.toDateString();
+                    const showLabel = isMonthStart || d.getDate() % 7 === 1 || i === 0;
+                    return (
+                      <div key={i} className="absolute top-0 h-full flex flex-col justify-end pb-1" style={{ left: dl.x, width: dayWidth }}>
+                        {showLabel && (
+                          <span className={`text-[9px] px-0.5 ${isToday ? 'text-violet-600 font-bold' : isMonthStart ? 'text-slate-700 dark:text-slate-300 font-semibold' : 'text-slate-400'}`}>
+                            {isMonthStart ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : d.getDate().toString()}
+                          </span>
+                        )}
+                        <div className={`h-2 border-l ${isToday ? 'border-violet-500' : isMonthStart ? 'border-slate-300 dark:border-slate-600' : 'border-slate-200 dark:border-slate-700/50'}`} />
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Task bars */}
+                <div className="relative" style={{ width: chartWidth }}>
+                  {/* Today line */}
+                  <div className="absolute top-0 bottom-0 w-px bg-violet-500/50 z-10" style={{ left: getBarX(now) }} />
+
+                  {/* Grid lines */}
+                  {dayLabels.filter((_, i) => {
+                    const d = new Date(minDate.getTime() + i * 86400000);
+                    return d.getDate() === 1;
+                  }).map((dl, i) => (
+                    <div key={i} className="absolute top-0 bottom-0 w-px bg-slate-200 dark:bg-slate-700" style={{ left: dl.x }} />
+                  ))}
+
+                  {sortedTasks.map((task) => {
+                    const created = new Date(task.createdAt);
+                    const deadline = task.deadline ? new Date(task.deadline) : null;
+                    const isOverdue = deadline && now > deadline && task.status !== 'COMPLETED';
+                    const barColor = isOverdue ? '#EF4444' : (statusBarColors[task.status] || '#9CA3AF');
+
+                    if (!deadline && ganttNoDeadlineMode === 'milestone') {
+                      // Diamond milestone at creation date
+                      const cx = getBarX(created);
+                      return (
+                        <div key={task.id} className="flex items-center border-b border-slate-100 dark:border-slate-700/30" style={{ height: rowHeight }}>
+                          <div
+                            className="absolute cursor-pointer hover:scale-125 transition-transform"
+                            style={{ left: cx - 5 }}
+                            onClick={() => { setSelectedTask(task); setShowTaskDetail(true); }}
+                            title={`${task.title} (no deadline)`}
+                          >
+                            <div className="w-[10px] h-[10px] rotate-45" style={{ backgroundColor: barColor }} />
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    // Bar mode
+                    const barStart = getBarX(created);
+                    const barEnd = deadline ? getBarX(deadline) : getBarX(new Date(created.getTime() + 7 * 86400000));
+                    const barWidth = Math.max(8, barEnd - barStart);
+
+                    return (
+                      <div key={task.id} className="flex items-center border-b border-slate-100 dark:border-slate-700/30 relative" style={{ height: rowHeight }}>
+                        <div
+                          className="absolute rounded-sm cursor-pointer hover:brightness-110 transition flex items-center px-1 overflow-hidden"
+                          style={{
+                            left: barStart,
+                            width: barWidth,
+                            height: 20,
+                            top: (rowHeight - 20) / 2,
+                            backgroundColor: barColor,
+                            opacity: deadline ? 0.85 : 0.5,
+                            borderStyle: deadline ? 'solid' : 'dashed',
+                            borderWidth: deadline ? 0 : 1,
+                            borderColor: barColor,
+                            background: deadline ? barColor : `${barColor}40`,
+                          }}
+                          onClick={() => { setSelectedTask(task); setShowTaskDetail(true); }}
+                          title={`${task.title}${deadline ? ` — Due ${deadline.toLocaleDateString()}` : ' (no deadline, 7-day default)'}`}
+                        >
+                          {barWidth > 50 && <span className="text-[9px] text-white font-medium truncate">{task.title}</span>}
+                        </div>
+                        {/* Completion indicator */}
+                        {task.status === 'COMPLETED' && (
+                          <div className="absolute text-green-500" style={{ left: barStart + barWidth + 4, top: (rowHeight - 14) / 2 }}>
+                            <CheckSquare size={14} />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        {renderTaskDetailModal()}
+      </div>
+    );
+  }
+
   // ─── Project Detail View ──────────────────────────────────────────────
   if (viewMode === 'detail' && selectedProject) {
     const p = selectedProject;
@@ -938,33 +1327,121 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
     return (
       <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900 overflow-y-auto">
         <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-3 flex items-center gap-3 sticky top-0 z-10">
-          <button onClick={() => { setViewMode('list'); setSelectedProject(null); }} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"><ArrowLeft size={18} /></button>
-          <h1 className="text-lg font-bold text-slate-900 dark:text-white truncate flex-1">{p.name}</h1>
-          <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${statusColors[p.status] || statusColors.ACTIVE}`}>{p.status}</span>
-          <button onClick={() => openProjectBoard(p.id)} className="px-3 py-1.5 bg-violet-600 text-white rounded-lg text-sm font-medium flex items-center gap-1.5 hover:bg-violet-700 transition">
-            <FolderKanban size={14} /> Board
-          </button>
+          <button onClick={() => { setViewMode('list'); setSelectedProject(null); setEditingDetail(false); }} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"><ArrowLeft size={18} /></button>
+          {editingDetail ? (
+            <input
+              type="text"
+              value={detailForm.name}
+              onChange={(e) => setDetailForm({ ...detailForm, name: e.target.value })}
+              className="text-lg font-bold text-slate-900 dark:text-white bg-transparent border-b-2 border-violet-500 focus:outline-none flex-1"
+            />
+          ) : (
+            <h1 className="text-lg font-bold text-slate-900 dark:text-white truncate flex-1">{p.name}</h1>
+          )}
+          {editingDetail ? (
+            <select
+              value={detailForm.status}
+              onChange={(e) => setDetailForm({ ...detailForm, status: e.target.value })}
+              className="text-xs px-2.5 py-1 rounded-full font-medium bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-500"
+            >
+              <option value="ACTIVE">ACTIVE</option>
+              <option value="PAUSED">PAUSED</option>
+              <option value="COMPLETED">COMPLETED</option>
+              <option value="ARCHIVED">ARCHIVED</option>
+            </select>
+          ) : (
+            <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${statusColors[p.status] || statusColors.ACTIVE}`}>{p.status}</span>
+          )}
+          {editingDetail ? (
+            <>
+              <button onClick={handleUpdateProjectDetail} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition">Save</button>
+              <button onClick={() => setEditingDetail(false)} className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-600 transition">Cancel</button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => { setEditingDetail(true); setDetailForm({ name: p.name, description: p.description || '', specsAndGoals: p.specsAndGoals || '', gitUrl: p.gitUrl || '', storageUrl: p.storageUrl || '', status: p.status }); }} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition" title="Edit Project">
+                <Pencil size={16} className="text-slate-500 dark:text-slate-400" />
+              </button>
+              <button onClick={() => openProjectBoard(p.id)} className="px-3 py-1.5 bg-violet-600 text-white rounded-lg text-sm font-medium flex items-center gap-1.5 hover:bg-violet-700 transition">
+                <FolderKanban size={14} /> Board
+              </button>
+              <button onClick={() => { setSelectedProject(p); setViewMode('roadmap'); }} className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium flex items-center gap-1.5 hover:bg-slate-200 dark:hover:bg-slate-600 transition">
+                <BarChart3 size={14} /> Roadmap
+              </button>
+              {p.conversationId && (
+                <button onClick={() => navigate(`/chat/${p.conversationId}`)} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium flex items-center gap-1.5 hover:bg-green-700 transition">
+                  <MessageSquare size={14} /> Chat
+                </button>
+              )}
+            </>
+          )}
         </div>
 
         <div className="p-4 md:p-6 space-y-6">
           {/* Description */}
-          {p.description && (
+          {editingDetail ? (
+            <div className="bg-white dark:bg-slate-800 rounded-xl p-5 border border-slate-200 dark:border-slate-700">
+              <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Description</h3>
+              <textarea
+                value={detailForm.description}
+                onChange={(e) => setDetailForm({ ...detailForm, description: e.target.value })}
+                placeholder="Add a description..."
+                rows={3}
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
+              />
+            </div>
+          ) : p.description ? (
             <div className="bg-white dark:bg-slate-800 rounded-xl p-5 border border-slate-200 dark:border-slate-700">
               <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Description</h3>
               <p className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{p.description}</p>
             </div>
-          )}
+          ) : null}
 
           {/* Specs & Goals */}
-          {p.specsAndGoals && (
+          {editingDetail ? (
+            <div className="bg-white dark:bg-slate-800 rounded-xl p-5 border border-slate-200 dark:border-slate-700">
+              <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><Target size={14} /> Specs & Goals</h3>
+              <textarea
+                value={detailForm.specsAndGoals}
+                onChange={(e) => setDetailForm({ ...detailForm, specsAndGoals: e.target.value })}
+                placeholder="Add specs and goals..."
+                rows={4}
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
+              />
+            </div>
+          ) : p.specsAndGoals ? (
             <div className="bg-white dark:bg-slate-800 rounded-xl p-5 border border-slate-200 dark:border-slate-700">
               <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><Target size={14} /> Specs & Goals</h3>
               <p className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{p.specsAndGoals}</p>
             </div>
-          )}
+          ) : null}
 
           {/* Links */}
-          {(p.gitUrl || p.storageUrl) && (
+          {editingDetail ? (
+            <div className="bg-white dark:bg-slate-800 rounded-xl p-5 border border-slate-200 dark:border-slate-700 space-y-3">
+              <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Links</h3>
+              <div className="flex items-center gap-2">
+                <GitBranch size={16} className="text-orange-500 flex-shrink-0" />
+                <input
+                  type="url"
+                  value={detailForm.gitUrl}
+                  onChange={(e) => setDetailForm({ ...detailForm, gitUrl: e.target.value })}
+                  placeholder="Git repository URL"
+                  className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <HardDrive size={16} className="text-blue-500 flex-shrink-0" />
+                <input
+                  type="url"
+                  value={detailForm.storageUrl}
+                  onChange={(e) => setDetailForm({ ...detailForm, storageUrl: e.target.value })}
+                  placeholder="Storage URL"
+                  className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                />
+              </div>
+            </div>
+          ) : (p.gitUrl || p.storageUrl) ? (
             <div className="flex gap-3 flex-wrap">
               {p.gitUrl && (
                 <a href={p.gitUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition">
@@ -977,7 +1454,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
                 </a>
               )}
             </div>
-          )}
+          ) : null}
 
           {/* Team Lead */}
           {p.teamLead && (
@@ -1061,6 +1538,18 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
               <p className="text-2xl font-bold text-slate-900 dark:text-white">{p._count.members}</p>
               <p className="text-xs text-slate-500 dark:text-slate-400">Members</p>
             </div>
+          </div>
+
+          {/* Delete Project */}
+          <div className="bg-red-50 dark:bg-red-900/10 rounded-xl p-5 border border-red-200 dark:border-red-800">
+            <h3 className="text-sm font-semibold text-red-700 dark:text-red-400 mb-2">Danger Zone</h3>
+            <p className="text-xs text-red-600 dark:text-red-400 mb-3">Deleting this project will unlink all tasks but not delete them.</p>
+            <button
+              onClick={() => handleDelete(p.id, p.name)}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium flex items-center gap-2 transition"
+            >
+              <Trash2 size={14} /> Delete Project
+            </button>
           </div>
         </div>
         {renderTaskDetailModal()}
@@ -1148,56 +1637,118 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
             {projects.map((p) => (
               <div key={p.id} className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 hover:shadow-md transition-shadow overflow-hidden">
                 <div className="p-5">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-slate-900 dark:text-white truncate">{p.name}</h3>
-                      {p.description && <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{p.description}</p>}
-                    </div>
-                    <div className="flex items-center gap-1 ml-2">
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${statusColors[p.status] || statusColors.ACTIVE}`}>{p.status}</span>
-                      <button onClick={() => handleDelete(p.id, p.name)} className="p-1 text-slate-400 hover:text-red-500 rounded"><Trash2 size={14} /></button>
-                    </div>
-                  </div>
-
-                  {/* Links */}
-                  <div className="flex gap-2 mb-3">
-                    {p.gitUrl && (
-                      <a href={p.gitUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400 hover:underline"><GitBranch size={12} /> Git</a>
-                    )}
-                    {p.storageUrl && (
-                      <a href={p.storageUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"><HardDrive size={12} /> Storage</a>
-                    )}
-                  </div>
-
-                  {/* Team lead + member avatars */}
-                  <div className="flex items-center gap-2 mb-3">
-                    {p.teamLead && (
-                      <div className="flex items-center gap-1.5 bg-violet-50 dark:bg-violet-900/20 px-2 py-1 rounded-full">
-                        <Avatar name={p.teamLead.displayName} src={p.teamLead.avatarUrl} size="sm" />
-                        <span className="text-[10px] font-medium text-violet-700 dark:text-violet-300">Lead</span>
+                  {editingProjectId === p.id ? (
+                    /* ── Inline Edit Form ── */
+                    <div className="space-y-3">
+                      <input
+                        type="text"
+                        value={editProjectForm.name}
+                        onChange={(e) => setEditProjectForm({ ...editProjectForm, name: e.target.value })}
+                        placeholder="Project name *"
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                        autoFocus
+                      />
+                      <textarea
+                        value={editProjectForm.description}
+                        onChange={(e) => setEditProjectForm({ ...editProjectForm, description: e.target.value })}
+                        placeholder="Description"
+                        rows={2}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
+                      />
+                      <textarea
+                        value={editProjectForm.specsAndGoals}
+                        onChange={(e) => setEditProjectForm({ ...editProjectForm, specsAndGoals: e.target.value })}
+                        placeholder="Specs & Goals"
+                        rows={3}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
+                      />
+                      <div className="grid grid-cols-2 gap-3">
+                        <input
+                          type="url"
+                          value={editProjectForm.gitUrl}
+                          onChange={(e) => setEditProjectForm({ ...editProjectForm, gitUrl: e.target.value })}
+                          placeholder="Git repository URL"
+                          className="px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                        />
+                        <input
+                          type="url"
+                          value={editProjectForm.storageUrl}
+                          onChange={(e) => setEditProjectForm({ ...editProjectForm, storageUrl: e.target.value })}
+                          placeholder="Storage URL"
+                          className="px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                        />
                       </div>
-                    )}
-                    <div className="flex -space-x-2">
-                      {p.members.slice(0, 4).map((m) => (
-                        <Avatar key={m.id} name={m.user.displayName || m.user.username} src={m.user.avatarUrl} size="sm" />
-                      ))}
-                      {p.members.length > 4 && (
-                        <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[10px] font-medium text-slate-600 dark:text-slate-400 border-2 border-white dark:border-slate-800">+{p.members.length - 4}</div>
-                      )}
+                      <select
+                        value={editProjectForm.status}
+                        onChange={(e) => setEditProjectForm({ ...editProjectForm, status: e.target.value })}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      >
+                        <option value="ACTIVE">ACTIVE</option>
+                        <option value="PAUSED">PAUSED</option>
+                        <option value="COMPLETED">COMPLETED</option>
+                        <option value="ARCHIVED">ARCHIVED</option>
+                      </select>
+                      <div className="flex gap-2 justify-end">
+                        <button onClick={() => setEditingProjectId(null)} className="px-3 py-1.5 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition">Cancel</button>
+                        <button onClick={() => handleUpdateProject(p.id)} disabled={!editProjectForm.name.trim()} className="px-4 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition">Save</button>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    /* ── Normal Card Display ── */
+                    <>
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-slate-900 dark:text-white truncate">{p.name}</h3>
+                          {p.description && <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{p.description}</p>}
+                        </div>
+                        <div className="flex items-center gap-1 ml-2">
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${statusColors[p.status] || statusColors.ACTIVE}`}>{p.status}</span>
+                          <button onClick={() => { setEditingProjectId(p.id); setEditProjectForm({ name: p.name, description: p.description || '', specsAndGoals: p.specsAndGoals || '', gitUrl: p.gitUrl || '', storageUrl: p.storageUrl || '', status: p.status }); }} className="p-1 text-slate-400 hover:text-violet-500 rounded"><Pencil size={14} /></button>
+                          <button onClick={() => handleDelete(p.id, p.name)} className="p-1 text-slate-400 hover:text-red-500 rounded"><Trash2 size={14} /></button>
+                        </div>
+                      </div>
 
-                  {/* Stats + actions */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex gap-3 text-xs text-slate-500 dark:text-slate-400">
-                      <span>{p._count.tasks} tasks</span>
-                      <span>{p._count.members} members</span>
-                    </div>
-                    <div className="flex gap-1">
-                      <button onClick={() => openProjectDetail(p.id)} className="px-2.5 py-1 text-xs bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition">Details</button>
-                      <button onClick={() => openProjectBoard(p.id)} className="px-2.5 py-1 text-xs bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 rounded-lg hover:bg-violet-200 dark:hover:bg-violet-800/30 transition">Board</button>
-                    </div>
-                  </div>
+                      {/* Links */}
+                      <div className="flex gap-2 mb-3">
+                        {p.gitUrl && (
+                          <a href={p.gitUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400 hover:underline"><GitBranch size={12} /> Git</a>
+                        )}
+                        {p.storageUrl && (
+                          <a href={p.storageUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"><HardDrive size={12} /> Storage</a>
+                        )}
+                      </div>
+
+                      {/* Team lead + member avatars */}
+                      <div className="flex items-center gap-2 mb-3">
+                        {p.teamLead && (
+                          <div className="flex items-center gap-1.5 bg-violet-50 dark:bg-violet-900/20 px-2 py-1 rounded-full">
+                            <Avatar name={p.teamLead.displayName} src={p.teamLead.avatarUrl} size="sm" />
+                            <span className="text-[10px] font-medium text-violet-700 dark:text-violet-300">Lead</span>
+                          </div>
+                        )}
+                        <div className="flex -space-x-2">
+                          {p.members.slice(0, 4).map((m) => (
+                            <Avatar key={m.id} name={m.user.displayName || m.user.username} src={m.user.avatarUrl} size="sm" />
+                          ))}
+                          {p.members.length > 4 && (
+                            <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[10px] font-medium text-slate-600 dark:text-slate-400 border-2 border-white dark:border-slate-800">+{p.members.length - 4}</div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Stats + actions */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex gap-3 text-xs text-slate-500 dark:text-slate-400">
+                          <span>{p._count.tasks} tasks</span>
+                          <span>{p._count.members} members</span>
+                        </div>
+                        <div className="flex gap-1">
+                          <button onClick={() => openProjectDetail(p.id)} className="px-2.5 py-1 text-xs bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition">Details</button>
+                          <button onClick={() => openProjectBoard(p.id)} className="px-2.5 py-1 text-xs bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 rounded-lg hover:bg-violet-200 dark:hover:bg-violet-800/30 transition">Board</button>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             ))}

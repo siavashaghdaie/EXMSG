@@ -104,6 +104,7 @@ model User {
   projectMembers     ProjectMember[]
   projectsCreated    Project[]        @relation("ProjectsCreated")
   projectsLead       Project[]        @relation("ProjectTeamLead")
+  taskAttachments    TaskAttachment[] @relation("TaskAttachmentUploads")
 
   @@map("users")
 }
@@ -162,6 +163,8 @@ model Conversation {
   messages     Message[]
   pins         PinnedMessage[]
   interPanelRequests InterPanelRequest[]
+  linkedTask    Task?    @relation("TaskConversation")
+  linkedProject Project? @relation("ProjectConversation")
 
   @@index([organizationId])
   @@map("conversations")
@@ -330,6 +333,9 @@ model Task {
 
   sourceMessageId String?
 
+  conversationId String? @map("conversation_id")
+  conversation   Conversation? @relation("TaskConversation", fields: [conversationId], references: [id], onDelete: SetNull)
+
   // Department and Project tagging
   departmentId String?  @map("department_id")
   department   Department? @relation("TaskDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
@@ -351,6 +357,7 @@ model Task {
   checklists   Checklist[]
   reactions    TaskReaction[]
   comments     TaskComment[]
+  attachments  TaskAttachment[]
 
   @@index([organizationId])
   @@index([assignedToId])
@@ -388,6 +395,23 @@ model TaskComment {
 
   @@index([taskId, createdAt])
   @@map("task_comments")
+}
+
+model TaskAttachment {
+  id        String   @id @default(uuid())
+  taskId    String   @map("task_id")
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  type      String   // 'link' or 'file'
+  name      String
+  url       String
+  size      Int?     // file size in bytes (null for links)
+  mimeType  String?  @map("mime_type")
+  uploadedById String @map("uploaded_by_id")
+  uploadedBy   User   @relation("TaskAttachmentUploads", fields: [uploadedById], references: [id])
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([taskId])
+  @@map("task_attachments")
 }
 
 // ============================================
@@ -446,6 +470,9 @@ model Project {
 
   createdById    String   @map("created_by_id")
   createdBy      User     @relation("ProjectsCreated", fields: [createdById], references: [id])
+
+  conversationId String? @map("conversation_id")
+  conversation   Conversation? @relation("ProjectConversation", fields: [conversationId], references: [id], onDelete: SetNull)
 
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")

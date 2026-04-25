@@ -113,6 +113,10 @@ export class TaskController {
             orderBy: { position: 'asc' },
           },
           reactions: true,
+          attachments: {
+            include: { uploadedBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } } },
+            orderBy: { createdAt: 'desc' },
+          },
           _count: { select: { comments: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -204,6 +208,36 @@ export class TaskController {
         },
       });
 
+      // Auto-create linked group conversation for this task
+      try {
+        const memberIds = new Set<string>([userId]); // creator
+        if (assignedToId && assignedToId !== userId) memberIds.add(assignedToId);
+        if (orderedById && orderedById !== userId) memberIds.add(orderedById);
+
+        const conversation = await prisma.conversation.create({
+          data: {
+            type: 'GROUP',
+            name: `Task: ${title}`,
+            ...(req.orgId && { organizationId: req.orgId }),
+            members: {
+              create: Array.from(memberIds).map(uid => ({
+                userId: uid,
+                role: uid === userId ? 'ADMIN' : 'MEMBER',
+              })),
+            },
+          },
+        });
+
+        await prisma.task.update({
+          where: { id: task.id },
+          data: { conversationId: conversation.id },
+        });
+
+        (task as any).conversationId = conversation.id;
+      } catch (convErr) {
+        console.error('Auto-create task conversation error:', convErr);
+      }
+
       res.status(201).json({ task });
     } catch (error) {
       console.error('Create task error:', error);
@@ -254,6 +288,10 @@ export class TaskController {
           checklists: {
             include: { items: { orderBy: { position: 'asc' } } },
             orderBy: { position: 'asc' },
+          },
+          attachments: {
+            include: { uploadedBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } } },
+            orderBy: { createdAt: 'desc' },
           },
         },
       });
@@ -443,6 +481,93 @@ export class TaskController {
       res.json({ success: true });
     } catch (error) {
       console.error('Delete task comment error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // GET /api/tasks/:taskId/attachments
+  async getAttachments(req: Request, res: Response): Promise<void> {
+    try {
+      const { taskId } = req.params;
+
+      const attachments = await prisma.taskAttachment.findMany({
+        where: { taskId },
+        include: {
+          uploadedBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      res.json({ attachments });
+    } catch (error) {
+      console.error('Get task attachments error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // POST /api/tasks/:taskId/attachments
+  async addAttachment(req: Request, res: Response): Promise<void> {
+    try {
+      const { taskId } = req.params;
+      const userId = req.user!.userId;
+      const { type, name, url, size, mimeType } = req.body;
+
+      if (!type || !name || !url) {
+        res.status(400).json({ error: 'type, name, and url are required' });
+        return;
+      }
+
+      if (!['link', 'file'].includes(type)) {
+        res.status(400).json({ error: 'type must be "link" or "file"' });
+        return;
+      }
+
+      const attachment = await prisma.taskAttachment.create({
+        data: {
+          taskId,
+          type,
+          name,
+          url,
+          size: size || null,
+          mimeType: mimeType || null,
+          uploadedById: userId,
+        },
+        include: {
+          uploadedBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
+        },
+      });
+
+      res.status(201).json({ attachment });
+    } catch (error) {
+      console.error('Add task attachment error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // DELETE /api/tasks/:taskId/attachments/:attachmentId
+  async deleteAttachment(req: Request, res: Response): Promise<void> {
+    try {
+      const { taskId, attachmentId } = req.params;
+      const userId = req.user!.userId;
+
+      const attachment = await prisma.taskAttachment.findFirst({
+        where: { id: attachmentId, taskId },
+      });
+
+      if (!attachment) {
+        res.status(404).json({ error: 'Attachment not found' });
+        return;
+      }
+
+      if (attachment.uploadedById !== userId) {
+        res.status(403).json({ error: 'Only the uploader can delete this attachment' });
+        return;
+      }
+
+      await prisma.taskAttachment.delete({ where: { id: attachmentId } });
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Delete task attachment error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }

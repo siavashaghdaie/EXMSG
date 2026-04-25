@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Calendar, MoreVertical, X, Loader2, Search, UserPlus, ThumbsUp, ThumbsDown, MessageCircle, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Calendar, MoreVertical, X, Loader2, Search, UserPlus, ThumbsUp, ThumbsDown, MessageCircle, Pencil, Trash2, Send, Paperclip, Link2, FileText, ExternalLink, CheckSquare, MessageSquare } from 'lucide-react';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import Avatar from '@/components/common/Avatar';
@@ -33,6 +33,7 @@ interface Task {
   } | null;
   lindaFollowing?: boolean;
   lindaFollowInterval?: string;
+  conversationId?: string;
   reactions?: Array<{ id: string; userId: string; type: string }>;
   _count?: { comments: number };
   createdAt: string;
@@ -60,10 +61,16 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
   // Comments & reactions state
   const [expandedComments, setExpandedComments] = useState<string | null>(null);
   const [taskComments, setTaskComments] = useState<any[]>([]);
-  const [newComment, setNewComment] = useState('');
+  const [newCommentMap, setNewCommentMap] = useState<Record<string, string>>({});
   const [loadingComments, setLoadingComments] = useState(false);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentText, setEditingCommentText] = useState('');
+
+  // Attachment state
+  const [showAttachmentForm, setShowAttachmentForm] = useState<string | null>(null); // taskId or null
+  const [attachmentType, setAttachmentType] = useState<'link' | 'file'>('link');
+  const [attachmentName, setAttachmentName] = useState('');
+  const [attachmentUrl, setAttachmentUrl] = useState('');
 
   // Modal form state
   const [formData, setFormData] = useState({
@@ -85,6 +92,19 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
   const [selectedDeptFilter, setSelectedDeptFilter] = useState<string>('');
   const [selectedProjectFilter, setSelectedProjectFilter] = useState<string>('');
   const [labelInput, setLabelInput] = useState('');
+
+  // Checklist form state for task creation
+  interface ChecklistFormItem {
+    title: string;
+    assigneeId?: string;
+    dueDate?: string;
+  }
+  interface ChecklistForm {
+    title: string;
+    items: ChecklistFormItem[];
+  }
+  const [formChecklists, setFormChecklists] = useState<ChecklistForm[]>([]);
+  const [newChecklistTitle, setNewChecklistTitle] = useState('');
 
   // Assignee search state
   const [assigneeSearch, setAssigneeSearch] = useState('');
@@ -213,6 +233,23 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
           projectName: formData.projectName || undefined,
         });
         console.log('Task created:', created);
+        // Create checklists if any were added in the form
+        if (formChecklists.length > 0 && created?.id) {
+          for (const cl of formChecklists) {
+            try {
+              const checklist = await api.createChecklist({ taskId: created.id, title: cl.title });
+              for (const item of cl.items) {
+                await api.addChecklistItem(checklist.id, {
+                  title: item.title,
+                  assigneeId: item.assigneeId || undefined,
+                  dueDate: item.dueDate || undefined,
+                });
+              }
+            } catch (clErr) {
+              console.error('Checklist creation error:', clErr);
+            }
+          }
+        }
         // Refetch all tasks to ensure consistency with server
         await fetchTasks();
       }
@@ -263,10 +300,11 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
 
   // Comment handlers
   const handleAddComment = async (taskId: string) => {
-    if (!newComment.trim()) return;
+    const commentText = newCommentMap[taskId] || '';
+    if (!commentText.trim()) return;
     try {
-      await api.addTaskComment(taskId, newComment.trim());
-      setNewComment('');
+      await api.addTaskComment(taskId, commentText.trim());
+      setNewCommentMap((prev) => ({ ...prev, [taskId]: '' }));
       const data = await api.getTaskComments(taskId);
       setTaskComments(data.comments || []);
       // Refresh task list to update comment count
@@ -299,6 +337,36 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
       setTasks(tasksData || []);
     } catch (err) {
       console.error('Delete comment error:', err);
+    }
+  };
+
+  // Attachment handlers
+  const handleAddAttachment = async (taskId: string) => {
+    if (!attachmentName.trim() || !attachmentUrl.trim()) return;
+    try {
+      await api.addTaskAttachment(taskId, {
+        type: attachmentType,
+        name: attachmentName.trim(),
+        url: attachmentUrl.trim(),
+      });
+      setAttachmentName('');
+      setAttachmentUrl('');
+      setShowAttachmentForm(null);
+      // Refresh tasks
+      const tasksData = await api.getTasks(filter === 'my-tasks' ? {} : { view: 'all' });
+      setTasks(tasksData || []);
+    } catch (err) {
+      console.error('Add attachment error:', err);
+    }
+  };
+
+  const handleDeleteAttachment = async (taskId: string, attachmentId: string) => {
+    try {
+      await api.deleteTaskAttachment(taskId, attachmentId);
+      const tasksData = await api.getTasks(filter === 'my-tasks' ? {} : { view: 'all' });
+      setTasks(tasksData || []);
+    } catch (err) {
+      console.error('Delete attachment error:', err);
     }
   };
 
@@ -374,6 +442,8 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
     setSelectedAssignee(null);
     setAssigneeSearch('');
     setShowAssigneeDropdown(false);
+    setFormChecklists([]);
+    setNewChecklistTitle('');
   };
 
   // Add label to form
@@ -510,6 +580,32 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
             </div>
           )}
 
+          {/* Checklists progress */}
+          {(task as any).checklists?.length > 0 && (
+            <div className="mb-3 space-y-1.5">
+              {(task as any).checklists.map((cl: any) => {
+                const total = cl.items?.length || 0;
+                const done = cl.items?.filter((i: any) => i.completed).length || 0;
+                return (
+                  <div key={cl.id} className="text-xs">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-gray-600 dark:text-gray-400 flex items-center gap-1">
+                        <CheckSquare className="w-3 h-3" />
+                        {cl.title}
+                      </span>
+                      <span className="text-gray-400">{done}/{total}</span>
+                    </div>
+                    {total > 0 && (
+                      <div className="h-1.5 bg-gray-200 dark:bg-surface-600 rounded-full overflow-hidden">
+                        <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${Math.round((done / total) * 100)}%` }} />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* Assignee — clickable */}
           <button
             onClick={() => handleChatWithUser(task.assignedTo.id)}
@@ -564,6 +660,44 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
             </button>
           </div>
 
+          {/* Attachments */}
+          {(task as any).attachments?.length > 0 && (
+            <div className="mt-2 space-y-1">
+              {(task as any).attachments.map((att: any) => (
+                <a key={att.id} href={att.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs text-primary-600 dark:text-primary-400 hover:underline group">
+                  {att.type === 'link' ? <Link2 className="w-3 h-3" /> : <FileText className="w-3 h-3" />}
+                  <span className="truncate">{att.name}</span>
+                  <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100" />
+                  {att.uploadedBy?.id === user?.id && (
+                    <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteAttachment(task.id, att.id); }} className="ml-auto text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100">
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
+                </a>
+              ))}
+            </div>
+          )}
+
+          {/* Attachment form */}
+          {showAttachmentForm === task.id && (
+            <div className="mt-2 p-2 bg-gray-50 dark:bg-surface-800 rounded border border-gray-200 dark:border-surface-600 space-y-2">
+              <div className="flex gap-2">
+                <button onClick={() => setAttachmentType('link')} className={`px-2 py-1 text-xs rounded ${attachmentType === 'link' ? 'bg-primary-600 text-white' : 'bg-gray-200 dark:bg-surface-700 text-gray-600 dark:text-gray-400'}`}>
+                  <Link2 className="w-3 h-3 inline mr-1" />Link
+                </button>
+                <button onClick={() => setAttachmentType('file')} className={`px-2 py-1 text-xs rounded ${attachmentType === 'file' ? 'bg-primary-600 text-white' : 'bg-gray-200 dark:bg-surface-700 text-gray-600 dark:text-gray-400'}`}>
+                  <FileText className="w-3 h-3 inline mr-1" />Document
+                </button>
+              </div>
+              <input placeholder="Name" value={attachmentName} onChange={(e) => setAttachmentName(e.target.value)} className="w-full px-2 py-1 text-xs rounded bg-white dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white" />
+              <input placeholder={attachmentType === 'link' ? 'https://...' : 'Document URL'} value={attachmentUrl} onChange={(e) => setAttachmentUrl(e.target.value)} className="w-full px-2 py-1 text-xs rounded bg-white dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white" />
+              <div className="flex gap-1 justify-end">
+                <button onClick={() => setShowAttachmentForm(null)} className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700">Cancel</button>
+                <button onClick={() => handleAddAttachment(task.id)} disabled={!attachmentName.trim() || !attachmentUrl.trim()} className="px-2 py-1 text-xs bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50">Add</button>
+              </div>
+            </div>
+          )}
+
           {/* Reactions & Comments bar */}
           <div className="flex items-center gap-3 pt-2 mt-2 border-t border-gray-100 dark:border-surface-700">
             <button onClick={() => handleReact(task.id, 'like')} className={`flex items-center gap-1 text-xs ${userReaction === 'like' ? 'text-blue-600 font-semibold' : 'text-gray-500'}`}>
@@ -575,6 +709,14 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
             <button onClick={() => setExpandedComments(expandedComments === task.id ? null : task.id)} className={`flex items-center gap-1 text-xs ${expandedComments === task.id ? 'text-violet-600 font-semibold' : 'text-gray-500'}`}>
               <MessageCircle className="w-3.5 h-3.5" /> {commentCount > 0 && commentCount}
             </button>
+            <button onClick={() => setShowAttachmentForm(showAttachmentForm === task.id ? null : task.id)} className={`flex items-center gap-1 text-xs ${showAttachmentForm === task.id ? 'text-violet-600 font-semibold' : 'text-gray-500'}`}>
+              <Paperclip className="w-3.5 h-3.5" /> {(task as any).attachments?.length > 0 && (task as any).attachments.length}
+            </button>
+            {task.conversationId && (
+              <button onClick={() => navigate(`/chat/${task.conversationId}`)} className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 ml-auto" title="Open task chat room">
+                <MessageSquare className="w-3.5 h-3.5" /> Chat
+              </button>
+            )}
           </div>
 
           {/* Expanded comments */}
@@ -609,9 +751,14 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                       )}
                     </div>
                   ))}
-                  <input placeholder="Write a comment..." value={newComment} onChange={(e) => setNewComment(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddComment(task.id); }}
-                    className="w-full px-2 py-1.5 text-xs rounded bg-gray-50 dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white placeholder-gray-400" />
+                  <div className="flex gap-1">
+                    <input placeholder="Write a comment..." value={newCommentMap[task.id] || ''} onChange={(e) => setNewCommentMap((prev) => ({ ...prev, [task.id]: e.target.value }))}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleAddComment(task.id); }}
+                      className="flex-1 px-2 py-1.5 text-xs rounded bg-gray-50 dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white placeholder-gray-400" />
+                    <button onClick={() => handleAddComment(task.id)} disabled={!(newCommentMap[task.id] || '').trim()} className="p-1.5 rounded bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                      <Send className="w-3 h-3" />
+                    </button>
+                  </div>
                 </>
               )}
             </div>
@@ -689,6 +836,32 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
           </div>
         )}
 
+        {/* Checklists progress */}
+        {(task as any).checklists?.length > 0 && (
+          <div className="mb-2 space-y-1">
+            {(task as any).checklists.map((cl: any) => {
+              const total = cl.items?.length || 0;
+              const done = cl.items?.filter((i: any) => i.completed).length || 0;
+              return (
+                <div key={cl.id} className="text-xs">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-gray-600 dark:text-gray-400 flex items-center gap-1">
+                      <CheckSquare className="w-3 h-3" />
+                      {cl.title}
+                    </span>
+                    <span className="text-gray-400">{done}/{total}</span>
+                  </div>
+                  {total > 0 && (
+                    <div className="h-1.5 bg-gray-200 dark:bg-surface-600 rounded-full overflow-hidden">
+                      <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${Math.round((done / total) * 100)}%` }} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-surface-700">
           <button
             onClick={() => handleChatWithUser(task.assignedTo.id)}
@@ -722,6 +895,44 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
           </button>
         </div>
 
+        {/* Attachments */}
+        {(task as any).attachments?.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {(task as any).attachments.map((att: any) => (
+              <a key={att.id} href={att.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs text-primary-600 dark:text-primary-400 hover:underline group">
+                {att.type === 'link' ? <Link2 className="w-3 h-3" /> : <FileText className="w-3 h-3" />}
+                <span className="truncate">{att.name}</span>
+                <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100" />
+                {att.uploadedBy?.id === user?.id && (
+                  <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteAttachment(task.id, att.id); }} className="ml-auto text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100">
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                )}
+              </a>
+            ))}
+          </div>
+        )}
+
+        {/* Attachment form */}
+        {showAttachmentForm === task.id && (
+          <div className="mt-2 p-2 bg-gray-50 dark:bg-surface-800 rounded border border-gray-200 dark:border-surface-600 space-y-2">
+            <div className="flex gap-2">
+              <button onClick={() => setAttachmentType('link')} className={`px-2 py-1 text-xs rounded ${attachmentType === 'link' ? 'bg-primary-600 text-white' : 'bg-gray-200 dark:bg-surface-700 text-gray-600 dark:text-gray-400'}`}>
+                <Link2 className="w-3 h-3 inline mr-1" />Link
+              </button>
+              <button onClick={() => setAttachmentType('file')} className={`px-2 py-1 text-xs rounded ${attachmentType === 'file' ? 'bg-primary-600 text-white' : 'bg-gray-200 dark:bg-surface-700 text-gray-600 dark:text-gray-400'}`}>
+                <FileText className="w-3 h-3 inline mr-1" />Document
+              </button>
+            </div>
+            <input placeholder="Name" value={attachmentName} onChange={(e) => setAttachmentName(e.target.value)} className="w-full px-2 py-1 text-xs rounded bg-white dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white" />
+            <input placeholder={attachmentType === 'link' ? 'https://...' : 'Document URL'} value={attachmentUrl} onChange={(e) => setAttachmentUrl(e.target.value)} className="w-full px-2 py-1 text-xs rounded bg-white dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white" />
+            <div className="flex gap-1 justify-end">
+              <button onClick={() => setShowAttachmentForm(null)} className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700">Cancel</button>
+              <button onClick={() => handleAddAttachment(task.id)} disabled={!attachmentName.trim() || !attachmentUrl.trim()} className="px-2 py-1 text-xs bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50">Add</button>
+            </div>
+          </div>
+        )}
+
         {/* Reactions & Comments bar */}
         <div className="flex items-center gap-3 pt-2 mt-2 border-t border-gray-100 dark:border-surface-700">
           <button
@@ -742,6 +953,17 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
           >
             <MessageCircle className="w-3.5 h-3.5" /> {commentCount > 0 && commentCount}
           </button>
+          <button
+            onClick={() => setShowAttachmentForm(showAttachmentForm === task.id ? null : task.id)}
+            className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-surface-700 ${showAttachmentForm === task.id ? 'text-violet-600 dark:text-violet-400 font-semibold' : 'text-gray-500 dark:text-gray-400'}`}
+          >
+            <Paperclip className="w-3.5 h-3.5" /> {(task as any).attachments?.length > 0 && (task as any).attachments.length}
+          </button>
+          {task.conversationId && (
+            <button onClick={() => navigate(`/chat/${task.conversationId}`)} className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-surface-700 text-green-600 dark:text-green-400 ml-auto" title="Open task chat room">
+              <MessageSquare className="w-3.5 h-3.5" /> Chat
+            </button>
+          )}
         </div>
 
         {/* Expanded comments section */}
@@ -793,13 +1015,18 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                     )}
                   </div>
                 ))}
-                <input
-                  placeholder="Write a comment..."
-                  value={newComment}
-                  onChange={(e) => setNewComment(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddComment(task.id); }}
-                  className="w-full px-2 py-1.5 text-xs rounded bg-gray-50 dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white placeholder-gray-400"
-                />
+                <div className="flex gap-1">
+                  <input
+                    placeholder="Write a comment..."
+                    value={newCommentMap[task.id] || ''}
+                    onChange={(e) => setNewCommentMap((prev) => ({ ...prev, [task.id]: e.target.value }))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddComment(task.id); }}
+                    className="flex-1 px-2 py-1.5 text-xs rounded bg-gray-50 dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white placeholder-gray-400"
+                  />
+                  <button onClick={() => handleAddComment(task.id)} disabled={!(newCommentMap[task.id] || '').trim()} className="p-1.5 rounded bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                    <Send className="w-3 h-3" />
+                  </button>
+                </div>
               </>
             )}
           </div>
@@ -1152,6 +1379,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                 <input
                   type="date"
                   value={formData.deadline}
+                  min={new Date().toISOString().split('T')[0]}
                   onChange={(e) => setFormData({ ...formData, deadline: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-surface-800 text-gray-900 dark:text-white border border-gray-300 dark:border-surface-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
@@ -1259,6 +1487,146 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                   </div>
                 )}
               </div>
+
+              {/* Checklists */}
+              {!editingTask && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <CheckSquare className="w-4 h-4 inline mr-1" />
+                    Checklists
+                  </label>
+
+                  {/* Existing checklists */}
+                  {formChecklists.map((cl, clIdx) => (
+                    <div key={clIdx} className="mb-3 p-3 bg-gray-50 dark:bg-surface-800 rounded-lg border border-gray-200 dark:border-surface-700">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-semibold text-gray-900 dark:text-white">{cl.title}</span>
+                        <button
+                          onClick={() => setFormChecklists(formChecklists.filter((_, i) => i !== clIdx))}
+                          className="p-1 text-gray-400 hover:text-red-500 rounded"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {/* Checklist items */}
+                      {cl.items.map((item, itemIdx) => (
+                        <div key={itemIdx} className="flex items-center gap-2 mb-1.5 ml-2">
+                          <CheckSquare className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                          <span className="text-xs text-gray-700 dark:text-gray-300 flex-1 truncate">{item.title}</span>
+                          {item.dueDate && (
+                            <span className="text-[10px] text-gray-400">{new Date(item.dueDate).toLocaleDateString()}</span>
+                          )}
+                          <button
+                            onClick={() => {
+                              const updated = [...formChecklists];
+                              updated[clIdx] = {
+                                ...updated[clIdx],
+                                items: updated[clIdx].items.filter((_, i) => i !== itemIdx),
+                              };
+                              setFormChecklists(updated);
+                            }}
+                            className="p-0.5 text-gray-400 hover:text-red-500"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+
+                      {/* Add item form */}
+                      <div className="mt-2 ml-2 space-y-1.5">
+                        <div className="flex gap-1">
+                          <input
+                            type="text"
+                            placeholder="Add item..."
+                            className="flex-1 px-2 py-1 text-xs rounded bg-white dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white placeholder-gray-400"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
+                                const updated = [...formChecklists];
+                                updated[clIdx] = {
+                                  ...updated[clIdx],
+                                  items: [...updated[clIdx].items, { title: (e.target as HTMLInputElement).value.trim() }],
+                                };
+                                setFormChecklists(updated);
+                                (e.target as HTMLInputElement).value = '';
+                              }
+                            }}
+                          />
+                        </div>
+                        {cl.items.length > 0 && cl.items[cl.items.length - 1] && (
+                          <div className="flex gap-1">
+                            <input
+                              type="date"
+                              min={new Date().toISOString().split('T')[0]}
+                              className="flex-1 px-2 py-1 text-xs rounded bg-white dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white"
+                              onChange={(e) => {
+                                if (e.target.value) {
+                                  const updated = [...formChecklists];
+                                  const lastIdx = updated[clIdx].items.length - 1;
+                                  updated[clIdx].items[lastIdx] = { ...updated[clIdx].items[lastIdx], dueDate: e.target.value };
+                                  setFormChecklists(updated);
+                                }
+                              }}
+                              placeholder="Due date for last item"
+                            />
+                            <select
+                              className="flex-1 px-2 py-1 text-xs rounded bg-white dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white"
+                              onChange={(e) => {
+                                if (e.target.value) {
+                                  const updated = [...formChecklists];
+                                  const lastIdx = updated[clIdx].items.length - 1;
+                                  updated[clIdx].items[lastIdx] = { ...updated[clIdx].items[lastIdx], assigneeId: e.target.value };
+                                  setFormChecklists(updated);
+                                }
+                              }}
+                              defaultValue=""
+                            >
+                              <option value="">Assign last item...</option>
+                              {assigneeResults.length > 0
+                                ? assigneeResults.map((u) => (
+                                    <option key={u.id} value={u.id}>{u.username}</option>
+                                  ))
+                                : selectedAssignee && (
+                                    <option value={selectedAssignee.id}>{selectedAssignee.displayName || selectedAssignee.username}</option>
+                                  )
+                              }
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Add new checklist */}
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newChecklistTitle}
+                      onChange={(e) => setNewChecklistTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && newChecklistTitle.trim()) {
+                          setFormChecklists([...formChecklists, { title: newChecklistTitle.trim(), items: [] }]);
+                          setNewChecklistTitle('');
+                        }
+                      }}
+                      placeholder="New checklist name..."
+                      className="flex-1 px-3 py-2 rounded-lg bg-gray-50 dark:bg-surface-800 text-gray-900 dark:text-white border border-gray-300 dark:border-surface-700 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                    />
+                    <button
+                      onClick={() => {
+                        if (newChecklistTitle.trim()) {
+                          setFormChecklists([...formChecklists, { title: newChecklistTitle.trim(), items: [] }]);
+                          setNewChecklistTitle('');
+                        }
+                      }}
+                      disabled={!newChecklistTitle.trim()}
+                      className="px-3 py-2 bg-primary-600 hover:bg-primary-700 disabled:opacity-50 text-white rounded-lg font-medium text-sm"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Linda Following */}
               <div>
