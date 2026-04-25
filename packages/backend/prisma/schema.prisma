@@ -333,7 +333,7 @@ model Task {
 
   sourceMessageId String?
 
-  conversationId String? @map("conversation_id")
+  conversationId String? @unique @map("conversation_id")
   conversation   Conversation? @relation("TaskConversation", fields: [conversationId], references: [id], onDelete: SetNull)
 
   // Department and Project tagging
@@ -471,7 +471,7 @@ model Project {
   createdById    String   @map("created_by_id")
   createdBy      User     @relation("ProjectsCreated", fields: [createdById], references: [id])
 
-  conversationId String? @map("conversation_id")
+  conversationId String? @unique @map("conversation_id")
   conversation   Conversation? @relation("ProjectConversation", fields: [conversationId], references: [id], onDelete: SetNull)
 
   createdAt      DateTime @default(now()) @map("created_at")
