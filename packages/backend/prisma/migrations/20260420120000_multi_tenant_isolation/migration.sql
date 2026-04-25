@@ -35,7 +35,7 @@ UPDATE "tasks" t
 SET "organization_id" = (
   SELECT om."organization_id"
   FROM "organization_members" om
-  WHERE om."user_id" = t."created_by_id"
+  WHERE om."user_id" = t."createdById"
   LIMIT 1
 )
 WHERE t."organization_id" IS NULL;
