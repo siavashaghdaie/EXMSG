@@ -1088,6 +1088,31 @@ class APIClient {
     return res.data;
   }
 
+  // ─── Task Reactions & Comments ──────────────────────────────────────────
+  async reactToTask(taskId: string, type: 'like' | 'dislike'): Promise<any> {
+    const res = await this.client.post(`/tasks/${taskId}/react`, { type });
+    return res.data;
+  }
+
+  async getTaskComments(taskId: string): Promise<{ comments: any[] }> {
+    const res = await this.client.get(`/tasks/${taskId}/comments`);
+    return res.data;
+  }
+
+  async addTaskComment(taskId: string, content: string): Promise<any> {
+    const res = await this.client.post(`/tasks/${taskId}/comments`, { content });
+    return res.data;
+  }
+
+  async updateTaskComment(taskId: string, commentId: string, content: string): Promise<any> {
+    const res = await this.client.patch(`/tasks/${taskId}/comments/${commentId}`, { content });
+    return res.data;
+  }
+
+  async deleteTaskComment(taskId: string, commentId: string): Promise<void> {
+    await this.client.delete(`/tasks/${taskId}/comments/${commentId}`);
+  }
+
   // ─── Department Management ────────────────────────────────────────────
 
   async getDepartments(orgId?: string): Promise<{ departments: any[] }> {

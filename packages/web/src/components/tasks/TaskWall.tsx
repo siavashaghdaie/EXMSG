@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Plus, Calendar, MoreVertical, X, Loader2, Search, UserPlus } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Calendar, MoreVertical, X, Loader2, Search, UserPlus, ThumbsUp, ThumbsDown, MessageCircle, Pencil, Trash2 } from 'lucide-react';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import Avatar from '@/components/common/Avatar';
@@ -32,6 +33,8 @@ interface Task {
   } | null;
   lindaFollowing?: boolean;
   lindaFollowInterval?: string;
+  reactions?: Array<{ id: string; userId: string; type: string }>;
+  _count?: { comments: number };
   createdAt: string;
   updatedAt: string;
 }
@@ -44,6 +47,7 @@ interface TaskWallProps {
 
 const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
   const { user } = useAuthStore();
+  const navigate = useNavigate();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<TaskFilter>('my-tasks');
@@ -52,6 +56,14 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  // Comments & reactions state
+  const [expandedComments, setExpandedComments] = useState<string | null>(null);
+  const [taskComments, setTaskComments] = useState<any[]>([]);
+  const [newComment, setNewComment] = useState('');
+  const [loadingComments, setLoadingComments] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState('');
 
   // Modal form state
   const [formData, setFormData] = useState({
@@ -215,6 +227,81 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
     }
   };
 
+  // Load comments when expanded
+  useEffect(() => {
+    if (expandedComments) {
+      setLoadingComments(true);
+      api.getTaskComments(expandedComments).then((data) => {
+        setTaskComments(data.comments || []);
+        setLoadingComments(false);
+      }).catch(() => setLoadingComments(false));
+    }
+  }, [expandedComments]);
+
+  // Navigate to chat with a user
+  const handleChatWithUser = async (targetUserId: string) => {
+    if (!targetUserId || targetUserId === user?.id) return;
+    try {
+      const conv = await api.createConversation([targetUserId]);
+      navigate(`/chat/${conv.id}`);
+    } catch (err) {
+      console.error('Failed to open chat:', err);
+    }
+  };
+
+  // Reaction handlers
+  const handleReact = async (taskId: string, type: 'like' | 'dislike') => {
+    try {
+      await api.reactToTask(taskId, type);
+      // Reload tasks to get updated reactions
+      const data = await api.getTasks(filter === 'my-tasks' ? {} : { view: 'all' });
+      setTasks(data || []);
+    } catch (err) {
+      console.error('React error:', err);
+    }
+  };
+
+  // Comment handlers
+  const handleAddComment = async (taskId: string) => {
+    if (!newComment.trim()) return;
+    try {
+      await api.addTaskComment(taskId, newComment.trim());
+      setNewComment('');
+      const data = await api.getTaskComments(taskId);
+      setTaskComments(data.comments || []);
+      // Refresh task list to update comment count
+      const tasksData = await api.getTasks(filter === 'my-tasks' ? {} : { view: 'all' });
+      setTasks(tasksData || []);
+    } catch (err) {
+      console.error('Add comment error:', err);
+    }
+  };
+
+  const handleUpdateComment = async (taskId: string, commentId: string) => {
+    if (!editingCommentText.trim()) return;
+    try {
+      await api.updateTaskComment(taskId, commentId, editingCommentText.trim());
+      setEditingCommentId(null);
+      setEditingCommentText('');
+      const data = await api.getTaskComments(taskId);
+      setTaskComments(data.comments || []);
+    } catch (err) {
+      console.error('Update comment error:', err);
+    }
+  };
+
+  const handleDeleteComment = async (taskId: string, commentId: string) => {
+    try {
+      await api.deleteTaskComment(taskId, commentId);
+      const data = await api.getTaskComments(taskId);
+      setTaskComments(data.comments || []);
+      const tasksData = await api.getTasks(filter === 'my-tasks' ? {} : { view: 'all' });
+      setTasks(tasksData || []);
+    } catch (err) {
+      console.error('Delete comment error:', err);
+    }
+  };
+
   // Handle delete task
   const handleDeleteTask = async (taskId: string) => {
     if (!confirm('Are you sure you want to delete this task?')) {
@@ -365,6 +452,11 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
   };
 
   const TaskCard: React.FC<{ task: Task }> = ({ task }) => {
+    const likes = (task.reactions || []).filter(r => r.type === 'like').length;
+    const dislikes = (task.reactions || []).filter(r => r.type === 'dislike').length;
+    const userReaction = (task.reactions || []).find(r => r.userId === user?.id)?.type;
+    const commentCount = task._count?.comments || 0;
+
     if (isMobile) {
       return (
         <div className={`bg-white dark:bg-surface-800 rounded-lg p-4 mb-3 shadow-sm hover:shadow-md transition-shadow border border-gray-200 dark:border-surface-700 ${getPriorityBorderColor(task.priority)}`}>
@@ -418,8 +510,11 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
             </div>
           )}
 
-          {/* Assignee */}
-          <div className="flex items-center gap-2 mb-3 pb-3 border-b border-gray-200 dark:border-surface-700">
+          {/* Assignee — clickable */}
+          <button
+            onClick={() => handleChatWithUser(task.assignedTo.id)}
+            className="flex items-center gap-2 mb-3 pb-3 border-b border-gray-200 dark:border-surface-700 hover:opacity-80 w-full text-left"
+          >
             <Avatar
               name={task.assignedTo.displayName || task.assignedTo.username}
               src={task.assignedTo.avatarUrl}
@@ -428,14 +523,20 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
             <span className="text-sm text-gray-700 dark:text-gray-300">
               {task.assignedTo.displayName || task.assignedTo.username}
             </span>
-          </div>
+          </button>
 
           {/* Date and Status */}
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                <Calendar className="w-3 h-3" />
+                <span>
+                  {new Date(task.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </span>
+              </div>
               {task.deadline && (
                 <div className={`flex items-center gap-1 text-xs ${getDeadlineColor(task.deadline)}`}>
-                  <Calendar className="w-3 h-3" />
+                  <span>→</span>
                   <span>
                     {new Date(task.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </span>
@@ -462,6 +563,59 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
               <MoreVertical className="w-4 h-4 text-gray-500" />
             </button>
           </div>
+
+          {/* Reactions & Comments bar */}
+          <div className="flex items-center gap-3 pt-2 mt-2 border-t border-gray-100 dark:border-surface-700">
+            <button onClick={() => handleReact(task.id, 'like')} className={`flex items-center gap-1 text-xs ${userReaction === 'like' ? 'text-blue-600 font-semibold' : 'text-gray-500'}`}>
+              <ThumbsUp className="w-3.5 h-3.5" /> {likes > 0 && likes}
+            </button>
+            <button onClick={() => handleReact(task.id, 'dislike')} className={`flex items-center gap-1 text-xs ${userReaction === 'dislike' ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>
+              <ThumbsDown className="w-3.5 h-3.5" /> {dislikes > 0 && dislikes}
+            </button>
+            <button onClick={() => setExpandedComments(expandedComments === task.id ? null : task.id)} className={`flex items-center gap-1 text-xs ${expandedComments === task.id ? 'text-violet-600 font-semibold' : 'text-gray-500'}`}>
+              <MessageCircle className="w-3.5 h-3.5" /> {commentCount > 0 && commentCount}
+            </button>
+          </div>
+
+          {/* Expanded comments */}
+          {expandedComments === task.id && (
+            <div className="mt-2 pt-2 border-t border-gray-100 dark:border-surface-700 space-y-2">
+              {loadingComments ? (
+                <div className="flex justify-center py-2"><Loader2 className="w-4 h-4 animate-spin text-gray-400" /></div>
+              ) : (
+                <>
+                  {taskComments.map((comment) => (
+                    <div key={comment.id} className="flex gap-2 text-xs group">
+                      <button onClick={() => handleChatWithUser(comment.user?.id)} className="flex-shrink-0">
+                        <Avatar name={comment.user?.displayName || '?'} src={comment.user?.avatarUrl} size="sm" />
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <button onClick={() => handleChatWithUser(comment.user?.id)} className="font-semibold text-gray-900 dark:text-white hover:underline">
+                          {comment.user?.displayName || comment.user?.username}
+                        </button>
+                        {editingCommentId === comment.id ? (
+                          <input autoFocus value={editingCommentText} onChange={(e) => setEditingCommentText(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleUpdateComment(task.id, comment.id); if (e.key === 'Escape') { setEditingCommentId(null); setEditingCommentText(''); } }}
+                            className="block w-full mt-0.5 px-2 py-1 text-xs rounded bg-gray-100 dark:bg-surface-700 border border-gray-300 dark:border-surface-600 text-gray-900 dark:text-white" />
+                        ) : (
+                          <p className="text-gray-700 dark:text-gray-300 mt-0.5 break-words">{comment.content}</p>
+                        )}
+                      </div>
+                      {user?.id === comment.user?.id && !editingCommentId && (
+                        <div className="flex gap-0.5 flex-shrink-0">
+                          <button onClick={() => { setEditingCommentId(comment.id); setEditingCommentText(comment.content); }} className="p-0.5 hover:bg-gray-100 rounded"><Pencil className="w-3 h-3 text-gray-400" /></button>
+                          <button onClick={() => handleDeleteComment(task.id, comment.id)} className="p-0.5 hover:bg-gray-100 rounded"><Trash2 className="w-3 h-3 text-red-400" /></button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  <input placeholder="Write a comment..." value={newComment} onChange={(e) => setNewComment(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddComment(task.id); }}
+                    className="w-full px-2 py-1.5 text-xs rounded bg-gray-50 dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white placeholder-gray-400" />
+                </>
+              )}
+            </div>
+          )}
         </div>
       );
     }
@@ -503,18 +657,24 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
         {task.orderedBy && (
           <div className="flex items-center gap-1.5 mb-2 text-xs text-amber-700 dark:text-amber-400">
             <span className="font-medium">📋 Ordered by:</span>
-            <span>{task.orderedBy.displayName || task.orderedBy.username}</span>
+            <button onClick={() => handleChatWithUser(task.orderedBy!.id)} className="hover:underline cursor-pointer">
+              {task.orderedBy.displayName || task.orderedBy.username}
+            </button>
           </div>
         )}
 
-        {task.deadline && (
-          <div className={`flex items-center gap-1 text-xs mb-2 ${getDeadlineColor(task.deadline)}`}>
+        <div className="flex items-center gap-2 text-xs mb-2">
+          <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400">
             <Calendar className="w-3 h-3" />
-            <span>
-              {new Date(task.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-            </span>
+            <span>{new Date(task.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
           </div>
-        )}
+          {task.deadline && (
+            <div className={`flex items-center gap-1 ${getDeadlineColor(task.deadline)}`}>
+              <span>→</span>
+              <span>{new Date(task.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+            </div>
+          )}
+        </div>
 
         {task.labels.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-2">
@@ -530,13 +690,17 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
         )}
 
         <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-surface-700">
-          <div className="flex items-center gap-1">
+          <button
+            onClick={() => handleChatWithUser(task.assignedTo.id)}
+            className="flex items-center gap-1 hover:opacity-80 cursor-pointer"
+            title={`Chat with ${task.assignedTo.displayName || task.assignedTo.username}`}
+          >
             <Avatar
               name={task.assignedTo.displayName || task.assignedTo.username}
               src={task.assignedTo.avatarUrl}
               size="sm"
             />
-          </div>
+          </button>
 
           <select
             value={task.status}
@@ -557,6 +721,89 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
             <MoreVertical className="w-4 h-4 text-gray-500" />
           </button>
         </div>
+
+        {/* Reactions & Comments bar */}
+        <div className="flex items-center gap-3 pt-2 mt-2 border-t border-gray-100 dark:border-surface-700">
+          <button
+            onClick={() => handleReact(task.id, 'like')}
+            className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-surface-700 ${userReaction === 'like' ? 'text-blue-600 dark:text-blue-400 font-semibold' : 'text-gray-500 dark:text-gray-400'}`}
+          >
+            <ThumbsUp className="w-3.5 h-3.5" /> {likes > 0 && likes}
+          </button>
+          <button
+            onClick={() => handleReact(task.id, 'dislike')}
+            className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-surface-700 ${userReaction === 'dislike' ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-gray-500 dark:text-gray-400'}`}
+          >
+            <ThumbsDown className="w-3.5 h-3.5" /> {dislikes > 0 && dislikes}
+          </button>
+          <button
+            onClick={() => setExpandedComments(expandedComments === task.id ? null : task.id)}
+            className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-surface-700 ${expandedComments === task.id ? 'text-violet-600 dark:text-violet-400 font-semibold' : 'text-gray-500 dark:text-gray-400'}`}
+          >
+            <MessageCircle className="w-3.5 h-3.5" /> {commentCount > 0 && commentCount}
+          </button>
+        </div>
+
+        {/* Expanded comments section */}
+        {expandedComments === task.id && (
+          <div className="mt-2 pt-2 border-t border-gray-100 dark:border-surface-700 space-y-2">
+            {loadingComments ? (
+              <div className="flex justify-center py-2"><Loader2 className="w-4 h-4 animate-spin text-gray-400" /></div>
+            ) : (
+              <>
+                {taskComments.map((comment) => (
+                  <div key={comment.id} className="flex gap-2 text-xs group">
+                    <button onClick={() => handleChatWithUser(comment.user?.id)} className="flex-shrink-0 hover:opacity-80">
+                      <Avatar name={comment.user?.displayName || '?'} src={comment.user?.avatarUrl} size="sm" />
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <button onClick={() => handleChatWithUser(comment.user?.id)} className="font-semibold text-gray-900 dark:text-white hover:underline">
+                        {comment.user?.displayName || comment.user?.username}
+                      </button>
+                      {editingCommentId === comment.id ? (
+                        <input
+                          autoFocus
+                          value={editingCommentText}
+                          onChange={(e) => setEditingCommentText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleUpdateComment(task.id, comment.id);
+                            if (e.key === 'Escape') { setEditingCommentId(null); setEditingCommentText(''); }
+                          }}
+                          className="block w-full mt-0.5 px-2 py-1 text-xs rounded bg-gray-100 dark:bg-surface-700 border border-gray-300 dark:border-surface-600 text-gray-900 dark:text-white"
+                        />
+                      ) : (
+                        <p className="text-gray-700 dark:text-gray-300 mt-0.5 break-words">{comment.content}</p>
+                      )}
+                    </div>
+                    {user?.id === comment.user?.id && !editingCommentId && (
+                      <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                        <button
+                          onClick={() => { setEditingCommentId(comment.id); setEditingCommentText(comment.content); }}
+                          className="p-0.5 hover:bg-gray-100 dark:hover:bg-surface-700 rounded"
+                        >
+                          <Pencil className="w-3 h-3 text-gray-400" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteComment(task.id, comment.id)}
+                          className="p-0.5 hover:bg-gray-100 dark:hover:bg-surface-700 rounded"
+                        >
+                          <Trash2 className="w-3 h-3 text-red-400" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                <input
+                  placeholder="Write a comment..."
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddComment(task.id); }}
+                  className="w-full px-2 py-1.5 text-xs rounded bg-gray-50 dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white placeholder-gray-400"
+                />
+              </>
+            )}
+          </div>
+        )}
       </div>
     );
   };

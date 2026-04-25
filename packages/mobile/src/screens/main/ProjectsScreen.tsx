@@ -16,8 +16,10 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
+import { useChatStore } from '@/store/chatStore';
 
 const COLORS = {
   primary: '#7C3AED',
@@ -84,6 +86,9 @@ interface TaskData {
   archived?: boolean;
   assignedTo?: { id: string; displayName: string; username: string; avatarUrl?: string };
   createdBy?: { id: string; displayName: string; username: string; avatarUrl?: string };
+  createdAt?: string;
+  reactions?: Array<{ id: string; userId: string; type: string }>;
+  _count?: { comments: number };
   checklists?: Checklist[];
 }
 
@@ -106,6 +111,8 @@ type ViewMode = 'list' | 'detail' | 'board';
 
 export default function ProjectsScreen() {
   const { user } = useAuthStore();
+  const navigation = useNavigation<any>();
+  const { createConversation } = useChatStore();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -142,6 +149,72 @@ export default function ProjectsScreen() {
   const [showAddChecklist, setShowAddChecklist] = useState(false);
   const [newChecklistTitle, setNewChecklistTitle] = useState('');
   const [newItemTitles, setNewItemTitles] = useState<Record<string, string>>({});
+
+  // Comments & reactions
+  const [expandedComments, setExpandedComments] = useState<string | null>(null);
+  const [taskComments, setTaskComments] = useState<any[]>([]);
+  const [newComment, setNewComment] = useState('');
+  const [loadingComments, setLoadingComments] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState('');
+
+  useEffect(() => {
+    if (expandedComments) {
+      setLoadingComments(true);
+      api.getTaskComments(expandedComments).then((data) => {
+        setTaskComments(data.comments || []);
+        setLoadingComments(false);
+      }).catch(() => setLoadingComments(false));
+    }
+  }, [expandedComments]);
+
+  const handleChatWithUser = async (targetUserId: string) => {
+    if (!targetUserId || targetUserId === user?.id) return;
+    try {
+      const conv = await createConversation([targetUserId]);
+      navigation.navigate('Chats', { screen: 'Chat', params: { conversationId: conv.id } });
+    } catch (err) { console.error('Failed to open chat:', err); }
+  };
+
+  const handleReactTask = async (taskId: string, type: 'like' | 'dislike') => {
+    try {
+      await api.reactToTask(taskId, type);
+      if (selectedProject) {
+        const res = await api.getProject(selectedProject.id);
+        setSelectedProject(res);
+      }
+    } catch (err) { console.error('React error:', err); }
+  };
+
+  const handleAddTaskComment = async (taskId: string) => {
+    if (!newComment.trim()) return;
+    try {
+      await api.addTaskComment(taskId, newComment.trim());
+      setNewComment('');
+      const data = await api.getTaskComments(taskId);
+      setTaskComments(data.comments || []);
+      if (selectedProject) { const res = await api.getProject(selectedProject.id); setSelectedProject(res); }
+    } catch (err) { console.error('Add comment error:', err); }
+  };
+
+  const handleUpdateTaskComment = async (taskId: string, commentId: string) => {
+    if (!editingCommentText.trim()) return;
+    try {
+      await api.updateTaskComment(taskId, commentId, editingCommentText.trim());
+      setEditingCommentId(null); setEditingCommentText('');
+      const data = await api.getTaskComments(taskId);
+      setTaskComments(data.comments || []);
+    } catch (err) { console.error('Update comment error:', err); }
+  };
+
+  const handleDeleteTaskComment = async (taskId: string, commentId: string) => {
+    try {
+      await api.deleteTaskComment(taskId, commentId);
+      const data = await api.getTaskComments(taskId);
+      setTaskComments(data.comments || []);
+      if (selectedProject) { const res = await api.getProject(selectedProject.id); setSelectedProject(res); }
+    } catch (err) { console.error('Delete comment error:', err); }
+  };
 
   const loadProjects = useCallback(async () => {
     try {
@@ -441,14 +514,19 @@ export default function ProjectsScreen() {
               {/* Title */}
               <Text style={{ fontSize: 20, fontWeight: '800', color: COLORS.text }}>{task.title}</Text>
 
-              {/* Priority + deadline badges */}
+              {/* Priority + dates badges */}
               <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
                 <View style={[styles.badge, { backgroundColor: PRIORITY_COLORS[task.priority]?.bg }]}>
                   <Text style={[styles.badgeText, { color: PRIORITY_COLORS[task.priority]?.text }]}>{task.priority}</Text>
                 </View>
+                {task.createdAt && (
+                  <View style={[styles.badge, { backgroundColor: '#F1F5F9' }]}>
+                    <Text style={[styles.badgeText, { color: '#64748B' }]}>📅 {new Date(task.createdAt).toLocaleDateString()}</Text>
+                  </View>
+                )}
                 {task.deadline && (
                   <View style={[styles.badge, { backgroundColor: '#FEF3C7' }]}>
-                    <Text style={[styles.badgeText, { color: '#92400E' }]}>📅 {new Date(task.deadline).toLocaleDateString()}</Text>
+                    <Text style={[styles.badgeText, { color: '#92400E' }]}>⏰ {new Date(task.deadline).toLocaleDateString()}</Text>
                   </View>
                 )}
                 {progress && (
@@ -599,6 +677,76 @@ export default function ProjectsScreen() {
                   );
                 })}
               </View>
+
+              {/* Reactions & Comments section */}
+              {(() => {
+                const likes = ((task as any).reactions || []).filter((r: any) => r.type === 'like').length;
+                const dislikes = ((task as any).reactions || []).filter((r: any) => r.type === 'dislike').length;
+                const myReaction = ((task as any).reactions || []).find((r: any) => r.userId === user?.id)?.type;
+                const cmtCount = (task as any)._count?.comments || 0;
+                return (
+                  <View style={{ backgroundColor: '#F8FAFC', borderRadius: 12, padding: 14 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.text, marginBottom: 10 }}>Reactions & Comments</Text>
+                    <View style={{ flexDirection: 'row', gap: 16, marginBottom: 12 }}>
+                      <TouchableOpacity onPress={() => handleReactTask(task.id, 'like')} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16, backgroundColor: myReaction === 'like' ? '#DBEAFE' : '#F1F5F9' }}>
+                        <Text>👍</Text><Text style={{ fontSize: 12, fontWeight: myReaction === 'like' ? '700' : '400', color: myReaction === 'like' ? '#2563EB' : '#64748B' }}>{likes}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => handleReactTask(task.id, 'dislike')} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16, backgroundColor: myReaction === 'dislike' ? '#FEE2E2' : '#F1F5F9' }}>
+                        <Text>👎</Text><Text style={{ fontSize: 12, fontWeight: myReaction === 'dislike' ? '700' : '400', color: myReaction === 'dislike' ? '#EF4444' : '#64748B' }}>{dislikes}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => setExpandedComments(expandedComments === task.id ? null : task.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16, backgroundColor: expandedComments === task.id ? '#EDE9FE' : '#F1F5F9' }}>
+                        <Text>💬</Text><Text style={{ fontSize: 12, fontWeight: expandedComments === task.id ? '700' : '400', color: expandedComments === task.id ? '#7C3AED' : '#64748B' }}>{cmtCount}</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {expandedComments === task.id && (
+                      <View>
+                        {loadingComments ? (
+                          <ActivityIndicator size="small" color={COLORS.primary} />
+                        ) : (
+                          <>
+                            {taskComments.map((c) => (
+                              <View key={c.id} style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+                                <TouchableOpacity onPress={() => handleChatWithUser(c.user?.id)}>
+                                  <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: '#E2E8F0', justifyContent: 'center', alignItems: 'center' }}>
+                                    <Text style={{ fontSize: 10, fontWeight: '700' }}>{(c.user?.displayName || '?')[0]}</Text>
+                                  </View>
+                                </TouchableOpacity>
+                                <View style={{ flex: 1 }}>
+                                  <TouchableOpacity onPress={() => handleChatWithUser(c.user?.id)}>
+                                    <Text style={{ fontSize: 12, fontWeight: '700', color: COLORS.text }}>{c.user?.displayName || c.user?.username}</Text>
+                                  </TouchableOpacity>
+                                  {editingCommentId === c.id ? (
+                                    <TextInput value={editingCommentText} onChangeText={setEditingCommentText}
+                                      onSubmitEditing={() => handleUpdateTaskComment(task.id, c.id)}
+                                      style={{ fontSize: 12, backgroundColor: '#F1F5F9', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, marginTop: 2 }} autoFocus />
+                                  ) : (
+                                    <Text style={{ fontSize: 12, color: COLORS.secondary, marginTop: 1 }}>{c.content}</Text>
+                                  )}
+                                </View>
+                                {user?.id === c.user?.id && !editingCommentId && (
+                                  <View style={{ flexDirection: 'row', gap: 6 }}>
+                                    <TouchableOpacity onPress={() => { setEditingCommentId(c.id); setEditingCommentText(c.content); }}>
+                                      <Text style={{ fontSize: 12, color: '#94A3B8' }}>✏️</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity onPress={() => handleDeleteTaskComment(task.id, c.id)}>
+                                      <Text style={{ fontSize: 12, color: '#EF4444' }}>🗑</Text>
+                                    </TouchableOpacity>
+                                  </View>
+                                )}
+                              </View>
+                            ))}
+                            <TextInput placeholder="Write a comment..." value={newComment} onChangeText={setNewComment}
+                              onSubmitEditing={() => handleAddTaskComment(task.id)} returnKeyType="send"
+                              style={{ fontSize: 12, backgroundColor: COLORS.white, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderColor: '#E2E8F0', marginTop: 4 }}
+                              placeholderTextColor={COLORS.muted} />
+                          </>
+                        )}
+                      </View>
+                    )}
+                  </View>
+                );
+              })()}
             </ScrollView>
           </KeyboardAvoidingView>
         </SafeAreaView>
@@ -655,9 +803,14 @@ export default function ProjectsScreen() {
                           <View style={[styles.badge, { backgroundColor: PRIORITY_COLORS[task.priority]?.bg }]}>
                             <Text style={[styles.badgeText, { color: PRIORITY_COLORS[task.priority]?.text }]}>{task.priority}</Text>
                           </View>
+                          {task.createdAt && (
+                            <View style={[styles.badge, { backgroundColor: '#F1F5F9' }]}>
+                              <Text style={[styles.badgeText, { color: '#64748B' }]}>📅 {new Date(task.createdAt).toLocaleDateString()}</Text>
+                            </View>
+                          )}
                           {task.deadline && (
                             <View style={[styles.badge, { backgroundColor: '#FEF3C7' }]}>
-                              <Text style={[styles.badgeText, { color: '#92400E' }]}>📅 {new Date(task.deadline).toLocaleDateString()}</Text>
+                              <Text style={[styles.badgeText, { color: '#92400E' }]}>⏰ {new Date(task.deadline).toLocaleDateString()}</Text>
                             </View>
                           )}
                           {progress && (
@@ -674,7 +827,84 @@ export default function ProjectsScreen() {
                           </View>
                         )}
 
-                        <Text style={styles.boardCardAssignee}>{task.assignedTo?.displayName || task.assignedTo?.username || 'Unassigned'}</Text>
+                        <TouchableOpacity onPress={() => handleChatWithUser(task.assignedTo?.id || '')}>
+                          <Text style={[styles.boardCardAssignee, { textDecorationLine: 'underline' }]}>{task.assignedTo?.displayName || task.assignedTo?.username || 'Unassigned'}</Text>
+                        </TouchableOpacity>
+
+                        {/* Reactions row */}
+                        {(() => {
+                          const likes = ((task as any).reactions || []).filter((r: any) => r.type === 'like').length;
+                          const dislikes = ((task as any).reactions || []).filter((r: any) => r.type === 'dislike').length;
+                          const myReaction = ((task as any).reactions || []).find((r: any) => r.userId === user?.id)?.type;
+                          const cmtCount = (task as any)._count?.comments || 0;
+                          return (
+                            <View style={{ flexDirection: 'row', gap: 12, marginTop: 6, borderTopWidth: 1, borderTopColor: '#F1F5F9', paddingTop: 6 }}>
+                              <TouchableOpacity onPress={() => handleReactTask(task.id, 'like')} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                                <Text style={{ fontSize: 11, color: myReaction === 'like' ? '#2563EB' : '#94A3B8' }}>👍 {likes > 0 ? likes : ''}</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity onPress={() => handleReactTask(task.id, 'dislike')} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                                <Text style={{ fontSize: 11, color: myReaction === 'dislike' ? '#EF4444' : '#94A3B8' }}>👎 {dislikes > 0 ? dislikes : ''}</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity onPress={() => setExpandedComments(expandedComments === task.id ? null : task.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                                <Text style={{ fontSize: 11, color: expandedComments === task.id ? '#7C3AED' : '#94A3B8' }}>💬 {cmtCount > 0 ? cmtCount : ''}</Text>
+                              </TouchableOpacity>
+                            </View>
+                          );
+                        })()}
+
+                        {/* Expanded comments */}
+                        {expandedComments === task.id && (
+                          <View style={{ marginTop: 6 }}>
+                            {loadingComments ? (
+                              <ActivityIndicator size="small" color={COLORS.primary} />
+                            ) : (
+                              <>
+                                {taskComments.map((c) => (
+                                  <View key={c.id} style={{ flexDirection: 'row', gap: 6, marginBottom: 4 }}>
+                                    <TouchableOpacity onPress={() => handleChatWithUser(c.user?.id)}>
+                                      <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: '#E2E8F0', justifyContent: 'center', alignItems: 'center' }}>
+                                        <Text style={{ fontSize: 9, fontWeight: '700' }}>{(c.user?.displayName || '?')[0]}</Text>
+                                      </View>
+                                    </TouchableOpacity>
+                                    <View style={{ flex: 1 }}>
+                                      <TouchableOpacity onPress={() => handleChatWithUser(c.user?.id)}>
+                                        <Text style={{ fontSize: 10, fontWeight: '700', color: COLORS.text }}>{c.user?.displayName || c.user?.username}</Text>
+                                      </TouchableOpacity>
+                                      {editingCommentId === c.id ? (
+                                        <TextInput
+                                          value={editingCommentText}
+                                          onChangeText={setEditingCommentText}
+                                          onSubmitEditing={() => handleUpdateTaskComment(task.id, c.id)}
+                                          style={{ fontSize: 10, backgroundColor: '#F1F5F9', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2, marginTop: 2 }}
+                                          autoFocus
+                                        />
+                                      ) : (
+                                        <Text style={{ fontSize: 10, color: COLORS.secondary }}>{c.content}</Text>
+                                      )}
+                                    </View>
+                                    {user?.id === c.user?.id && !editingCommentId && (
+                                      <View style={{ flexDirection: 'row', gap: 4 }}>
+                                        <TouchableOpacity onPress={() => { setEditingCommentId(c.id); setEditingCommentText(c.content); }}>
+                                          <Text style={{ fontSize: 10, color: '#94A3B8' }}>✏️</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity onPress={() => handleDeleteTaskComment(task.id, c.id)}>
+                                          <Text style={{ fontSize: 10, color: '#EF4444' }}>🗑</Text>
+                                        </TouchableOpacity>
+                                      </View>
+                                    )}
+                                  </View>
+                                ))}
+                                <TextInput
+                                  placeholder="Write a comment..."
+                                  value={newComment}
+                                  onChangeText={setNewComment}
+                                  onSubmitEditing={() => handleAddTaskComment(task.id)}
+                                  style={{ fontSize: 10, backgroundColor: '#F8FAFC', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 4, borderWidth: 1, borderColor: '#E2E8F0', marginTop: 2 }}
+                                />
+                              </>
+                            )}
+                          </View>
+                        )}
                       </TouchableOpacity>
                     );
                   })}

@@ -14,7 +14,6 @@ import Avatar from '@/components/common/Avatar';
 import StoryViewerModal from '@/components/common/StoryViewerModal';
 import CallModal from '@/components/call/CallModal';
 import PresenceIndicator from '@/components/common/PresenceIndicator';
-import TaskReminderBell from '@/components/tasks/TaskReminderBell';
 import { callService } from '@/services/callService';
 
 export default function ChatView() {
@@ -430,7 +429,6 @@ export default function ChatView() {
               conversationId={conversationId}
               onBuzz={sendBuzz}
             />
-            <TaskReminderBell />
             <button
               onClick={() => {
                 if (conversation) {

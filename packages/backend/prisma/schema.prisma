@@ -93,6 +93,8 @@ model User {
   announcementReads AnnouncementRead[]
   announcementReactions AnnouncementReaction[]
   announcementComments  AnnouncementComment[]
+  taskReactions    TaskReaction[]
+  taskComments     TaskComment[]
   lindaActivitiesOrdered LindaActivity[] @relation("LindaActivitiesOrdered")
   lindaActivitiesTarget  LindaActivity[] @relation("LindaActivitiesTarget")
   lindaMemories      LindaMemory[]
@@ -347,6 +349,8 @@ model Task {
 
   visibleToDepartments Department[] @relation("TaskDepartmentVisibility")
   checklists   Checklist[]
+  reactions    TaskReaction[]
+  comments     TaskComment[]
 
   @@index([organizationId])
   @@index([assignedToId])
@@ -355,6 +359,35 @@ model Task {
   @@index([departmentId])
   @@index([projectId])
   @@map("tasks")
+}
+
+model TaskReaction {
+  id       String   @id @default(uuid())
+  taskId   String   @map("task_id")
+  userId   String   @map("user_id")
+  type     String   // 'like' or 'dislike'
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@index([taskId])
+  @@map("task_reactions")
+}
+
+model TaskComment {
+  id        String   @id @default(uuid())
+  taskId    String   @map("task_id")
+  userId    String   @map("user_id")
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+  @@map("task_comments")
 }
 
 // ============================================

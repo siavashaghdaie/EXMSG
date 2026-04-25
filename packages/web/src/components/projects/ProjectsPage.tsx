@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Plus, Search, X, GitBranch, HardDrive, Target,
   Users, UserCheck, Trash2, ExternalLink, FolderKanban,
   Archive, RotateCcw, CheckSquare, Calendar,
-  UserPlus,
+  UserPlus, ThumbsUp, ThumbsDown, MessageCircle, Pencil,
 } from 'lucide-react';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
@@ -44,6 +45,9 @@ interface TaskData {
   assignedTo?: { id: string; displayName: string; username: string; avatarUrl?: string };
   createdBy?: { id: string; displayName: string; username: string; avatarUrl?: string };
   department?: { id: string; name: string };
+  createdAt: string;
+  reactions?: Array<{ id: string; userId: string; type: string }>;
+  _count?: { comments: number };
   checklists?: Checklist[];
 }
 
@@ -76,6 +80,7 @@ const priorityColors: Record<string, string> = {
 
 const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
   const { user } = useAuthStore();
+  const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -114,6 +119,80 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
 
   // Show archived
   const [showArchived, setShowArchived] = useState(false);
+
+  // Comments & reactions
+  const [expandedComments, setExpandedComments] = useState<string | null>(null);
+  const [taskComments, setTaskComments] = useState<any[]>([]);
+  const [newComment, setNewComment] = useState('');
+  const [loadingComments, setLoadingComments] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState('');
+
+  // Load comments when expanded
+  useEffect(() => {
+    if (expandedComments) {
+      setLoadingComments(true);
+      api.getTaskComments(expandedComments).then((data) => {
+        setTaskComments(data.comments || []);
+        setLoadingComments(false);
+      }).catch(() => setLoadingComments(false));
+    }
+  }, [expandedComments]);
+
+  const handleChatWithUser = async (targetUserId: string) => {
+    if (!targetUserId || targetUserId === user?.id) return;
+    try {
+      const conv = await api.createConversation([targetUserId]);
+      navigate(`/chat/${conv.id}`);
+    } catch (err) { console.error('Failed to open chat:', err); }
+  };
+
+  const handleReactTask = async (taskId: string, type: 'like' | 'dislike') => {
+    try {
+      await api.reactToTask(taskId, type);
+      if (selectedProject) {
+        const res = await api.getProject(selectedProject.id);
+        setSelectedProject(res.project);
+      }
+    } catch (err) { console.error('React error:', err); }
+  };
+
+  const handleAddTaskComment = async (taskId: string) => {
+    if (!newComment.trim()) return;
+    try {
+      await api.addTaskComment(taskId, newComment.trim());
+      setNewComment('');
+      const data = await api.getTaskComments(taskId);
+      setTaskComments(data.comments || []);
+      if (selectedProject) {
+        const res = await api.getProject(selectedProject.id);
+        setSelectedProject(res.project);
+      }
+    } catch (err) { console.error('Add comment error:', err); }
+  };
+
+  const handleUpdateTaskComment = async (taskId: string, commentId: string) => {
+    if (!editingCommentText.trim()) return;
+    try {
+      await api.updateTaskComment(taskId, commentId, editingCommentText.trim());
+      setEditingCommentId(null);
+      setEditingCommentText('');
+      const data = await api.getTaskComments(taskId);
+      setTaskComments(data.comments || []);
+    } catch (err) { console.error('Update comment error:', err); }
+  };
+
+  const handleDeleteTaskComment = async (taskId: string, commentId: string) => {
+    try {
+      await api.deleteTaskComment(taskId, commentId);
+      const data = await api.getTaskComments(taskId);
+      setTaskComments(data.comments || []);
+      if (selectedProject) {
+        const res = await api.getProject(selectedProject.id);
+        setSelectedProject(res.project);
+      }
+    } catch (err) { console.error('Delete comment error:', err); }
+  };
 
   const loadProjects = useCallback(async () => {
     setLoading(true);
@@ -416,9 +495,14 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
                 )}
                 <div className="flex items-center gap-2 mt-2 flex-wrap">
                   <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${priorityColors[task.priority]}`}>{task.priority}</span>
-                  {task.deadline && (
+                  {task.createdAt && (
                     <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                      <Calendar size={12} /> {new Date(task.deadline).toLocaleDateString()}
+                      <Calendar size={12} /> {new Date(task.createdAt).toLocaleDateString()}
+                    </span>
+                  )}
+                  {task.deadline && (
+                    <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                      → {new Date(task.deadline).toLocaleDateString()}
                     </span>
                   )}
                   {progress && (
@@ -694,9 +778,14 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
                           {/* Badges row */}
                           <div className="flex items-center gap-2 flex-wrap mt-1.5">
                             <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${priorityColors[task.priority]}`}>{task.priority}</span>
-                            {task.deadline && (
+                            {task.createdAt && (
                               <span className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-0.5">
-                                <Calendar size={10} /> {new Date(task.deadline).toLocaleDateString()}
+                                <Calendar size={10} /> {new Date(task.createdAt).toLocaleDateString()}
+                              </span>
+                            )}
+                            {task.deadline && (
+                              <span className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-0.5">
+                                → {new Date(task.deadline).toLocaleDateString()}
                               </span>
                             )}
                             {progress && (
@@ -718,10 +807,14 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
 
                           {/* Assignee + actions */}
                           <div className="flex items-center justify-between mt-2">
-                            <div className="flex items-center gap-2">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleChatWithUser(task.assignedTo?.id || ''); }}
+                              className="flex items-center gap-2 hover:opacity-80"
+                              title={`Chat with ${task.assignedTo?.displayName || task.assignedTo?.username}`}
+                            >
                               <Avatar name={task.assignedTo?.displayName || task.assignedTo?.username || ''} src={task.assignedTo?.avatarUrl} size="sm" />
-                              <span className="text-xs text-slate-600 dark:text-slate-400">{task.assignedTo?.displayName || task.assignedTo?.username}</span>
-                            </div>
+                              <span className="text-xs text-slate-600 dark:text-slate-400 hover:underline">{task.assignedTo?.displayName || task.assignedTo?.username}</span>
+                            </button>
                             <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleArchiveTask(task.id, !task.archived); }}
@@ -732,6 +825,65 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
                               </button>
                             </div>
                           </div>
+
+                          {/* Reactions & comments */}
+                          {(() => {
+                            const likes = (task.reactions || []).filter(r => r.type === 'like').length;
+                            const dislikes = (task.reactions || []).filter(r => r.type === 'dislike').length;
+                            const myReaction = (task.reactions || []).find(r => r.userId === user?.id)?.type;
+                            const cmtCount = task._count?.comments || 0;
+                            return (
+                              <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-700" onClick={(e) => e.stopPropagation()}>
+                                <button onClick={() => handleReactTask(task.id, 'like')} className={`flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 ${myReaction === 'like' ? 'text-blue-600 font-semibold' : 'text-slate-400'}`}>
+                                  <ThumbsUp size={10} /> {likes > 0 && likes}
+                                </button>
+                                <button onClick={() => handleReactTask(task.id, 'dislike')} className={`flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 ${myReaction === 'dislike' ? 'text-red-600 font-semibold' : 'text-slate-400'}`}>
+                                  <ThumbsDown size={10} /> {dislikes > 0 && dislikes}
+                                </button>
+                                <button onClick={() => setExpandedComments(expandedComments === task.id ? null : task.id)} className={`flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 ${expandedComments === task.id ? 'text-violet-600 font-semibold' : 'text-slate-400'}`}>
+                                  <MessageCircle size={10} /> {cmtCount > 0 && cmtCount}
+                                </button>
+                              </div>
+                            );
+                          })()}
+
+                          {/* Expanded comments */}
+                          {expandedComments === task.id && (
+                            <div className="mt-1.5 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+                              {loadingComments ? (
+                                <p className="text-[10px] text-slate-400 text-center py-1">Loading...</p>
+                              ) : (
+                                <>
+                                  {taskComments.map((c) => (
+                                    <div key={c.id} className="flex gap-1.5 text-[10px] group/cmt">
+                                      <button onClick={() => handleChatWithUser(c.user?.id)} className="flex-shrink-0 hover:opacity-80">
+                                        <Avatar name={c.user?.displayName || '?'} src={c.user?.avatarUrl} size="sm" />
+                                      </button>
+                                      <div className="flex-1 min-w-0">
+                                        <button onClick={() => handleChatWithUser(c.user?.id)} className="font-semibold hover:underline">{c.user?.displayName || c.user?.username}</button>
+                                        {editingCommentId === c.id ? (
+                                          <input autoFocus value={editingCommentText} onChange={(e) => setEditingCommentText(e.target.value)}
+                                            onKeyDown={(e) => { if (e.key === 'Enter') handleUpdateTaskComment(task.id, c.id); if (e.key === 'Escape') { setEditingCommentId(null); setEditingCommentText(''); } }}
+                                            className="block w-full mt-0.5 px-1.5 py-0.5 text-[10px] rounded bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600" />
+                                        ) : (
+                                          <p className="text-slate-600 dark:text-slate-400 break-words">{c.content}</p>
+                                        )}
+                                      </div>
+                                      {user?.id === c.user?.id && !editingCommentId && (
+                                        <div className="flex gap-0.5 opacity-0 group-hover/cmt:opacity-100 flex-shrink-0">
+                                          <button onClick={() => { setEditingCommentId(c.id); setEditingCommentText(c.content); }} className="p-0.5 hover:bg-slate-100 rounded"><Pencil size={8} /></button>
+                                          <button onClick={() => handleDeleteTaskComment(task.id, c.id)} className="p-0.5 hover:bg-slate-100 rounded"><Trash2 size={8} className="text-red-400" /></button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                  <input placeholder="Comment..." value={newComment} onChange={(e) => setNewComment(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddTaskComment(task.id); }}
+                                    className="w-full px-1.5 py-1 text-[10px] rounded bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 placeholder-slate-400" />
+                                </>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -883,11 +1035,13 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
             <div className="space-y-2">
               {p.members.map((m) => (
                 <div key={m.id} className="flex items-center gap-3 py-2">
-                  <Avatar name={m.user.displayName || m.user.username} src={m.user.avatarUrl} size="sm" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{m.user.displayName || m.user.username}</p>
+                  <button onClick={() => handleChatWithUser(m.user.id)} className="hover:opacity-80" title={`Chat with ${m.user.displayName || m.user.username}`}>
+                    <Avatar name={m.user.displayName || m.user.username} src={m.user.avatarUrl} size="sm" />
+                  </button>
+                  <button onClick={() => handleChatWithUser(m.user.id)} className="flex-1 min-w-0 text-left hover:opacity-80">
+                    <p className="text-sm font-medium text-slate-900 dark:text-white truncate hover:underline">{m.user.displayName || m.user.username}</p>
                     <p className="text-xs text-slate-500 dark:text-slate-400">{m.user.email}</p>
-                  </div>
+                  </button>
                   {m.role === 'LEAD' && <span className="text-xs bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 px-2 py-0.5 rounded-full">Lead</span>}
                   {m.user.id !== p.createdBy.id && (
                     <button onClick={() => handleRemoveMember(m.user.id)} className="p-1 text-slate-400 hover:text-red-500 rounded"><X size={14} /></button>
@@ -946,13 +1100,18 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
             <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Project Mates</h3>
             <div className="flex flex-wrap gap-2">
               {projectMates.map((mate) => (
-                <div key={mate.userId} className="flex items-center gap-2 bg-violet-50 dark:bg-violet-900/20 px-3 py-1.5 rounded-full">
+                <button
+                  key={mate.userId}
+                  onClick={() => handleChatWithUser(mate.userId)}
+                  className="flex items-center gap-2 bg-violet-50 dark:bg-violet-900/20 px-3 py-1.5 rounded-full hover:bg-violet-100 dark:hover:bg-violet-900/40 transition cursor-pointer"
+                  title={`Chat with ${mate.displayName || mate.username}`}
+                >
                   <Avatar name={mate.displayName || mate.username} src={mate.avatarUrl} size="sm" />
                   <span className="text-xs font-medium text-violet-700 dark:text-violet-300">{mate.displayName || mate.username}</span>
                   <span className="text-[10px] text-violet-500 dark:text-violet-400">
                     {mate.projects.map((p: any) => p.name).join(', ')}
                   </span>
-                </div>
+                </button>
               ))}
             </div>
           </div>

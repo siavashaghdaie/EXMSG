@@ -75,6 +75,8 @@ export class ProjectController {
                 include: { items: { orderBy: { position: 'asc' } } },
                 orderBy: { position: 'asc' },
               },
+              reactions: true,
+              _count: { select: { comments: true } },
             },
             orderBy: { createdAt: 'desc' },
           },

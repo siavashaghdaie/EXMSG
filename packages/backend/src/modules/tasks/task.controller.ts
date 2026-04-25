@@ -112,6 +112,8 @@ export class TaskController {
             include: { items: { orderBy: { position: 'asc' } } },
             orderBy: { position: 'asc' },
           },
+          reactions: true,
+          _count: { select: { comments: true } },
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -298,6 +300,149 @@ export class TaskController {
       res.json({ message: 'Task deleted' });
     } catch (error) {
       console.error('Delete task error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // POST /api/tasks/:taskId/react
+  async reactToTask(req: Request, res: Response): Promise<void> {
+    try {
+      const { taskId } = req.params;
+      const userId = req.user!.userId;
+      const { type } = req.body;
+
+      if (!type || !['like', 'dislike'].includes(type)) {
+        res.status(400).json({ error: 'Invalid reaction type' });
+        return;
+      }
+
+      const existing = await prisma.taskReaction.findUnique({
+        where: { taskId_userId: { taskId, userId } },
+      });
+
+      if (existing) {
+        if (existing.type === type) {
+          // Toggle off
+          await prisma.taskReaction.delete({ where: { id: existing.id } });
+          res.json({ reaction: null });
+          return;
+        } else {
+          // Switch type
+          const updated = await prisma.taskReaction.update({
+            where: { id: existing.id },
+            data: { type },
+          });
+          res.json({ reaction: updated });
+          return;
+        }
+      }
+
+      const reaction = await prisma.taskReaction.create({
+        data: { taskId, userId, type },
+      });
+      res.json({ reaction });
+    } catch (error) {
+      console.error('React to task error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // GET /api/tasks/:taskId/comments
+  async getComments(req: Request, res: Response): Promise<void> {
+    try {
+      const { taskId } = req.params;
+
+      const comments = await prisma.taskComment.findMany({
+        where: { taskId },
+        include: {
+          user: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: 100,
+      });
+
+      res.json({ comments });
+    } catch (error) {
+      console.error('Get task comments error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // POST /api/tasks/:taskId/comments
+  async addComment(req: Request, res: Response): Promise<void> {
+    try {
+      const { taskId } = req.params;
+      const userId = req.user!.userId;
+      const { content } = req.body;
+
+      if (!content || !content.trim()) {
+        res.status(400).json({ error: 'Comment content is required' });
+        return;
+      }
+
+      const comment = await prisma.taskComment.create({
+        data: { taskId, userId, content: content.trim() },
+        include: {
+          user: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
+        },
+      });
+
+      res.status(201).json({ comment });
+    } catch (error) {
+      console.error('Add task comment error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // PATCH /api/tasks/:taskId/comments/:commentId
+  async updateComment(req: Request, res: Response): Promise<void> {
+    try {
+      const { taskId, commentId } = req.params;
+      const userId = req.user!.userId;
+      const { content } = req.body;
+
+      if (!content || !content.trim()) {
+        res.status(400).json({ error: 'Comment content is required' });
+        return;
+      }
+
+      const comment = await prisma.taskComment.findFirst({
+        where: { id: commentId, taskId, userId },
+      });
+
+      if (!comment) {
+        res.status(403).json({ error: 'Not authorized to update this comment' });
+        return;
+      }
+
+      const updated = await prisma.taskComment.update({
+        where: { id: commentId },
+        data: { content: content.trim() },
+        include: {
+          user: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
+        },
+      });
+
+      res.json({ comment: updated });
+    } catch (error) {
+      console.error('Update task comment error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // DELETE /api/tasks/:taskId/comments/:commentId
+  async deleteComment(req: Request, res: Response): Promise<void> {
+    try {
+      const { taskId, commentId } = req.params;
+      const userId = req.user!.userId;
+
+      await prisma.taskComment.deleteMany({
+        where: { id: commentId, taskId, userId },
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Delete task comment error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }
