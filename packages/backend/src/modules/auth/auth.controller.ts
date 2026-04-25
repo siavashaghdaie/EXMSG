@@ -217,7 +217,7 @@ export class AuthController {
       let user;
       if (isPanelOwnerSignup && companyName) {
         const slug = await generateUniqueOrgSlug(companyName);
-        const txResult = await prisma.$transaction(async (tx) => {
+        const txResult = await prisma.$transaction(async (tx: any) => {
           const createdUser = await tx.user.create({
             data: {
               email,

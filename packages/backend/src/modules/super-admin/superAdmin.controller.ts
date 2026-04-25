@@ -302,14 +302,14 @@ export class SuperAdminController {
       ]);
 
       const orgsWithStats = await Promise.all(
-        organizations.map(async (org) => {
+        organizations.map(async (org: any) => {
           const orgChannels = await prisma.channel.findMany({
             where: { organizationId: org.id, conversationId: { not: null } },
             select: { conversationId: true },
           });
           const conversationIds = orgChannels
-            .map((c) => c.conversationId)
-            .filter((id): id is string => id !== null);
+            .map((c: any) => c.conversationId)
+            .filter((id: any): id is string => id !== null);
 
           const messageCount = conversationIds.length
             ? await prisma.message.count({
@@ -384,7 +384,7 @@ export class SuperAdminController {
         prisma.user.count({ where }),
       ]);
 
-      const formattedUsers = users.map((user) => ({
+      const formattedUsers = users.map((user: any) => ({
         id: user.id,
         email: user.email,
         username: user.username,
@@ -395,7 +395,7 @@ export class SuperAdminController {
         lastSeenAt: user.lastSeenAt,
         createdAt: user.createdAt,
         messageCount: user._count.sentMessages,
-        organizations: user.organizations.map((org) => org.organization),
+        organizations: user.organizations.map((org: any) => org.organization),
       }));
 
       res.json({
@@ -546,10 +546,10 @@ export class SuperAdminController {
         return;
       }
 
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: any) => {
         await tx.task.deleteMany({ where: { OR: [{ assignedToId: id }, { createdById: id }] } });
 
-        const userMessageIds = (await tx.message.findMany({ where: { senderId: id }, select: { id: true } })).map(m => m.id);
+        const userMessageIds = (await tx.message.findMany({ where: { senderId: id }, select: { id: true } })).map((m: any) => m.id);
         if (userMessageIds.length > 0) {
           await tx.message.updateMany({ where: { replyToId: { in: userMessageIds } }, data: { replyToId: null } });
         }
@@ -670,14 +670,14 @@ export class SuperAdminController {
       ]);
 
       const activities: any[] = [
-        ...recentUsers.map((user) => ({
+        ...recentUsers.map((user: any) => ({
           id: user.id,
           type: 'user_signup',
           description: `${user.displayName} (${user.username}) signed up`,
           user: { username: user.username, displayName: user.displayName, email: user.email },
           timestamp: user.createdAt,
         })),
-        ...recentMessages.map((msg) => ({
+        ...recentMessages.map((msg: any) => ({
           id: msg.id,
           type: 'message_sent',
           description: `${msg.sender.displayName} sent a message`,

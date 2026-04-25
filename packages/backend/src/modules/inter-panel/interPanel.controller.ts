@@ -234,7 +234,7 @@ export class InterPanelController {
       }
 
       // Create an inter-panel DM conversation and update the request in a transaction
-      const result = await prisma.$transaction(async (tx) => {
+      const result = await prisma.$transaction(async (tx: any) => {
         const conversation = await tx.conversation.create({
           data: {
             type: 'DIRECT',

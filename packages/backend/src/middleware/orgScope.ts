@@ -74,8 +74,8 @@ export async function getOrgMemberIds(req: Request): Promise<string[]> {
     select: { userId: true },
   });
 
-  req._orgMemberIds = members.map((m) => m.userId);
-  return req._orgMemberIds;
+  req._orgMemberIds = members.map((m: any) => m.userId);
+  return req._orgMemberIds!;
 }
 
 /**

@@ -389,7 +389,18 @@ export default function ChatView() {
                     </h2>
                     <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
                       {isGroup
-                        ? `${conversation.participants.length} members`
+                        ? (
+                          <span className="flex items-center gap-1">
+                            <span className="flex -space-x-1.5">
+                              {otherParticipants.slice(0, 5).map((p) => (
+                                <span key={p.id} className="inline-block" title={p.username || p.email}>
+                                  <Avatar name={p.username || p.email || ''} src={p.avatar} size="sm" />
+                                </span>
+                              ))}
+                            </span>
+                            <span>{conversation.participants.length} members</span>
+                          </span>
+                        )
                         : otherParticipants.length > 0 && (
                             <PresenceIndicator userId={otherParticipants[0]?.id} showText forceOnline={isLindaConversation} />
                           )}

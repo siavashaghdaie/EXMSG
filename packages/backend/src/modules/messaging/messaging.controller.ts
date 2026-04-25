@@ -58,8 +58,8 @@ export class MessagingController {
 
       // Calculate unread counts for each conversation
       const conversationsWithUnread = await Promise.all(
-        conversations.map(async (conv) => {
-          const membership = conv.members.find((m) => m.userId === userId);
+        conversations.map(async (conv: any) => {
+          const membership = conv.members.find((m: any) => m.userId === userId);
           const lastReadAt = membership?.lastReadAt || new Date(0);
           const unreadCount = await prisma.message.count({
             where: {
@@ -552,7 +552,7 @@ export class MessagingController {
 
       if (unreadMessages.length > 0) {
         await prisma.readReceipt.createMany({
-          data: unreadMessages.map((m) => ({
+          data: unreadMessages.map((m: any) => ({
             messageId: m.id,
             userId,
           })),
@@ -563,7 +563,7 @@ export class MessagingController {
         emitToConversation(conversationId, 'messagesRead', {
           conversationId,
           readByUserId: userId,
-          messageIds: unreadMessages.map((m) => m.id),
+          messageIds: unreadMessages.map((m: any) => m.id),
         });
       }
 

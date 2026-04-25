@@ -119,7 +119,7 @@ export class ChecklistController {
   async addItem(req: Request, res: Response): Promise<void> {
     try {
       const { checklistId } = req.params;
-      const { title, assigneeId, dueDate } = req.body;
+      const { title, assigneeId, assigneeIds, dueDate } = req.body;
 
       if (!title || typeof title !== 'string' || !title.trim()) {
         res.status(400).json({ error: 'Item title is required' });
@@ -135,12 +135,20 @@ export class ChecklistController {
       });
       const nextPos = existing.length > 0 ? existing[0].position + 1 : 0;
 
+      // Support both legacy assigneeId and new assigneeIds array
+      let resolvedAssigneeIds: string[] = [];
+      if (Array.isArray(assigneeIds) && assigneeIds.length > 0) {
+        resolvedAssigneeIds = assigneeIds;
+      } else if (assigneeId) {
+        resolvedAssigneeIds = [assigneeId];
+      }
+
       const item = await prisma.checklistItem.create({
         data: {
           checklistId,
           title: title.trim(),
           position: nextPos,
-          assigneeId: assigneeId || null,
+          assigneeIds: resolvedAssigneeIds,
           dueDate: dueDate ? new Date(dueDate) : null,
         },
       });
@@ -156,12 +164,17 @@ export class ChecklistController {
   async updateItem(req: Request, res: Response): Promise<void> {
     try {
       const { itemId } = req.params;
-      const { title, completed, assigneeId, dueDate, position } = req.body;
+      const { title, completed, assigneeId, assigneeIds, dueDate, position } = req.body;
 
       const data: any = {};
       if (title !== undefined) data.title = String(title).trim();
       if (completed !== undefined) data.completed = Boolean(completed);
-      if (assigneeId !== undefined) data.assigneeId = assigneeId || null;
+      // Support both legacy assigneeId and new assigneeIds array
+      if (assigneeIds !== undefined) {
+        data.assigneeIds = Array.isArray(assigneeIds) ? assigneeIds : [];
+      } else if (assigneeId !== undefined) {
+        data.assigneeIds = assigneeId ? [assigneeId] : [];
+      }
       if (dueDate !== undefined) data.dueDate = dueDate ? new Date(dueDate) : null;
       if (position !== undefined) data.position = Number(position);
 

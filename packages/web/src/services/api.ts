@@ -1047,12 +1047,12 @@ class APIClient {
     await this.client.delete(`/checklists/${checklistId}`);
   }
 
-  async addChecklistItem(checklistId: string, data: { title: string; assigneeId?: string; dueDate?: string }): Promise<any> {
+  async addChecklistItem(checklistId: string, data: { title: string; assigneeId?: string; assigneeIds?: string[]; dueDate?: string }): Promise<any> {
     const res = await this.client.post(`/checklists/${checklistId}/items`, data);
     return res.data;
   }
 
-  async updateChecklistItem(checklistId: string, itemId: string, data: { title?: string; completed?: boolean; assigneeId?: string; dueDate?: string; position?: number }): Promise<any> {
+  async updateChecklistItem(checklistId: string, itemId: string, data: { title?: string; completed?: boolean; assigneeId?: string; assigneeIds?: string[]; dueDate?: string; position?: number }): Promise<any> {
     const res = await this.client.patch(`/checklists/${checklistId}/items/${itemId}`, data);
     return res.data;
   }

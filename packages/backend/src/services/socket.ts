@@ -101,14 +101,14 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
           where: { organizationId: orgId },
           select: { userId: true },
         });
-        const orgMemberIds = orgMembers.map(m => m.userId);
+        const orgMemberIds = orgMembers.map((m: any) => m.userId);
         onlineWhere = { isOnline: true, id: { in: orgMemberIds } };
       }
       const onlineUsers = await prisma.user.findMany({
         where: onlineWhere,
         select: { id: true },
       });
-      const onlineUserIds = onlineUsers.map(u => u.id);
+      const onlineUserIds = onlineUsers.map((u: any) => u.id);
       // Include Linda bot if registered
       if (_lindaBotUserId && !onlineUserIds.includes(_lindaBotUserId)) {
         onlineUserIds.push(_lindaBotUserId);

@@ -51,7 +51,7 @@ async function checkIgnoredTasks(): Promise<void> {
     }
 
     // Clean up old entries from the map (tasks that are no longer NOT_STARTED)
-    const activeTaskIds = new Set(ignoredTasks.map(t => t.id));
+    const activeTaskIds = new Set(ignoredTasks.map((t: any) => t.id));
     for (const [taskId] of remindedTasks) {
       if (!activeTaskIds.has(taskId)) {
         remindedTasks.delete(taskId);

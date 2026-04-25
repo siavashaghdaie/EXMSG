@@ -782,7 +782,7 @@ model ChecklistItem {
   title       String
   completed   Boolean   @default(false)
   position    Int       @default(0)
-  assigneeId  String?   @map("assignee_id")
+  assigneeIds String[]  @default([]) @map("assignee_ids")
   dueDate     DateTime? @map("due_date")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
@@ -790,7 +790,6 @@ model ChecklistItem {
   checklist Checklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
 
   @@index([checklistId])
-  @@index([assigneeId])
   @@map("checklist_items")
 }
 

@@ -22,13 +22,13 @@ export class TaskController {
         where: { userId },
         select: { departmentId: true },
       });
-      const userDeptIds = userDeptMemberships.map((m) => m.departmentId);
+      const userDeptIds = userDeptMemberships.map((m: any) => m.departmentId);
 
       const userProjectMemberships = await prisma.projectMember.findMany({
         where: { userId },
         select: { projectId: true },
       });
-      const userProjectIds = userProjectMemberships.map((m) => m.projectId);
+      const userProjectIds = userProjectMemberships.map((m: any) => m.projectId);
 
       const showArchived = req.query.archived === 'true';
       const where: any = { AND: [{ archived: showArchived }] };

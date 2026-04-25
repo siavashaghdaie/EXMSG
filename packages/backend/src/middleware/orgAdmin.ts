@@ -4,7 +4,7 @@ import { prisma } from '../config/database';
 declare global {
   namespace Express {
     interface Request {
-      orgId?: string;
+      orgId?: string | null;
     }
   }
 }

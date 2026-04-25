@@ -157,10 +157,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
       const handleBadgeRefresh = () => refreshCounts();
       window.addEventListener('badges:refresh', handleBadgeRefresh);
 
+      // Listen for conversation list refresh (e.g., after creating a task chat)
+      const handleConversationsRefresh = () => fetchConversations();
+      window.addEventListener('conversations:refresh', handleConversationsRefresh);
+
       return () => {
         clearInterval(interval);
         clearInterval(storyInterval);
         window.removeEventListener('badges:refresh', handleBadgeRefresh);
+        window.removeEventListener('conversations:refresh', handleConversationsRefresh);
       };
     }
   }, [user?.id]);

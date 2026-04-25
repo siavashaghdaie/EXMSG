@@ -44,7 +44,7 @@ async function getLindaBotUserId(): Promise<string> {
   }
   await prisma.user.update({ where: { id: lindaUser.id }, data: { isOnline: true } }).catch(() => {});
   lindaBotUserId = lindaUser.id;
-  return lindaBotUserId;
+  return lindaBotUserId!;
 }
 
 /**
@@ -1585,10 +1585,10 @@ Guidelines:
       });
 
       if (conversations.length > 0) {
-        const convSummaries = conversations.map(c => {
+        const convSummaries = conversations.map((c: any) => {
           const otherMembers = c.members
-            .filter(m => m.userId !== userId)
-            .map(m => m.user.displayName || m.user.username)
+            .filter((m: any) => m.userId !== userId)
+            .map((m: any) => m.user.displayName || m.user.username)
             .join(', ');
           const lastMsg = c.messages[0];
           const lastMsgInfo = lastMsg
@@ -1606,7 +1606,7 @@ Guidelines:
       });
 
       if (onlineUsers.length > 0) {
-        const names = onlineUsers.map(u => `${u.displayName || u.username} (@${u.username})`).join(', ');
+        const names = onlineUsers.map((u: any) => `${u.displayName || u.username} (@${u.username})`).join(', ');
         parts.push(`Online team members: ${names}`);
       }
 
@@ -1617,7 +1617,7 @@ Guidelines:
       });
 
       if (allUsers.length > 0) {
-        const userList = allUsers.map(u => `@${u.username} (${u.displayName})`).join(', ');
+        const userList = allUsers.map((u: any) => `@${u.username} (${u.displayName})`).join(', ');
         parts.push(`All team members: ${userList}`);
       }
 
@@ -1640,7 +1640,7 @@ Guidelines:
         });
 
         if (tasks.length > 0) {
-          const taskSummaries = tasks.map(t => {
+          const taskSummaries = tasks.map((t: any) => {
             const assignee = t.assignedTo.displayName || t.assignedTo.username;
             const deadline = t.deadline ? ` (due: ${t.deadline.toISOString().split('T')[0]})` : '';
             const linda = (t as any).lindaFollowing ? ' [Linda following]' : '';
@@ -1658,7 +1658,7 @@ Guidelines:
           where: { userId },
           select: { projectId: true },
         });
-        const userProjectIds = userProjectMemberships.map(m => m.projectId);
+        const userProjectIds = userProjectMemberships.map((m: any) => m.projectId);
 
         if (userProjectIds.length > 0) {
           const projects = await prisma.project.findMany({
@@ -1690,10 +1690,10 @@ Guidelines:
           });
 
           if (projects.length > 0) {
-            const projectSummaries = projects.map(p => {
+            const projectSummaries = projects.map((p: any) => {
               const lead = p.teamLead ? `${p.teamLead.displayName || p.teamLead.username}` : 'None';
-              const memberNames = p.members.map(m => `@${m.user.username}`).join(', ');
-              const taskList = p.tasks.map(t => {
+              const memberNames = p.members.map((m: any) => `@${m.user.username}`).join(', ');
+              const taskList = p.tasks.map((t: any) => {
                 const assignee = t.assignedTo?.displayName || t.assignedTo?.username || 'Unassigned';
                 const deadline = t.deadline ? ` (due: ${t.deadline.toISOString().split('T')[0]})` : '';
                 return `    - "${t.title}" | ${t.status} | ${t.priority} | Assigned: ${assignee}${deadline}`;
@@ -1736,8 +1736,8 @@ Guidelines:
 
           if (recentFileMessages.length > 0) {
             const fileSummaries = recentFileMessages
-              .filter(m => m.attachments.length > 0)
-              .map(m => {
+              .filter((m: any) => m.attachments.length > 0)
+              .map((m: any) => {
                 const att = m.attachments[0];
                 const sender = m.sender?.displayName || m.sender?.username || 'Unknown';
                 const sizeKB = (att.fileSize / 1024).toFixed(1);
@@ -2272,7 +2272,7 @@ async function markMessagesAsReadByLinda(lindaId: string, conversationId: string
 
     if (unreadMessages.length > 0) {
       await prisma.readReceipt.createMany({
-        data: unreadMessages.map((m) => ({ messageId: m.id, userId: lindaId })),
+        data: unreadMessages.map((m: any) => ({ messageId: m.id, userId: lindaId })),
         skipDuplicates: true,
       });
 
@@ -2280,7 +2280,7 @@ async function markMessagesAsReadByLinda(lindaId: string, conversationId: string
       emitToConversation(conversationId, 'messagesRead', {
         conversationId,
         readByUserId: lindaId,
-        messageIds: unreadMessages.map((m) => m.id),
+        messageIds: unreadMessages.map((m: any) => m.id),
       });
     }
 

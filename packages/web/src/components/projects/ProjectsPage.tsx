@@ -4,13 +4,14 @@ import {
   ArrowLeft, Plus, Search, X, GitBranch, HardDrive, Target,
   Users, UserCheck, Trash2, ExternalLink, FolderKanban,
   Archive, RotateCcw, CheckSquare, Calendar,
-  UserPlus, ThumbsUp, ThumbsDown, MessageCircle, Pencil,
-  Paperclip, Link2, FileText, BarChart3, Settings, MessageSquare,
+  UserPlus, Pencil,
+  BarChart3, Settings, MessageSquare,
 } from 'lucide-react';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import Avatar from '@/components/common/Avatar';
 import TaskFormModal from '@/components/tasks/TaskFormModal';
+import TaskCard from '@/components/tasks/TaskCard';
 
 interface ProjectsPageProps {
   onClose: () => void;
@@ -132,12 +133,6 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
   const [showAddChecklist, setShowAddChecklist] = useState(false);
   const [newItemTitles, setNewItemTitles] = useState<Record<string, string>>({});
 
-  // Attachments
-  const [showAttachmentForm, setShowAttachmentForm] = useState<string | null>(null);
-  const [attachmentType, setAttachmentType] = useState<'link' | 'file'>('link');
-  const [attachmentName, setAttachmentName] = useState('');
-  const [attachmentUrl, setAttachmentUrl] = useState('');
-
   // Show archived
   const [showArchived, setShowArchived] = useState(false);
 
@@ -152,25 +147,6 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
   const [detailForm, setDetailForm] = useState({
     name: '', description: '', specsAndGoals: '', gitUrl: '', storageUrl: '', status: 'ACTIVE',
   });
-
-  // Comments & reactions
-  const [expandedComments, setExpandedComments] = useState<string | null>(null);
-  const [taskComments, setTaskComments] = useState<any[]>([]);
-  const [newComment, setNewComment] = useState('');
-  const [loadingComments, setLoadingComments] = useState(false);
-  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
-  const [editingCommentText, setEditingCommentText] = useState('');
-
-  // Load comments when expanded
-  useEffect(() => {
-    if (expandedComments) {
-      setLoadingComments(true);
-      api.getTaskComments(expandedComments).then((data) => {
-        setTaskComments(data.comments || []);
-        setLoadingComments(false);
-      }).catch(() => setLoadingComments(false));
-    }
-  }, [expandedComments]);
 
   const handleChatWithUser = async (targetUserId: string) => {
     if (!targetUserId || targetUserId === user?.id) return;
@@ -188,75 +164,6 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
         setSelectedProject(res.project);
       }
     } catch (err) { console.error('React error:', err); }
-  };
-
-  const handleAddTaskComment = async (taskId: string) => {
-    if (!newComment.trim()) return;
-    try {
-      await api.addTaskComment(taskId, newComment.trim());
-      setNewComment('');
-      const data = await api.getTaskComments(taskId);
-      setTaskComments(data.comments || []);
-      if (selectedProject) {
-        const res = await api.getProject(selectedProject.id);
-        setSelectedProject(res.project);
-      }
-    } catch (err) { console.error('Add comment error:', err); }
-  };
-
-  const handleUpdateTaskComment = async (taskId: string, commentId: string) => {
-    if (!editingCommentText.trim()) return;
-    try {
-      await api.updateTaskComment(taskId, commentId, editingCommentText.trim());
-      setEditingCommentId(null);
-      setEditingCommentText('');
-      const data = await api.getTaskComments(taskId);
-      setTaskComments(data.comments || []);
-    } catch (err) { console.error('Update comment error:', err); }
-  };
-
-  const handleDeleteTaskComment = async (taskId: string, commentId: string) => {
-    try {
-      await api.deleteTaskComment(taskId, commentId);
-      const data = await api.getTaskComments(taskId);
-      setTaskComments(data.comments || []);
-      if (selectedProject) {
-        const res = await api.getProject(selectedProject.id);
-        setSelectedProject(res.project);
-      }
-    } catch (err) { console.error('Delete comment error:', err); }
-  };
-
-  const handleAddAttachment = async (taskId: string) => {
-    if (!attachmentName.trim() || !attachmentUrl.trim()) return;
-    try {
-      await api.addTaskAttachment(taskId, {
-        type: attachmentType,
-        name: attachmentName.trim(),
-        url: attachmentUrl.trim(),
-      });
-      setAttachmentName('');
-      setAttachmentUrl('');
-      setShowAttachmentForm(null);
-      if (selectedProject) {
-        const res = await api.getProject(selectedProject.id);
-        setSelectedProject(res.project);
-      }
-    } catch (err) {
-      console.error('Add attachment error:', err);
-    }
-  };
-
-  const handleDeleteAttachment = async (taskId: string, attachmentId: string) => {
-    try {
-      await api.deleteTaskAttachment(taskId, attachmentId);
-      if (selectedProject) {
-        const res = await api.getProject(selectedProject.id);
-        setSelectedProject(res.project);
-      }
-    } catch (err) {
-      console.error('Delete attachment error:', err);
-    }
   };
 
   const loadProjects = useCallback(async () => {
@@ -878,176 +785,47 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
                     <span className="text-xs bg-white/50 dark:bg-black/20 px-1.5 py-0.5 rounded">{columnTasks.length}</span>
                   </h3>
                   <div className="space-y-2 flex-1 overflow-y-auto">
-                    {columnTasks.map((task: TaskData) => {
-                      const progress = getChecklistProgress(task.checklists);
-                      return (
-                        <div
-                          key={task.id}
-                          className="bg-white dark:bg-slate-800 rounded-lg p-3 shadow-sm border border-slate-200 dark:border-slate-700 cursor-pointer hover:shadow-md transition group"
-                          onClick={() => { setSelectedTask(task); setShowTaskDetail(true); }}
-                        >
-                          {/* Labels */}
-                          {task.labels && task.labels.length > 0 && (
-                            <div className="flex gap-1 mb-1.5 flex-wrap">
-                              {task.labels.map((_label, i) => (
-                                <span key={i} className="w-8 h-1.5 rounded-full bg-violet-400" />
-                              ))}
-                            </div>
-                          )}
-                          <p className="text-sm font-medium text-slate-900 dark:text-white mb-1">{task.title}</p>
-                          {task.description && <p className="text-xs text-slate-500 dark:text-slate-400 mb-2 line-clamp-2">{task.description}</p>}
-
-                          {/* Badges row */}
-                          <div className="flex items-center gap-2 flex-wrap mt-1.5">
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${priorityColors[task.priority]}`}>{task.priority}</span>
-                            {task.createdAt && (
-                              <span className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-0.5">
-                                <Calendar size={10} /> {new Date(task.createdAt).toLocaleDateString()}
-                              </span>
-                            )}
-                            {task.deadline && (
-                              <span className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-0.5">
-                                → {new Date(task.deadline).toLocaleDateString()}
-                              </span>
-                            )}
-                            {progress && (
-                              <span className={`text-[10px] flex items-center gap-0.5 ${progress.percent === 100 ? 'text-green-600' : 'text-slate-500 dark:text-slate-400'}`}>
-                                <CheckSquare size={10} /> {progress.done}/{progress.total}
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Progress bar for checklists */}
-                          {progress && (
-                            <div className="w-full bg-slate-200 dark:bg-slate-600 rounded-full h-1 mt-2">
-                              <div
-                                className={`h-1 rounded-full transition-all ${progress.percent === 100 ? 'bg-green-500' : 'bg-violet-500'}`}
-                                style={{ width: `${progress.percent}%` }}
-                              />
-                            </div>
-                          )}
-
-                          {/* Assignee + actions */}
-                          <div className="flex items-center justify-between mt-2">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleChatWithUser(task.assignedTo?.id || ''); }}
-                              className="flex items-center gap-2 hover:opacity-80"
-                              title={`Chat with ${task.assignedTo?.displayName || task.assignedTo?.username}`}
-                            >
-                              <Avatar name={task.assignedTo?.displayName || task.assignedTo?.username || ''} src={task.assignedTo?.avatarUrl} size="sm" />
-                              <span className="text-xs text-slate-600 dark:text-slate-400 hover:underline">{task.assignedTo?.displayName || task.assignedTo?.username}</span>
-                            </button>
-                            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setShowAttachmentForm(showAttachmentForm === task.id ? null : task.id); }}
-                                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400"
-                                title="Add attachment"
-                              >
-                                <Paperclip size={12} />
-                              </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleArchiveTask(task.id, !task.archived); }}
-                                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400"
-                                title={task.archived ? 'Unarchive' : 'Archive'}
-                              >
-                                {task.archived ? <RotateCcw size={12} /> : <Archive size={12} />}
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Reactions & comments */}
-                          {(() => {
-                            const likes = (task.reactions || []).filter(r => r.type === 'like').length;
-                            const dislikes = (task.reactions || []).filter(r => r.type === 'dislike').length;
-                            const myReaction = (task.reactions || []).find(r => r.userId === user?.id)?.type;
-                            const cmtCount = task._count?.comments || 0;
-                            return (
-                              <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-700" onClick={(e) => e.stopPropagation()}>
-                                <button onClick={() => handleReactTask(task.id, 'like')} className={`flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 ${myReaction === 'like' ? 'text-blue-600 font-semibold' : 'text-slate-400'}`}>
-                                  <ThumbsUp size={10} /> {likes > 0 && likes}
-                                </button>
-                                <button onClick={() => handleReactTask(task.id, 'dislike')} className={`flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 ${myReaction === 'dislike' ? 'text-red-600 font-semibold' : 'text-slate-400'}`}>
-                                  <ThumbsDown size={10} /> {dislikes > 0 && dislikes}
-                                </button>
-                                <button onClick={() => setExpandedComments(expandedComments === task.id ? null : task.id)} className={`flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 ${expandedComments === task.id ? 'text-violet-600 font-semibold' : 'text-slate-400'}`}>
-                                  <MessageCircle size={10} /> {cmtCount > 0 && cmtCount}
-                                </button>
-                              </div>
-                            );
-                          })()}
-
-                          {/* Expanded comments */}
-                          {expandedComments === task.id && (
-                            <div className="mt-1.5 space-y-1.5" onClick={(e) => e.stopPropagation()}>
-                              {loadingComments ? (
-                                <p className="text-[10px] text-slate-400 text-center py-1">Loading...</p>
-                              ) : (
-                                <>
-                                  {taskComments.map((c) => (
-                                    <div key={c.id} className="flex gap-1.5 text-[10px] group/cmt">
-                                      <button onClick={() => handleChatWithUser(c.user?.id)} className="flex-shrink-0 hover:opacity-80">
-                                        <Avatar name={c.user?.displayName || '?'} src={c.user?.avatarUrl} size="sm" />
-                                      </button>
-                                      <div className="flex-1 min-w-0">
-                                        <button onClick={() => handleChatWithUser(c.user?.id)} className="font-semibold hover:underline">{c.user?.displayName || c.user?.username}</button>
-                                        {editingCommentId === c.id ? (
-                                          <input autoFocus value={editingCommentText} onChange={(e) => setEditingCommentText(e.target.value)}
-                                            onKeyDown={(e) => { if (e.key === 'Enter') handleUpdateTaskComment(task.id, c.id); if (e.key === 'Escape') { setEditingCommentId(null); setEditingCommentText(''); } }}
-                                            className="block w-full mt-0.5 px-1.5 py-0.5 text-[10px] rounded bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600" />
-                                        ) : (
-                                          <p className="text-slate-600 dark:text-slate-400 break-words">{c.content}</p>
-                                        )}
-                                      </div>
-                                      {user?.id === c.user?.id && !editingCommentId && (
-                                        <div className="flex gap-0.5 opacity-0 group-hover/cmt:opacity-100 flex-shrink-0">
-                                          <button onClick={() => { setEditingCommentId(c.id); setEditingCommentText(c.content); }} className="p-0.5 hover:bg-slate-100 rounded"><Pencil size={8} /></button>
-                                          <button onClick={() => handleDeleteTaskComment(task.id, c.id)} className="p-0.5 hover:bg-slate-100 rounded"><Trash2 size={8} className="text-red-400" /></button>
-                                        </div>
-                                      )}
-                                    </div>
-                                  ))}
-                                  <input placeholder="Comment..." value={newComment} onChange={(e) => setNewComment(e.target.value)}
-                                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddTaskComment(task.id); }}
-                                    className="w-full px-1.5 py-1 text-[10px] rounded bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 placeholder-slate-400" />
-                                </>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Attachments display */}
-                          {(task as any).attachments?.length > 0 && (
-                            <div className="mt-1 space-y-0.5" onClick={(e) => e.stopPropagation()}>
-                              {(task as any).attachments.map((att: any) => (
-                                <div key={att.id} className="flex items-center gap-1">
-                                  <a href={att.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-primary-600 dark:text-primary-400 hover:underline flex-1 min-w-0">
-                                    {att.type === 'link' ? <Link2 className="w-3 h-3 flex-shrink-0" /> : <FileText className="w-3 h-3 flex-shrink-0" />}
-                                    <span className="truncate">{att.name}</span>
-                                    <ExternalLink className="w-2.5 h-2.5 opacity-50" />
-                                  </a>
-                                  <button onClick={() => handleDeleteAttachment(task.id, att.id)} className="p-0.5 text-slate-400 hover:text-red-500"><X size={10} /></button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          {/* Attachment form */}
-                          {showAttachmentForm === task.id && (
-                            <div className="mt-2 p-2 bg-slate-50 dark:bg-slate-700 rounded-lg space-y-1.5" onClick={(e) => e.stopPropagation()}>
-                              <div className="flex gap-1">
-                                <button onClick={() => setAttachmentType('link')} className={`px-2 py-0.5 text-[10px] rounded ${attachmentType === 'link' ? 'bg-violet-600 text-white' : 'bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300'}`}>Link</button>
-                                <button onClick={() => setAttachmentType('file')} className={`px-2 py-0.5 text-[10px] rounded ${attachmentType === 'file' ? 'bg-violet-600 text-white' : 'bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300'}`}>File</button>
-                              </div>
-                              <input type="text" value={attachmentName} onChange={(e) => setAttachmentName(e.target.value)} placeholder="Name..." className="w-full px-2 py-1 text-[10px] rounded bg-white dark:bg-slate-600 border border-slate-200 dark:border-slate-500 focus:outline-none focus:ring-1 focus:ring-violet-500" />
-                              <input type="url" value={attachmentUrl} onChange={(e) => setAttachmentUrl(e.target.value)} placeholder="URL..." className="w-full px-2 py-1 text-[10px] rounded bg-white dark:bg-slate-600 border border-slate-200 dark:border-slate-500 focus:outline-none focus:ring-1 focus:ring-violet-500" onKeyDown={(e) => { if (e.key === 'Enter') handleAddAttachment(task.id); }} />
-                              <div className="flex gap-1">
-                                <button onClick={() => handleAddAttachment(task.id)} disabled={!attachmentName.trim() || !attachmentUrl.trim()} className="px-2 py-0.5 text-[10px] bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50">Add</button>
-                                <button onClick={() => { setShowAttachmentForm(null); setAttachmentName(''); setAttachmentUrl(''); }} className="px-2 py-0.5 text-[10px] text-slate-500 hover:text-slate-700">Cancel</button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                    {columnTasks.map((task: TaskData) => (
+                      <TaskCard
+                        key={task.id}
+                        task={task}
+                        isMobile={false}
+                        currentUserId={user?.id || ''}
+                        onDelete={handleDeleteTask}
+                        onEdit={(t) => { setTaskFormEditingTask(t); setShowTaskFormModal(true); }}
+                        onStatusChange={(taskId, newStatus) => handleUpdateTask(taskId, { status: newStatus })}
+                        onReact={handleReactTask}
+                        onChatWithUser={handleChatWithUser}
+                        onNavigateToChat={(convId) => navigate(`/chat/${convId}`)}
+                        onStartChat={async (taskId) => {
+                          try {
+                            const res = await api.createTaskConversation(taskId);
+                            if (res?.conversationId) {
+                              await refreshProject();
+                              window.dispatchEvent(new Event('conversations:refresh'));
+                              return res.conversationId;
+                            }
+                          } catch (err) {
+                            console.error('Failed to create task chat:', err);
+                            alert('Failed to create chat room');
+                          }
+                          return null;
+                        }}
+                        onAddAttachment={async (taskId, data) => {
+                          try {
+                            await api.addTaskAttachment(taskId, data);
+                            await refreshProject();
+                          } catch (err) { console.error('Add attachment error:', err); }
+                        }}
+                        onDeleteAttachment={async (taskId, attachmentId) => {
+                          try {
+                            await api.deleteTaskAttachment(taskId, attachmentId);
+                            await refreshProject();
+                          } catch (err) { console.error('Delete attachment error:', err); }
+                        }}
+                        onArchive={(taskId, archive) => handleArchiveTask(taskId, archive)}
+                      />
+                    ))}
                     {columnTasks.length === 0 && <p className="text-xs text-slate-400 text-center py-4">No tasks</p>}
                   </div>
 

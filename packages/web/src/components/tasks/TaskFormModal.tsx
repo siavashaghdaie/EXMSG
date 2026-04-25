@@ -9,6 +9,8 @@ interface ChecklistFormItem {
   title: string;
   assigneeId?: string;
   assigneeName?: string;
+  assigneeIds?: string[];
+  assigneeNames?: string[];
   dueDate?: string;
 }
 
@@ -117,8 +119,10 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({
         items: (cl.items || []).map((item: any) => ({
           id: item.id,
           title: item.title,
-          assigneeId: item.assigneeId || undefined,
-          assigneeName: item.assigneeName || undefined,
+          assigneeId: item.assigneeId || (item.assigneeIds?.length ? item.assigneeIds[0] : undefined),
+          assigneeName: item.assigneeName || (item.assigneeNames?.length ? item.assigneeNames[0] : undefined),
+          assigneeIds: item.assigneeIds || (item.assigneeId ? [item.assigneeId] : []),
+          assigneeNames: item.assigneeNames || (item.assigneeName ? [item.assigneeName] : []),
           dueDate: item.dueDate ? new Date(item.dueDate).toISOString().split('T')[0] : undefined,
         })),
       })));
@@ -235,19 +239,19 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({
           coAssigneeIds: coAssignees.map(ca => ca.id),
         });
 
-        // Update checklists
+        // Always handle checklists when editing — delete old ones first, then recreate
+        const existingChecklists = editingTask.checklists || [];
+        for (const cl of existingChecklists) {
+          try { await api.deleteChecklist(cl.id); } catch (e) { /* ignore */ }
+        }
         if (formChecklists.length > 0) {
-          const existingChecklists = editingTask.checklists || [];
-          for (const cl of existingChecklists) {
-            try { await api.deleteChecklist(cl.id); } catch (e) { /* ignore */ }
-          }
           for (const cl of formChecklists) {
             try {
               const checklist = await api.createChecklist({ taskId: editingTask.id, title: cl.title });
               for (const item of cl.items) {
                 await api.addChecklistItem(checklist.id, {
                   title: item.title,
-                  assigneeId: item.assigneeId || undefined,
+                  assigneeIds: item.assigneeIds || (item.assigneeId ? [item.assigneeId] : undefined),
                   dueDate: item.dueDate || undefined,
                 });
               }
@@ -281,7 +285,7 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({
               for (const item of cl.items) {
                 await api.addChecklistItem(checklist.id, {
                   title: item.title,
-                  assigneeId: item.assigneeId || undefined,
+                  assigneeIds: item.assigneeIds || (item.assigneeId ? [item.assigneeId] : undefined),
                   dueDate: item.dueDate || undefined,
                 });
               }

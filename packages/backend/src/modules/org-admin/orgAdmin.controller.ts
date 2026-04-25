@@ -30,7 +30,7 @@ export class OrgAdminController {
         select: { userId: true },
       });
 
-      const memberIds = orgMembers.map((m) => m.userId);
+      const memberIds = orgMembers.map((m: any) => m.userId);
 
       // Parallel queries
       const [
@@ -143,7 +143,7 @@ export class OrgAdminController {
 
       // Get message and task counts for each member
       const enrichedMembers = await Promise.all(
-        members.map(async (member) => {
+        members.map(async (member: any) => {
           const today = new Date();
           today.setHours(0, 0, 0, 0);
 
@@ -256,7 +256,7 @@ export class OrgAdminController {
 
       // Get message counts per conversation
       const conversationDetails = await Promise.all(
-        conversations.map(async (cm) => {
+        conversations.map(async (cm: any) => {
           const count = await prisma.message.count({
             where: {
               conversationId: cm.conversationId,
@@ -301,7 +301,7 @@ export class OrgAdminController {
         onlineTime: user,
         conversations: conversationDetails,
         tasks,
-        recentMessages: recentMessages.map((m) => ({
+        recentMessages: recentMessages.map((m: any) => ({
           id: m.id,
           content: m.content,
           conversationName: m.conversation.name || 'Unnamed',
@@ -340,7 +340,7 @@ export class OrgAdminController {
         select: { userId: true },
       });
 
-      const memberIds = orgMembers.map((m) => m.userId);
+      const memberIds = orgMembers.map((m: any) => m.userId);
 
       // Build where clause
       const where: any = {
@@ -369,7 +369,7 @@ export class OrgAdminController {
         prisma.message.count({ where }),
       ]);
 
-      const enrichedMessages = messages.map((m) => ({
+      const enrichedMessages = messages.map((m: any) => ({
         id: m.id,
         senderName: m.sender.displayName || m.sender.username,
         conversationName: m.conversation.name || 'Unnamed',
@@ -419,7 +419,7 @@ export class OrgAdminController {
 
       // Get daily stats for each member
       const report = await Promise.all(
-        orgMembers.map(async (member) => {
+        orgMembers.map(async (member: any) => {
           const messageCount = await prisma.message.count({
             where: {
               senderId: member.userId,
@@ -467,7 +467,7 @@ export class OrgAdminController {
         select: { userId: true },
       });
 
-      const memberIds = orgMembers.map((m) => m.userId);
+      const memberIds = orgMembers.map((m: any) => m.userId);
 
       // Get all tasks for org members
       const tasks = await prisma.task.findMany({
@@ -487,13 +487,13 @@ export class OrgAdminController {
         'BLOCKED': 0,
       };
 
-      tasks.forEach((task) => {
+      tasks.forEach((task: any) => {
         if (statusCounts.hasOwnProperty(task.status)) {
           statusCounts[task.status as keyof typeof statusCounts]++;
         }
       });
 
-      const enrichedTasks = tasks.map((task) => ({
+      const enrichedTasks = tasks.map((task: any) => ({
         id: task.id,
         title: task.title,
         assignee: task.assignedTo.displayName || task.assignedTo.username,
@@ -812,7 +812,7 @@ export class OrgAdminController {
           where: { organizationId: orgId },
           select: { id: true },
         });
-        const orgDeptIds = orgDepts.map((d) => d.id);
+        const orgDeptIds = orgDepts.map((d: any) => d.id);
         if (orgDeptIds.length > 0) {
           await prisma.departmentMember.deleteMany({
             where: { userId, departmentId: { in: orgDeptIds } },
@@ -1006,7 +1006,7 @@ export class OrgAdminController {
             },
           },
         });
-        orgs = memberships.map((m) => m.organization);
+        orgs = memberships.map((m: any) => m.organization);
       }
 
       res.json({ organizations: orgs });
@@ -1230,7 +1230,7 @@ export class OrgAdminController {
       result[dateStr] = 0;
     }
 
-    messages.forEach((msg) => {
+    messages.forEach((msg: any) => {
       const dateStr = msg.createdAt.toISOString().split('T')[0];
       if (result.hasOwnProperty(dateStr)) {
         result[dateStr]++;
@@ -1252,7 +1252,7 @@ export class OrgAdminController {
     });
 
     const result = await Promise.all(
-      members.map(async (member) => {
+      members.map(async (member: any) => {
         const messageCount = await prisma.message.count({
           where: {
             senderId: member.userId,
@@ -1291,7 +1291,7 @@ export class OrgAdminController {
     });
 
     const convMap = new Map();
-    conversations.forEach((cm) => {
+    conversations.forEach((cm: any) => {
       if (!convMap.has(cm.conversation.id)) {
         convMap.set(cm.conversation.id, cm.conversation);
       }
