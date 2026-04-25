@@ -325,6 +325,8 @@ model Task {
   assignedToId String
   assignedTo   User     @relation("TasksAssigned", fields: [assignedToId], references: [id])
 
+  coAssigneeIds String[] @default([]) @map("co_assignee_ids")
+
   createdById  String
   createdBy    User     @relation("TasksCreated", fields: [createdById], references: [id])
 

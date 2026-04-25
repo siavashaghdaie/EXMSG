@@ -133,7 +133,7 @@ export class TaskController {
   async createTask(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.user!.userId;
-      const { title, description, assignedToId, deadline, priority, labels, lindaFollowing, lindaFollowInterval, orderedById, visibleToDepartmentIds, departmentId, projectId, projectName } = req.body;
+      const { title, description, assignedToId, deadline, priority, labels, lindaFollowing, lindaFollowInterval, orderedById, visibleToDepartmentIds, departmentId, projectId, projectName, coAssigneeIds } = req.body;
 
       if (!title) {
         res.status(400).json({ error: 'Task title is required' });
@@ -187,6 +187,7 @@ export class TaskController {
           deadline: deadline ? new Date(deadline) : null,
           priority: priority || 'MEDIUM',
           labels: labels || [],
+          coAssigneeIds: Array.isArray(coAssigneeIds) ? coAssigneeIds : [],
           status: 'NOT_STARTED',
           lindaFollowing: lindaFollowing || false,
           lindaFollowInterval: lindaFollowInterval || null,
@@ -214,6 +215,9 @@ export class TaskController {
         const memberIds = new Set<string>([userId]); // creator
         if (assignedToId && assignedToId !== userId) memberIds.add(assignedToId);
         if (orderedById && orderedById !== userId) memberIds.add(orderedById);
+        if (Array.isArray(coAssigneeIds)) {
+          coAssigneeIds.forEach((id: string) => memberIds.add(id));
+        }
 
         const conversation = await prisma.conversation.create({
           data: {
@@ -256,7 +260,7 @@ export class TaskController {
     try {
       const { taskId } = req.params;
       const userId = req.user!.userId;
-      const { title, description, status, priority, deadline, labels, lindaFollowing, lindaFollowInterval, archived } = req.body;
+      const { title, description, status, priority, deadline, labels, lindaFollowing, lindaFollowInterval, archived, coAssigneeIds } = req.body;
 
       const task = await prisma.task.findUnique({ where: { id: taskId } });
       if (!task || (task.assignedToId !== userId && task.createdById !== userId)) {
@@ -286,6 +290,7 @@ export class TaskController {
           ...(lindaFollowing !== undefined && { lindaFollowing }),
           ...(lindaFollowInterval !== undefined && { lindaFollowInterval }),
           ...(archived !== undefined && { archived: Boolean(archived) }),
+          ...(coAssigneeIds !== undefined && { coAssigneeIds: Array.isArray(coAssigneeIds) ? coAssigneeIds : [] }),
         },
         include: {
           assignedTo: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
@@ -546,6 +551,58 @@ export class TaskController {
       res.status(201).json({ attachment });
     } catch (error) {
       console.error('Add task attachment error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // POST /api/tasks/:taskId/conversation — create chat room on demand
+  async createConversation(req: Request, res: Response): Promise<void> {
+    try {
+      const { taskId } = req.params;
+      const userId = req.user!.userId;
+
+      const task = await prisma.task.findUnique({ where: { id: taskId } });
+      if (!task) {
+        res.status(404).json({ error: 'Task not found' });
+        return;
+      }
+
+      // Already has a conversation
+      if (task.conversationId) {
+        res.json({ conversationId: task.conversationId });
+        return;
+      }
+
+      const memberIds = new Set<string>([task.createdById]);
+      if (task.assignedToId && task.assignedToId !== task.createdById) memberIds.add(task.assignedToId);
+      if (userId !== task.createdById) memberIds.add(userId);
+      // Include co-assignees
+      if (Array.isArray((task as any).coAssigneeIds)) {
+        (task as any).coAssigneeIds.forEach((id: string) => memberIds.add(id));
+      }
+
+      const conversation = await prisma.conversation.create({
+        data: {
+          type: 'GROUP',
+          name: `Task: ${task.title}`,
+          ...(task.organizationId && { organizationId: task.organizationId }),
+          members: {
+            create: Array.from(memberIds).map(uid => ({
+              userId: uid,
+              role: uid === task.createdById ? 'ADMIN' : 'MEMBER',
+            })),
+          },
+        },
+      });
+
+      await prisma.task.update({
+        where: { id: taskId },
+        data: { conversationId: conversation.id },
+      });
+
+      res.json({ conversationId: conversation.id });
+    } catch (error) {
+      console.error('Create task conversation error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }

@@ -1,9 +1,45 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Calendar, MoreVertical, X, Loader2, Search, UserPlus, ThumbsUp, ThumbsDown, MessageCircle, Pencil, Trash2, Send, Paperclip, Link2, FileText, ExternalLink, CheckSquare, MessageSquare } from 'lucide-react';
+import { Plus, Calendar, MoreVertical, X, Loader2, Search, UserPlus, ThumbsUp, ThumbsDown, MessageCircle, Pencil, Trash2, Send, Paperclip, Link2, FileText, ExternalLink, CheckSquare, MessageSquare, Users } from 'lucide-react';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import Avatar from '@/components/common/Avatar';
+
+// Standalone comment input to prevent parent re-renders from stealing focus
+const CommentInput: React.FC<{ taskId: string; onSubmit: (taskId: string, text: string) => Promise<void> }> = ({ taskId, onSubmit }) => {
+  const [text, setText] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!text.trim() || submitting) return;
+    setSubmitting(true);
+    try {
+      await onSubmit(taskId, text.trim());
+      setText('');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="flex gap-1">
+      <input
+        placeholder="Write a comment..."
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit(); }}
+        className="flex-1 px-2 py-1.5 text-xs rounded bg-gray-50 dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white placeholder-gray-400"
+      />
+      <button
+        onClick={handleSubmit}
+        disabled={!text.trim() || submitting}
+        className="p-1.5 rounded bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+      >
+        <Send className="w-3 h-3" />
+      </button>
+    </div>
+  );
+};
 
 interface Task {
   id: string;
@@ -95,12 +131,14 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
 
   // Checklist form state for task creation
   interface ChecklistFormItem {
+    id?: string;
     title: string;
     assigneeId?: string;
     assigneeName?: string;
     dueDate?: string;
   }
   interface ChecklistForm {
+    id?: string;
     title: string;
     items: ChecklistFormItem[];
   }
@@ -142,6 +180,12 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
   const [showAssigneeDropdown, setShowAssigneeDropdown] = useState(false);
   const [assigneeSearchLoading, setAssigneeSearchLoading] = useState(false);
 
+  // Co-assignee state
+  const [coAssignees, setCoAssignees] = useState<Array<{ id: string; displayName: string; username: string; avatarUrl?: string }>>([]);
+  const [coAssigneeSearch, setCoAssigneeSearch] = useState('');
+  const [coAssigneeResults, setCoAssigneeResults] = useState<Array<{ id: string; username: string; email: string; avatar?: string }>>([]);
+  const [showCoAssigneeDropdown, setShowCoAssigneeDropdown] = useState(false);
+
   // Debounced user search for assignee
   useEffect(() => {
     if (!assigneeSearch || assigneeSearch.length < 2) {
@@ -163,6 +207,25 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
 
     return () => clearTimeout(timer);
   }, [assigneeSearch]);
+
+  // Debounced user search for co-assignees
+  useEffect(() => {
+    if (!coAssigneeSearch || coAssigneeSearch.length < 2) {
+      setCoAssigneeResults([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const results = await api.searchUsers(coAssigneeSearch, 10);
+        setCoAssigneeResults(results);
+      } catch (error) {
+        console.error('Error searching users for co-assignees:', error);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [coAssigneeSearch]);
 
   // Handle resize for mobile detection
   useEffect(() => {
@@ -244,8 +307,35 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
           labels: formData.labels,
           lindaFollowing: formData.lindaFollowing,
           lindaFollowInterval: formData.lindaFollowing ? formData.lindaFollowInterval : null,
+          coAssigneeIds: coAssignees.map(ca => ca.id),
         });
         setTasks(tasks.map(t => t.id === updated.id ? updated : t));
+
+        // Update checklists for edited task
+        if (formChecklists.length > 0) {
+          // Delete existing checklists first
+          const existingChecklists = (editingTask as any).checklists || [];
+          for (const cl of existingChecklists) {
+            try { await api.deleteChecklist(cl.id); } catch (e) { /* ignore */ }
+          }
+          // Create new ones
+          for (const cl of formChecklists) {
+            try {
+              const checklist = await api.createChecklist({ taskId: editingTask.id, title: cl.title });
+              for (const item of cl.items) {
+                await api.addChecklistItem(checklist.id, {
+                  title: item.title,
+                  assigneeId: item.assigneeId || undefined,
+                  dueDate: item.dueDate || undefined,
+                });
+              }
+            } catch (clErr) {
+              console.error('Checklist update error:', clErr);
+            }
+          }
+        }
+        // Refetch tasks after checklist updates
+        await fetchTasks();
       } else {
         const created = await api.createTask({
           title: formData.title,
@@ -260,7 +350,8 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
           departmentId: formData.departmentId || undefined,
           projectId: (formData.projectId && formData.projectId !== '__new__') ? formData.projectId : undefined,
           projectName: formData.projectName || undefined,
-        });
+          coAssigneeIds: coAssignees.map(ca => ca.id),
+        } as any);
         console.log('Task created:', created);
         // Create checklists if any were added in the form
         if (formChecklists.length > 0 && created?.id) {
@@ -328,11 +419,11 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
   };
 
   // Comment handlers
-  const handleAddComment = async (taskId: string) => {
-    const commentText = newCommentMap[taskId] || '';
-    if (!commentText.trim()) return;
+  const handleAddComment = async (taskId: string, commentText?: string) => {
+    const text = commentText || newCommentMap[taskId] || '';
+    if (!text.trim()) return;
     try {
-      await api.addTaskComment(taskId, commentText.trim());
+      await api.addTaskComment(taskId, text.trim());
       setNewCommentMap((prev) => ({ ...prev, [taskId]: '' }));
       const data = await api.getTaskComments(taskId);
       setTaskComments(data.comments || []);
@@ -450,6 +541,26 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
     setAssigneeSearch('');
     setShowAssigneeDropdown(false);
     setShowCreateModal(true);
+
+    // Load existing checklists into form
+    const existingChecklists = (task as any).checklists || [];
+    setFormChecklists(existingChecklists.map((cl: any) => ({
+      id: cl.id,
+      title: cl.title,
+      items: (cl.items || []).map((item: any) => ({
+        id: item.id,
+        title: item.title,
+        assigneeId: item.assigneeId || undefined,
+        assigneeName: item.assigneeName || undefined,
+        dueDate: item.dueDate ? new Date(item.dueDate).toISOString().split('T')[0] : undefined,
+      })),
+    })));
+
+    // Load existing co-assignees (we don't have full user info from the task data)
+    setCoAssignees([]);
+    setCoAssigneeSearch('');
+    setCoAssigneeResults([]);
+    setShowCoAssigneeDropdown(false);
   };
 
   const resetForm = () => {
@@ -476,6 +587,10 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
     setItemAssigneeSearch('');
     setItemAssigneeResults([]);
     setItemAssigneeTarget(null);
+    setCoAssignees([]);
+    setCoAssigneeSearch('');
+    setCoAssigneeResults([]);
+    setShowCoAssigneeDropdown(false);
   };
 
   // Add label to form
@@ -744,11 +859,28 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
             <button onClick={() => setShowAttachmentForm(showAttachmentForm === task.id ? null : task.id)} className={`flex items-center gap-1 text-xs ${showAttachmentForm === task.id ? 'text-violet-600 font-semibold' : 'text-gray-500'}`}>
               <Paperclip className="w-3.5 h-3.5" /> {(task as any).attachments?.length > 0 && (task as any).attachments.length}
             </button>
-            {task.conversationId && (
-              <button onClick={() => navigate(`/chat/${task.conversationId}`)} className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 ml-auto" title="Open task chat room">
-                <MessageSquare className="w-3.5 h-3.5" /> Chat
-              </button>
-            )}
+            <button
+              onClick={async () => {
+                if (task.conversationId) {
+                  navigate(`/chat/${task.conversationId}`);
+                } else {
+                  try {
+                    const res = await api.createTaskConversation(task.id);
+                    if (res?.conversationId) {
+                      setTasks(prev => prev.map(t => t.id === task.id ? { ...t, conversationId: res.conversationId } : t));
+                      navigate(`/chat/${res.conversationId}`);
+                    }
+                  } catch (err) {
+                    console.error('Failed to create task chat:', err);
+                    alert('Failed to create chat room');
+                  }
+                }
+              }}
+              className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-surface-700 text-green-600 dark:text-green-400 ml-auto"
+              title={task.conversationId ? "Open task chat room" : "Create task chat room"}
+            >
+              <MessageSquare className="w-3.5 h-3.5" /> {task.conversationId ? 'Chat' : 'Start Chat'}
+            </button>
           </div>
 
           {/* Expanded comments */}
@@ -783,14 +915,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                       )}
                     </div>
                   ))}
-                  <div className="flex gap-1">
-                    <input placeholder="Write a comment..." value={newCommentMap[task.id] || ''} onChange={(e) => setNewCommentMap((prev) => ({ ...prev, [task.id]: e.target.value }))}
-                      onKeyDown={(e) => { if (e.key === 'Enter') handleAddComment(task.id); }}
-                      className="flex-1 px-2 py-1.5 text-xs rounded bg-gray-50 dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white placeholder-gray-400" />
-                    <button onClick={() => handleAddComment(task.id)} disabled={!(newCommentMap[task.id] || '').trim()} className="p-1.5 rounded bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-                      <Send className="w-3 h-3" />
-                    </button>
-                  </div>
+                  <CommentInput taskId={task.id} onSubmit={handleAddComment} />
                 </>
               )}
             </div>
@@ -991,11 +1116,28 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
           >
             <Paperclip className="w-3.5 h-3.5" /> {(task as any).attachments?.length > 0 && (task as any).attachments.length}
           </button>
-          {task.conversationId && (
-            <button onClick={() => navigate(`/chat/${task.conversationId}`)} className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-surface-700 text-green-600 dark:text-green-400 ml-auto" title="Open task chat room">
-              <MessageSquare className="w-3.5 h-3.5" /> Chat
-            </button>
-          )}
+          <button
+            onClick={async () => {
+              if (task.conversationId) {
+                navigate(`/chat/${task.conversationId}`);
+              } else {
+                try {
+                  const res = await api.createTaskConversation(task.id);
+                  if (res?.conversationId) {
+                    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, conversationId: res.conversationId } : t));
+                    navigate(`/chat/${res.conversationId}`);
+                  }
+                } catch (err) {
+                  console.error('Failed to create task chat:', err);
+                  alert('Failed to create chat room');
+                }
+              }
+            }}
+            className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-surface-700 text-green-600 dark:text-green-400 ml-auto"
+            title={task.conversationId ? "Open task chat room" : "Create task chat room"}
+          >
+            <MessageSquare className="w-3.5 h-3.5" /> {task.conversationId ? 'Chat' : 'Start Chat'}
+          </button>
         </div>
 
         {/* Expanded comments section */}
@@ -1047,18 +1189,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                     )}
                   </div>
                 ))}
-                <div className="flex gap-1">
-                  <input
-                    placeholder="Write a comment..."
-                    value={newCommentMap[task.id] || ''}
-                    onChange={(e) => setNewCommentMap((prev) => ({ ...prev, [task.id]: e.target.value }))}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddComment(task.id); }}
-                    className="flex-1 px-2 py-1.5 text-xs rounded bg-gray-50 dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white placeholder-gray-400"
-                  />
-                  <button onClick={() => handleAddComment(task.id)} disabled={!(newCommentMap[task.id] || '').trim()} className="p-1.5 rounded bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-                    <Send className="w-3 h-3" />
-                  </button>
-                </div>
+                <CommentInput taskId={task.id} onSubmit={handleAddComment} />
               </>
             )}
           </div>
@@ -1386,6 +1517,57 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                 )}
               </div>
 
+              {/* Co-Assignees */}
+              <div className="relative">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  <Users className="w-4 h-4 inline mr-1" />
+                  Co-Assignees
+                </label>
+                {coAssignees.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mb-2">
+                    {coAssignees.map(ca => (
+                      <span key={ca.id} className="flex items-center gap-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-full text-xs">
+                        <Avatar name={ca.displayName || ca.username} src={ca.avatarUrl} size="sm" />
+                        {ca.displayName || ca.username}
+                        <button onClick={() => setCoAssignees(prev => prev.filter(a => a.id !== ca.id))} className="ml-1">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <input
+                  type="text"
+                  value={coAssigneeSearch}
+                  onChange={(e) => { setCoAssigneeSearch(e.target.value); setShowCoAssigneeDropdown(true); }}
+                  onFocus={() => setShowCoAssigneeDropdown(true)}
+                  placeholder="Search users to add..."
+                  className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-surface-800 text-gray-900 dark:text-white border border-gray-300 dark:border-surface-700 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+                />
+                {showCoAssigneeDropdown && coAssigneeResults.length > 0 && (
+                  <div className="absolute z-10 mt-1 w-full bg-white dark:bg-surface-800 border border-gray-200 dark:border-surface-700 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                    {coAssigneeResults.filter(u => u.id !== formData.assignedToId && !coAssignees.some(ca => ca.id === u.id)).map((u) => (
+                      <button
+                        key={u.id}
+                        onClick={() => {
+                          setCoAssignees(prev => [...prev, { id: u.id, displayName: u.username, username: u.username, avatarUrl: u.avatar }]);
+                          setCoAssigneeSearch('');
+                          setShowCoAssigneeDropdown(false);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-100 dark:hover:bg-surface-700 text-left"
+                      >
+                        <Avatar name={u.username} src={u.avatar} size="sm" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{u.username}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{u.email}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs text-gray-400 mt-1">Add additional assignees to this task</p>
+              </div>
+
               {/* Priority */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -1521,7 +1703,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
               </div>
 
               {/* Checklists */}
-              {!editingTask && (
+              {(
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     <CheckSquare className="w-4 h-4 inline mr-1" />

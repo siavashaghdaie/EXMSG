@@ -10,6 +10,7 @@ import {
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import Avatar from '@/components/common/Avatar';
+import TaskFormModal from '@/components/tasks/TaskFormModal';
 
 interface ProjectsPageProps {
   onClose: () => void;
@@ -105,15 +106,22 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
   const [selectedTask, setSelectedTask] = useState<TaskData | null>(null);
   const [showTaskDetail, setShowTaskDetail] = useState(false);
 
-  // New task form
-  const [showNewTask, setShowNewTask] = useState<string | null>(null); // status column key
+  // New task form (legacy inline - replaced by TaskFormModal)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_showNewTask, setShowNewTask] = useState<string | null>(null);
   const [ganttNoDeadlineMode, setGanttNoDeadlineMode] = useState<'bar' | 'milestone'>('bar');
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskAssignee, setNewTaskAssignee] = useState('');
   const [newTaskDescription, setNewTaskDescription] = useState('');
   const [newTaskPriority, setNewTaskPriority] = useState('MEDIUM');
   const [newTaskDeadline, setNewTaskDeadline] = useState('');
-  const [newTaskAssigneeSearch, setNewTaskAssigneeSearch] = useState('');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_newTaskAssigneeSearch, setNewTaskAssigneeSearch] = useState('');
+
+  // Full task form modal (shared component)
+  const [showTaskFormModal, setShowTaskFormModal] = useState(false);
+  const [taskFormDefaultStatus, setTaskFormDefaultStatus] = useState<string>('NOT_STARTED');
+  const [taskFormEditingTask, setTaskFormEditingTask] = useState<any>(null);
 
   // Edit task inline
   const [editingTask, setEditingTask] = useState<string | null>(null);
@@ -399,7 +407,8 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
   };
 
   // ─── Task CRUD ──────────────────────────────────────────────────
-  const handleCreateTask = async (status: string) => {
+  // @ts-ignore - kept for potential future use
+  const _handleCreateTask = async (status: string) => {
     if (!newTaskTitle.trim() || !selectedProject) return;
     try {
       await api.createTask({
@@ -1044,90 +1053,16 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
 
                   {/* Add task button */}
                   {!showArchived && (
-                    <>
-                      {showNewTask === status ? (
-                        <div className="mt-2 bg-white dark:bg-slate-800 rounded-lg p-2 border border-slate-200 dark:border-slate-700 space-y-2">
-                          <input
-                            type="text"
-                            value={newTaskTitle}
-                            onChange={(e) => setNewTaskTitle(e.target.value)}
-                            placeholder="Enter a title..."
-                            className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-sm focus:outline-none focus:ring-1 focus:ring-violet-500"
-                            onKeyDown={(e) => { if (e.key === 'Escape') setShowNewTask(null); }}
-                            autoFocus
-                          />
-                          <textarea
-                            value={newTaskDescription}
-                            onChange={(e) => setNewTaskDescription(e.target.value)}
-                            placeholder="Description (optional)..."
-                            rows={2}
-                            className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-violet-500 resize-none"
-                          />
-                          <div className="flex gap-1.5 flex-wrap">
-                            <select
-                              value={newTaskPriority}
-                              onChange={(e) => setNewTaskPriority(e.target.value)}
-                              className="px-2 py-1 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-violet-500"
-                            >
-                              <option value="LOW">Low</option>
-                              <option value="MEDIUM">Medium</option>
-                              <option value="HIGH">High</option>
-                              <option value="CRITICAL">Critical</option>
-                            </select>
-                            <input
-                              type="date"
-                              value={newTaskDeadline}
-                              onChange={(e) => setNewTaskDeadline(e.target.value)}
-                              min={new Date().toISOString().split('T')[0]}
-                              className="px-2 py-1 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-violet-500"
-                              placeholder="Deadline"
-                            />
-                          </div>
-                          {/* Assignee search */}
-                          <div className="relative">
-                            <input
-                              type="text"
-                              value={newTaskAssigneeSearch}
-                              onChange={(e) => {
-                                setNewTaskAssigneeSearch(e.target.value);
-                                if (!e.target.value) setNewTaskAssignee('');
-                              }}
-                              placeholder="Assign to (search member)..."
-                              className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-xs focus:outline-none focus:ring-1 focus:ring-violet-500"
-                            />
-                            {newTaskAssigneeSearch.length >= 1 && !newTaskAssignee && selectedProject && (
-                              <div className="absolute z-10 top-full left-0 right-0 mt-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded shadow-lg max-h-32 overflow-y-auto">
-                                {selectedProject.members
-                                  .filter(m => (m.user.displayName || m.user.username).toLowerCase().includes(newTaskAssigneeSearch.toLowerCase()))
-                                  .slice(0, 6)
-                                  .map(m => (
-                                    <button
-                                      key={m.user.id}
-                                      onClick={() => { setNewTaskAssignee(m.user.id); setNewTaskAssigneeSearch(m.user.displayName || m.user.username); }}
-                                      className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700 text-left"
-                                    >
-                                      <Avatar name={m.user.displayName || m.user.username} src={m.user.avatarUrl} size="sm" />
-                                      <span className="text-xs text-slate-700 dark:text-slate-300 truncate">{m.user.displayName || m.user.username}</span>
-                                    </button>
-                                  ))
-                                }
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex gap-2">
-                            <button onClick={() => handleCreateTask(status)} disabled={!newTaskTitle.trim()} className="px-3 py-1 bg-violet-600 text-white text-xs rounded hover:bg-violet-700 disabled:opacity-50">Add Card</button>
-                            <button onClick={() => { setShowNewTask(null); setNewTaskTitle(''); setNewTaskDescription(''); setNewTaskPriority('MEDIUM'); setNewTaskDeadline(''); setNewTaskAssignee(''); setNewTaskAssigneeSearch(''); }} className="px-3 py-1 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">Cancel</button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setShowNewTask(status)}
-                          className="mt-2 w-full py-2 text-xs text-slate-500 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-700/50 rounded-lg flex items-center justify-center gap-1 transition"
-                        >
-                          <Plus size={14} /> Add a card
-                        </button>
-                      )}
-                    </>
+                    <button
+                      onClick={() => {
+                        setTaskFormEditingTask(null);
+                        setTaskFormDefaultStatus(status);
+                        setShowTaskFormModal(true);
+                      }}
+                      className="mt-2 w-full py-2 text-xs text-slate-500 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-700/50 rounded-lg flex items-center justify-center gap-1 transition"
+                    >
+                      <Plus size={14} /> Add a card
+                    </button>
                   )}
                 </div>
               );
@@ -1755,6 +1690,18 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
           </div>
         )}
       </div>
+      {/* Task Form Modal for board view */}
+      <TaskFormModal
+        visible={showTaskFormModal}
+        onClose={() => { setShowTaskFormModal(false); setTaskFormEditingTask(null); }}
+        onSave={async () => {
+          await refreshProject();
+          window.dispatchEvent(new Event('badges:refresh'));
+        }}
+        editingTask={taskFormEditingTask}
+        defaultProjectId={selectedProject?.id}
+        defaultStatus={taskFormDefaultStatus}
+      />
     </div>
   );
 };

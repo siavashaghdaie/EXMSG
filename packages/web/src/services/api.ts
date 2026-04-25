@@ -886,6 +886,11 @@ class APIClient {
     await this.client.delete(`/tasks/${taskId}`);
   }
 
+  async createTaskConversation(taskId: string): Promise<{ conversationId: string }> {
+    const res = await this.client.post(`/tasks/${taskId}/conversation`);
+    return res.data;
+  }
+
   // Admin API
   async getAdminDashboard(): Promise<any> {
     const res = await this.client.get('/admin/dashboard');

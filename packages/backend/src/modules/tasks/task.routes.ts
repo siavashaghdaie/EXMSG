@@ -19,6 +19,9 @@ router.post('/tasks/:taskId/comments', authenticate, controller.addComment.bind(
 router.patch('/tasks/:taskId/comments/:commentId', authenticate, controller.updateComment.bind(controller));
 router.delete('/tasks/:taskId/comments/:commentId', authenticate, controller.deleteComment.bind(controller));
 
+// Task conversation
+router.post('/tasks/:taskId/conversation', authenticate, controller.createConversation.bind(controller));
+
 // Task attachments
 router.get('/tasks/:taskId/attachments', authenticate, controller.getAttachments.bind(controller));
 router.post('/tasks/:taskId/attachments', authenticate, controller.addAttachment.bind(controller));
