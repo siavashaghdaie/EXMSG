@@ -12,6 +12,8 @@ import {
   Modal,
   ScrollView,
   Linking,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '@/services/api';
@@ -31,6 +33,7 @@ const COLORS = {
   blue: '#3B82F6',
   amber: '#F59E0B',
   red: '#EF4444',
+  orange: '#F97316',
 };
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
@@ -39,6 +42,50 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   COMPLETED: { bg: '#DBEAFE', text: '#2563EB' },
   ARCHIVED: { bg: '#F1F5F9', text: '#64748B' },
 };
+
+const PRIORITY_COLORS: Record<string, { bg: string; text: string }> = {
+  LOW: { bg: '#F1F5F9', text: '#64748B' },
+  MEDIUM: { bg: '#DBEAFE', text: '#2563EB' },
+  HIGH: { bg: '#FFEDD5', text: '#EA580C' },
+  CRITICAL: { bg: '#FEE2E2', text: '#DC2626' },
+};
+
+const TASK_STATUS_LABELS: Record<string, string> = {
+  NOT_STARTED: 'To Do', IN_PROGRESS: 'In Progress', PENDING_REVIEW: 'Review', COMPLETED: 'Done', BLOCKED: 'Blocked',
+};
+
+const TASK_STATUSES = ['NOT_STARTED', 'IN_PROGRESS', 'PENDING_REVIEW', 'COMPLETED', 'BLOCKED'];
+const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
+
+interface ChecklistItem {
+  id: string;
+  checklistId: string;
+  title: string;
+  completed: boolean;
+  position: number;
+  assigneeId?: string;
+  dueDate?: string;
+}
+
+interface Checklist {
+  id: string;
+  title: string;
+  items: ChecklistItem[];
+}
+
+interface TaskData {
+  id: string;
+  title: string;
+  description?: string;
+  status: string;
+  priority: string;
+  deadline?: string;
+  labels: string[];
+  archived?: boolean;
+  assignedTo?: { id: string; displayName: string; username: string; avatarUrl?: string };
+  createdBy?: { id: string; displayName: string; username: string; avatarUrl?: string };
+  checklists?: Checklist[];
+}
 
 interface Project {
   id: string;
@@ -52,7 +99,7 @@ interface Project {
   createdBy: { id: string; displayName: string; username: string };
   members: Array<{ id: string; role: string; user: { id: string; displayName: string; username: string; email: string } }>;
   _count: { tasks: number; members: number };
-  tasks?: any[];
+  tasks?: TaskData[];
 }
 
 type ViewMode = 'list' | 'detail' | 'board';
@@ -75,6 +122,26 @@ export default function ProjectsScreen() {
   const [createGitUrl, setCreateGitUrl] = useState('');
   const [createStorageUrl, setCreateStorageUrl] = useState('');
   const [creating, setCreating] = useState(false);
+
+  // Member search
+  const [memberSearch, setMemberSearch] = useState('');
+  const [memberResults, setMemberResults] = useState<any[]>([]);
+
+  // Task detail modal
+  const [selectedTask, setSelectedTask] = useState<TaskData | null>(null);
+  const [showTaskDetail, setShowTaskDetail] = useState(false);
+
+  // New task in board
+  const [newTaskColumn, setNewTaskColumn] = useState<string | null>(null);
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+
+  // Show archived
+  const [showArchived, setShowArchived] = useState(false);
+
+  // Checklist
+  const [showAddChecklist, setShowAddChecklist] = useState(false);
+  const [newChecklistTitle, setNewChecklistTitle] = useState('');
+  const [newItemTitles, setNewItemTitles] = useState<Record<string, string>>({});
 
   const loadProjects = useCallback(async () => {
     try {
@@ -104,6 +171,14 @@ export default function ProjectsScreen() {
     await Promise.all([loadProjects(), loadMates()]);
     setRefreshing(false);
   }, [loadProjects, loadMates]);
+
+  const refreshProject = async () => {
+    if (!selectedProject) return;
+    try {
+      const res = await api.getProject(selectedProject.id);
+      setSelectedProject(res.project);
+    } catch { /* ignore */ }
+  };
 
   const handleCreate = async () => {
     if (!createName.trim()) return;
@@ -167,13 +242,374 @@ export default function ProjectsScreen() {
     }
   };
 
+  // ─── Member management ──────────────────────────────────────────
+  useEffect(() => {
+    if (!memberSearch || memberSearch.length < 2) {
+      setMemberResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const results = await api.searchUsers(memberSearch);
+        setMemberResults(results.filter((u: any) => u.id !== user?.id));
+      } catch { setMemberResults([]); }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [memberSearch, user?.id]);
+
+  const handleAddMember = async (userId: string) => {
+    if (!selectedProject) return;
+    try {
+      await api.addProjectMember(selectedProject.id, userId);
+      await refreshProject();
+      setMemberSearch('');
+      setMemberResults([]);
+    } catch (err: any) {
+      Alert.alert('Error', err?.response?.data?.error || 'Failed to add member');
+    }
+  };
+
+  const handleRemoveMember = async (userId: string) => {
+    if (!selectedProject) return;
+    Alert.alert('Remove Member', 'Remove this member from the project?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove', style: 'destructive', onPress: async () => {
+          try {
+            await api.removeProjectMember(selectedProject.id, userId);
+            await refreshProject();
+          } catch (err: any) {
+            Alert.alert('Error', err?.response?.data?.error || 'Failed to remove');
+          }
+        },
+      },
+    ]);
+  };
+
+  // ─── Task CRUD ──────────────────────────────────────────────────
+  const handleCreateTask = async (status: string) => {
+    if (!newTaskTitle.trim() || !selectedProject) return;
+    try {
+      await api.createTask({
+        title: newTaskTitle.trim(),
+        projectId: selectedProject.id,
+        assignedToId: user?.id,
+        ...(status !== 'NOT_STARTED' && { status }),
+      });
+      setNewTaskTitle('');
+      setNewTaskColumn(null);
+      await refreshProject();
+    } catch (err: any) {
+      Alert.alert('Error', err?.response?.data?.error || 'Failed to create task');
+    }
+  };
+
+  const handleUpdateTask = async (taskId: string, data: any) => {
+    try {
+      const updated = await api.updateTask(taskId, data);
+      await refreshProject();
+      if (selectedTask?.id === taskId) {
+        setSelectedTask({ ...selectedTask, ...updated });
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err?.response?.data?.error || 'Failed to update');
+    }
+  };
+
+  const handleDeleteTask = (taskId: string) => {
+    Alert.alert('Delete Task', 'Delete this task permanently?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete', style: 'destructive', onPress: async () => {
+          try {
+            await api.deleteTask(taskId);
+            setShowTaskDetail(false);
+            setSelectedTask(null);
+            await refreshProject();
+          } catch (err: any) {
+            Alert.alert('Error', err?.response?.data?.error || 'Failed to delete');
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleArchiveTask = async (taskId: string, archive: boolean) => {
+    await handleUpdateTask(taskId, { archived: archive });
+  };
+
+  // ─── Checklist CRUD ─────────────────────────────────────────────
+  const refreshTaskChecklists = async () => {
+    if (!selectedTask) return;
+    try {
+      const res = await api.getChecklists({ taskId: selectedTask.id });
+      setSelectedTask({ ...selectedTask, checklists: res.checklists });
+    } catch { /* ignore */ }
+  };
+
+  const handleCreateChecklist = async (taskId: string) => {
+    if (!newChecklistTitle.trim()) return;
+    try {
+      await api.createChecklist({ taskId, title: newChecklistTitle.trim() });
+      setNewChecklistTitle('');
+      setShowAddChecklist(false);
+      await refreshTaskChecklists();
+    } catch (err: any) {
+      Alert.alert('Error', err?.response?.data?.error || 'Failed to create checklist');
+    }
+  };
+
+  const handleDeleteChecklist = (checklistId: string) => {
+    Alert.alert('Delete Checklist', 'Delete this checklist and all its items?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete', style: 'destructive', onPress: async () => {
+          try {
+            await api.deleteChecklist(checklistId);
+            await refreshTaskChecklists();
+          } catch { /* ignore */ }
+        },
+      },
+    ]);
+  };
+
+  const handleAddChecklistItem = async (checklistId: string) => {
+    const title = newItemTitles[checklistId];
+    if (!title?.trim()) return;
+    try {
+      await api.addChecklistItem(checklistId, { title: title.trim() });
+      setNewItemTitles({ ...newItemTitles, [checklistId]: '' });
+      await refreshTaskChecklists();
+    } catch { /* ignore */ }
+  };
+
+  const handleToggleItem = async (checklistId: string, itemId: string) => {
+    try {
+      await api.toggleChecklistItem(checklistId, itemId);
+      await refreshTaskChecklists();
+    } catch { /* ignore */ }
+  };
+
+  const handleDeleteChecklistItem = async (checklistId: string, itemId: string) => {
+    try {
+      await api.deleteChecklistItem(checklistId, itemId);
+      await refreshTaskChecklists();
+    } catch { /* ignore */ }
+  };
+
+  // ─── Helpers ────────────────────────────────────────────────────
+  const getChecklistProgress = (checklists?: Checklist[]) => {
+    if (!checklists || checklists.length === 0) return null;
+    let total = 0; let done = 0;
+    checklists.forEach(cl => cl.items.forEach(item => { total++; if (item.completed) done++; }));
+    if (total === 0) return null;
+    return { total, done, percent: Math.round((done / total) * 100) };
+  };
+
+  const initial = (name?: string) => (name || '?').charAt(0).toUpperCase();
+
+  // ─── Task Detail Modal ────────────────────────────────────────
+  const renderTaskDetailModal = () => {
+    if (!showTaskDetail || !selectedTask) return null;
+    const task = selectedTask;
+    const progress = getChecklistProgress(task.checklists);
+
+    return (
+      <Modal visible={showTaskDetail} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowTaskDetail(false)}>
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setShowTaskDetail(false)}>
+              <Text style={styles.modalCancel}>Close</Text>
+            </TouchableOpacity>
+            <Text style={styles.modalTitle} numberOfLines={1}>Task Detail</Text>
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <TouchableOpacity onPress={() => handleArchiveTask(task.id, !task.archived)}>
+                <Text style={{ fontSize: 16 }}>{task.archived ? '↩️' : '📥'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => handleDeleteTask(task.id)}>
+                <Text style={{ fontSize: 16 }}>🗑️</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <KeyboardAvoidingView
+            style={{ flex: 1 }}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
+          >
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+              {/* Title */}
+              <Text style={{ fontSize: 20, fontWeight: '800', color: COLORS.text }}>{task.title}</Text>
+
+              {/* Priority + deadline badges */}
+              <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                <View style={[styles.badge, { backgroundColor: PRIORITY_COLORS[task.priority]?.bg }]}>
+                  <Text style={[styles.badgeText, { color: PRIORITY_COLORS[task.priority]?.text }]}>{task.priority}</Text>
+                </View>
+                {task.deadline && (
+                  <View style={[styles.badge, { backgroundColor: '#FEF3C7' }]}>
+                    <Text style={[styles.badgeText, { color: '#92400E' }]}>📅 {new Date(task.deadline).toLocaleDateString()}</Text>
+                  </View>
+                )}
+                {progress && (
+                  <View style={[styles.badge, { backgroundColor: progress.percent === 100 ? '#D1FAE5' : '#F1F5F9' }]}>
+                    <Text style={[styles.badgeText, { color: progress.percent === 100 ? '#059669' : '#64748B' }]}>☑ {progress.done}/{progress.total}</Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Status selector */}
+              <View>
+                <Text style={styles.sectionLabel}>Status</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View style={{ flexDirection: 'row', gap: 6 }}>
+                    {TASK_STATUSES.map(s => (
+                      <TouchableOpacity
+                        key={s}
+                        onPress={() => handleUpdateTask(task.id, { status: s })}
+                        style={[styles.chipBtn, task.status === s && { backgroundColor: COLORS.violet }]}
+                      >
+                        <Text style={[styles.chipBtnText, task.status === s && { color: COLORS.white }]}>{TASK_STATUS_LABELS[s]}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </ScrollView>
+              </View>
+
+              {/* Priority selector */}
+              <View>
+                <Text style={styles.sectionLabel}>Priority</Text>
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  {PRIORITIES.map(p => (
+                    <TouchableOpacity
+                      key={p}
+                      onPress={() => handleUpdateTask(task.id, { priority: p })}
+                      style={[styles.chipBtn, { backgroundColor: PRIORITY_COLORS[p]?.bg }, task.priority === p && { borderWidth: 2, borderColor: COLORS.violet }]}
+                    >
+                      <Text style={[styles.chipBtnText, { color: PRIORITY_COLORS[p]?.text }]}>{p}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* Assignee */}
+              {task.assignedTo && (
+                <View>
+                  <Text style={styles.sectionLabel}>Assigned To</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <View style={styles.avatarSm}>
+                      <Text style={styles.avatarSmText}>{initial(task.assignedTo.displayName || task.assignedTo.username)}</Text>
+                    </View>
+                    <Text style={{ fontSize: 14, color: COLORS.text, fontWeight: '500' }}>{task.assignedTo.displayName || task.assignedTo.username}</Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Description */}
+              <View>
+                <Text style={styles.sectionLabel}>Description</Text>
+                <Text style={{ fontSize: 14, color: task.description ? COLORS.text : COLORS.muted, lineHeight: 20 }}>
+                  {task.description || 'No description'}
+                </Text>
+              </View>
+
+              {/* Checklists */}
+              <View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <Text style={styles.sectionLabel}>☑ Checklists</Text>
+                  <TouchableOpacity onPress={() => setShowAddChecklist(!showAddChecklist)}>
+                    <Text style={{ fontSize: 13, color: COLORS.violet, fontWeight: '600' }}>+ Add</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {showAddChecklist && (
+                  <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+                    <TextInput
+                      style={[styles.textInput, { flex: 1 }]}
+                      value={newChecklistTitle}
+                      onChangeText={setNewChecklistTitle}
+                      placeholder="Checklist title..."
+                      placeholderTextColor={COLORS.muted}
+                      onSubmitEditing={() => handleCreateChecklist(task.id)}
+                      returnKeyType="done"
+                    />
+                    <TouchableOpacity style={styles.addBtn} onPress={() => handleCreateChecklist(task.id)}>
+                      <Text style={styles.addBtnText}>Add</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {(task.checklists || []).map(cl => {
+                  const clDone = cl.items.filter(i => i.completed).length;
+                  const clTotal = cl.items.length;
+                  const clPct = clTotal > 0 ? Math.round((clDone / clTotal) * 100) : 0;
+
+                  return (
+                    <View key={cl.id} style={styles.checklistBlock}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: COLORS.text }}>☑ {cl.title}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <Text style={{ fontSize: 11, color: COLORS.muted }}>{clPct}%</Text>
+                          <TouchableOpacity onPress={() => handleDeleteChecklist(cl.id)}>
+                            <Text style={{ fontSize: 12, color: COLORS.red }}>🗑</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+
+                      {/* Progress bar */}
+                      {clTotal > 0 && (
+                        <View style={styles.progressBar}>
+                          <View style={[styles.progressFill, { width: `${clPct}%` as any, backgroundColor: clPct === 100 ? COLORS.green : COLORS.violet }]} />
+                        </View>
+                      )}
+
+                      {/* Items */}
+                      {cl.items.map(item => (
+                        <View key={item.id} style={styles.checklistItemRow}>
+                          <TouchableOpacity onPress={() => handleToggleItem(cl.id, item.id)} style={[styles.checkbox, item.completed && styles.checkboxChecked]}>
+                            {item.completed && <Text style={{ color: COLORS.white, fontSize: 10 }}>✓</Text>}
+                          </TouchableOpacity>
+                          <Text style={[styles.checklistItemText, item.completed && styles.checklistItemDone]} numberOfLines={2}>{item.title}</Text>
+                          <TouchableOpacity onPress={() => handleDeleteChecklistItem(cl.id, item.id)} style={{ padding: 4 }}>
+                            <Text style={{ fontSize: 10, color: COLORS.muted }}>✕</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+
+                      {/* Add item */}
+                      <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
+                        <TextInput
+                          style={[styles.textInput, { flex: 1, paddingVertical: 6, fontSize: 13 }]}
+                          value={newItemTitles[cl.id] || ''}
+                          onChangeText={(v) => setNewItemTitles({ ...newItemTitles, [cl.id]: v })}
+                          placeholder="Add an item..."
+                          placeholderTextColor={COLORS.muted}
+                          onSubmitEditing={() => handleAddChecklistItem(cl.id)}
+                          returnKeyType="done"
+                        />
+                        <TouchableOpacity
+                          style={[styles.addBtn, { paddingVertical: 6 }]}
+                          onPress={() => handleAddChecklistItem(cl.id)}
+                          disabled={!newItemTitles[cl.id]?.trim()}
+                        >
+                          <Text style={styles.addBtnText}>+</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </Modal>
+    );
+  };
+
   // ─── Board View ───────────────────────────────────────────────────────
   if (viewMode === 'board' && selectedProject) {
-    const tasks = selectedProject.tasks || [];
-    const columns = ['NOT_STARTED', 'IN_PROGRESS', 'PENDING_REVIEW', 'COMPLETED', 'BLOCKED'];
-    const columnLabels: Record<string, string> = {
-      NOT_STARTED: 'To Do', IN_PROGRESS: 'In Progress', PENDING_REVIEW: 'Review', COMPLETED: 'Done', BLOCKED: 'Blocked',
-    };
+    const allTasks = selectedProject.tasks || [];
+    const tasks = showArchived ? allTasks.filter(t => t.archived) : allTasks.filter(t => !t.archived);
 
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
@@ -182,27 +618,113 @@ export default function ProjectsScreen() {
             <Text style={styles.backArrow}>{'\u2039'}</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle} numberOfLines={1}>{selectedProject.name} — Board</Text>
+          <TouchableOpacity
+            style={[styles.archiveToggle, showArchived && { backgroundColor: '#FEF3C7' }]}
+            onPress={() => setShowArchived(!showArchived)}
+          >
+            <Text style={{ fontSize: 12, color: showArchived ? '#92400E' : COLORS.muted }}>📥 {showArchived ? 'Archived' : 'Archive'}</Text>
+          </TouchableOpacity>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.boardScroll}>
-          {columns.map((col) => {
-            const colTasks = tasks.filter((t: any) => t.status === col);
+          {TASK_STATUSES.map((col) => {
+            const colTasks = tasks.filter((t: TaskData) => t.status === col);
             return (
               <View key={col} style={styles.boardColumn}>
-                <Text style={styles.boardColumnTitle}>{columnLabels[col]} ({colTasks.length})</Text>
+                <Text style={styles.boardColumnTitle}>{TASK_STATUS_LABELS[col]} ({colTasks.length})</Text>
                 <ScrollView style={styles.boardColumnScroll}>
-                  {colTasks.map((task: any) => (
-                    <View key={task.id} style={styles.boardCard}>
-                      <Text style={styles.boardCardTitle}>{task.title}</Text>
-                      {task.description && <Text style={styles.boardCardDesc} numberOfLines={2}>{task.description}</Text>}
-                      <Text style={styles.boardCardAssignee}>{task.assignedTo?.displayName || task.assignedTo?.username || 'Unassigned'}</Text>
-                    </View>
-                  ))}
+                  {colTasks.map((task: TaskData) => {
+                    const progress = getChecklistProgress(task.checklists);
+                    return (
+                      <TouchableOpacity
+                        key={task.id}
+                        style={styles.boardCard}
+                        onPress={() => { setSelectedTask(task); setShowTaskDetail(true); }}
+                        onLongPress={() => {
+                          Alert.alert(task.title, 'Choose an action', [
+                            { text: task.archived ? 'Unarchive' : 'Archive', onPress: () => handleArchiveTask(task.id, !task.archived) },
+                            { text: 'Delete', style: 'destructive', onPress: () => handleDeleteTask(task.id) },
+                            { text: 'Cancel', style: 'cancel' },
+                          ]);
+                        }}
+                      >
+                        <Text style={styles.boardCardTitle}>{task.title}</Text>
+                        {task.description && <Text style={styles.boardCardDesc} numberOfLines={2}>{task.description}</Text>}
+
+                        {/* Badges */}
+                        <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+                          <View style={[styles.badge, { backgroundColor: PRIORITY_COLORS[task.priority]?.bg }]}>
+                            <Text style={[styles.badgeText, { color: PRIORITY_COLORS[task.priority]?.text }]}>{task.priority}</Text>
+                          </View>
+                          {task.deadline && (
+                            <View style={[styles.badge, { backgroundColor: '#FEF3C7' }]}>
+                              <Text style={[styles.badgeText, { color: '#92400E' }]}>📅 {new Date(task.deadline).toLocaleDateString()}</Text>
+                            </View>
+                          )}
+                          {progress && (
+                            <View style={[styles.badge, { backgroundColor: progress.percent === 100 ? '#D1FAE5' : '#F1F5F9' }]}>
+                              <Text style={[styles.badgeText, { color: progress.percent === 100 ? '#059669' : '#64748B' }]}>☑ {progress.done}/{progress.total}</Text>
+                            </View>
+                          )}
+                        </View>
+
+                        {/* Progress bar */}
+                        {progress && (
+                          <View style={[styles.progressBar, { marginTop: 6 }]}>
+                            <View style={[styles.progressFill, { width: `${progress.percent}%` as any, backgroundColor: progress.percent === 100 ? COLORS.green : COLORS.violet }]} />
+                          </View>
+                        )}
+
+                        <Text style={styles.boardCardAssignee}>{task.assignedTo?.displayName || task.assignedTo?.username || 'Unassigned'}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                   {colTasks.length === 0 && <Text style={styles.boardEmpty}>No tasks</Text>}
                 </ScrollView>
+
+                {/* Add card */}
+                {!showArchived && (
+                  newTaskColumn === col ? (
+                    <View style={{ marginTop: 8 }}>
+                      <TextInput
+                        style={[styles.textInput, { marginBottom: 6 }]}
+                        value={newTaskTitle}
+                        onChangeText={setNewTaskTitle}
+                        placeholder="Enter a title..."
+                        placeholderTextColor={COLORS.muted}
+                        autoFocus
+                        onSubmitEditing={() => handleCreateTask(col)}
+                        returnKeyType="done"
+                      />
+                      <View style={{ flexDirection: 'row', gap: 6 }}>
+                        <TouchableOpacity
+                          style={[styles.addBtn, { flex: 1 }]}
+                          onPress={() => handleCreateTask(col)}
+                          disabled={!newTaskTitle.trim()}
+                        >
+                          <Text style={styles.addBtnText}>Add Card</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={{ justifyContent: 'center', paddingHorizontal: 8 }}
+                          onPress={() => { setNewTaskColumn(null); setNewTaskTitle(''); }}
+                        >
+                          <Text style={{ color: COLORS.muted, fontSize: 13 }}>✕</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.addCardBtn}
+                      onPress={() => setNewTaskColumn(col)}
+                    >
+                      <Text style={{ fontSize: 13, color: COLORS.muted }}>+ Add a card</Text>
+                    </TouchableOpacity>
+                  )
+                )}
               </View>
             );
           })}
         </ScrollView>
+        {renderTaskDetailModal()}
       </SafeAreaView>
     );
   }
@@ -211,6 +733,8 @@ export default function ProjectsScreen() {
   if (viewMode === 'detail' && selectedProject) {
     const p = selectedProject;
     const statusStyle = STATUS_COLORS[p.status] || STATUS_COLORS.ACTIVE;
+    const existingMemberIds = new Set(p.members.map(m => m.user.id));
+    const filteredMemberResults = memberResults.filter(u => !existingMemberIds.has(u.id));
 
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
@@ -223,10 +747,10 @@ export default function ProjectsScreen() {
             <Text style={[styles.statusText, { color: statusStyle.text }]}>{p.status}</Text>
           </View>
         </View>
-        <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailContent}>
+        <ScrollView style={styles.detailScroll} contentContainerStyle={styles.detailContent} keyboardShouldPersistTaps="handled">
           {/* Board button */}
           <TouchableOpacity style={styles.boardButton} onPress={() => openBoard(p.id)}>
-            <Text style={styles.boardButtonText}>{'\uD83D\uDCCB'} View Kanban Board</Text>
+            <Text style={styles.boardButtonText}>📋 View Kanban Board</Text>
           </TouchableOpacity>
 
           {/* Description */}
@@ -240,7 +764,7 @@ export default function ProjectsScreen() {
           {/* Specs & Goals */}
           {p.specsAndGoals && (
             <View style={styles.detailSection}>
-              <Text style={styles.detailLabel}>{'\uD83C\uDFAF'} Specs & Goals</Text>
+              <Text style={styles.detailLabel}>🎯 Specs & Goals</Text>
               <Text style={styles.detailText}>{p.specsAndGoals}</Text>
             </View>
           )}
@@ -250,12 +774,12 @@ export default function ProjectsScreen() {
             <View style={styles.linksRow}>
               {p.gitUrl && (
                 <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL(p.gitUrl!)}>
-                  <Text style={styles.linkText}>{'\uD83D\uDD17'} Git Repository</Text>
+                  <Text style={styles.linkText}>🔗 Git Repository</Text>
                 </TouchableOpacity>
               )}
               {p.storageUrl && (
                 <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL(p.storageUrl!)}>
-                  <Text style={styles.linkText}>{'\uD83D\uDCC1'} Storage</Text>
+                  <Text style={styles.linkText}>📁 Storage</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -264,18 +788,54 @@ export default function ProjectsScreen() {
           {/* Team Lead */}
           {p.teamLead && (
             <View style={styles.detailSection}>
-              <Text style={styles.detailLabel}>{'\uD83D\uDC51'} Team Lead</Text>
+              <Text style={styles.detailLabel}>👑 Team Lead</Text>
               <Text style={styles.memberName}>{p.teamLead.displayName || p.teamLead.username}</Text>
             </View>
           )}
 
-          {/* Members */}
+          {/* ADD MEMBERS — Prominent */}
+          <View style={styles.addMemberSection}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <View style={styles.addMemberIcon}>
+                <Text style={{ fontSize: 20 }}>👥</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 15, fontWeight: '700', color: COLORS.violet }}>Add Team Members</Text>
+                <Text style={{ fontSize: 12, color: COLORS.muted }}>Search by name to add people</Text>
+              </View>
+            </View>
+            <TextInput
+              style={styles.addMemberInput}
+              value={memberSearch}
+              onChangeText={setMemberSearch}
+              placeholder="Type a name to add members..."
+              placeholderTextColor={COLORS.muted}
+            />
+            {filteredMemberResults.length > 0 && (
+              <View style={styles.memberSearchResults}>
+                {filteredMemberResults.slice(0, 6).map((u: any) => (
+                  <TouchableOpacity key={u.id} style={styles.memberSearchRow} onPress={() => handleAddMember(u.id)}>
+                    <View style={styles.avatarSm}>
+                      <Text style={styles.avatarSmText}>{initial(u.displayName || u.username)}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 14, fontWeight: '500', color: COLORS.text }}>{u.displayName || u.username}</Text>
+                      <Text style={{ fontSize: 11, color: COLORS.muted }}>@{u.username}</Text>
+                    </View>
+                    <Text style={{ fontSize: 16, color: COLORS.violet }}>+</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+
+          {/* Current Members */}
           <View style={styles.detailSection}>
-            <Text style={styles.detailLabel}>{'\uD83D\uDC65'} Members ({p.members.length})</Text>
+            <Text style={styles.detailLabel}>👥 Members ({p.members.length})</Text>
             {p.members.map((m) => (
               <View key={m.id} style={styles.memberRow}>
                 <View style={styles.memberAvatar}>
-                  <Text style={styles.memberAvatarText}>{(m.user.displayName || m.user.username).charAt(0).toUpperCase()}</Text>
+                  <Text style={styles.memberAvatarText}>{initial(m.user.displayName || m.user.username)}</Text>
                 </View>
                 <View style={styles.memberInfo}>
                   <Text style={styles.memberName}>{m.user.displayName || m.user.username}</Text>
@@ -283,6 +843,11 @@ export default function ProjectsScreen() {
                 </View>
                 {m.role === 'LEAD' && (
                   <View style={styles.leadBadge}><Text style={styles.leadBadgeText}>Lead</Text></View>
+                )}
+                {m.user.id !== p.createdBy.id && (
+                  <TouchableOpacity onPress={() => handleRemoveMember(m.user.id)} style={{ padding: 4 }}>
+                    <Text style={{ color: COLORS.red, fontSize: 14 }}>✕</Text>
+                  </TouchableOpacity>
                 )}
               </View>
             ))}
@@ -302,9 +867,10 @@ export default function ProjectsScreen() {
 
           {/* Delete */}
           <TouchableOpacity style={styles.deleteButton} onPress={() => handleDelete(p.id, p.name)}>
-            <Text style={styles.deleteButtonText}>{'\uD83D\uDDD1'} Delete Project</Text>
+            <Text style={styles.deleteButtonText}>🗑️ Delete Project</Text>
           </TouchableOpacity>
         </ScrollView>
+        {renderTaskDetailModal()}
       </SafeAreaView>
     );
   }
@@ -313,7 +879,7 @@ export default function ProjectsScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.screenTitle}>{'\uD83D\uDCC2'} Projects</Text>
+        <Text style={styles.screenTitle}>📂 Projects</Text>
         <TouchableOpacity style={styles.createButton} onPress={() => setShowCreate(true)}>
           <Text style={styles.createButtonText}>+ New</Text>
         </TouchableOpacity>
@@ -340,7 +906,7 @@ export default function ProjectsScreen() {
             {projectMates.map((mate) => (
               <View key={mate.userId} style={styles.mateBadge}>
                 <View style={styles.mateAvatar}>
-                  <Text style={styles.mateAvatarText}>{(mate.displayName || mate.username).charAt(0).toUpperCase()}</Text>
+                  <Text style={styles.mateAvatarText}>{initial(mate.displayName || mate.username)}</Text>
                 </View>
                 <Text style={styles.mateName} numberOfLines={1}>{mate.displayName || mate.username}</Text>
               </View>
@@ -367,7 +933,7 @@ export default function ProjectsScreen() {
               <View style={styles.projectFooter}>
                 <Text style={styles.projectStat}>{item._count.tasks} tasks</Text>
                 <Text style={styles.projectStat}>{item._count.members} members</Text>
-                {item.teamLead && <Text style={styles.projectLead}>{'\uD83D\uDC51'} {item.teamLead.displayName || item.teamLead.username}</Text>}
+                {item.teamLead && <Text style={styles.projectLead}>👑 {item.teamLead.displayName || item.teamLead.username}</Text>}
               </View>
               <View style={styles.projectActions}>
                 <TouchableOpacity style={styles.actionBtn} onPress={() => openDetail(item.id)}>
@@ -385,7 +951,7 @@ export default function ProjectsScreen() {
             <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 40 }} />
           ) : (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyIcon}>{'\uD83D\uDCC2'}</Text>
+              <Text style={styles.emptyIcon}>📂</Text>
               <Text style={styles.emptyTitle}>No projects yet</Text>
               <Text style={styles.emptySubtitle}>Create your first project or assign a task with a project name</Text>
             </View>
@@ -488,16 +1054,84 @@ const styles = StyleSheet.create({
   deleteButton: { backgroundColor: '#FEE2E2', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 8 },
   deleteButtonText: { fontSize: 14, fontWeight: '600', color: COLORS.red },
 
+  // Add member section (prominent)
+  addMemberSection: {
+    backgroundColor: '#F3E8FF',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: '#C4B5FD',
+  },
+  addMemberIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#EDE9FE', justifyContent: 'center', alignItems: 'center' },
+  addMemberInput: {
+    backgroundColor: COLORS.white,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: COLORS.text,
+    borderWidth: 2,
+    borderColor: '#C4B5FD',
+  },
+  memberSearchResults: {
+    marginTop: 8,
+    backgroundColor: COLORS.white,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#C4B5FD',
+    overflow: 'hidden',
+  },
+  memberSearchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+
   // Board view
   boardScroll: { flex: 1, padding: 8 },
-  boardColumn: { width: 260, backgroundColor: COLORS.inputBg, borderRadius: 12, padding: 10, marginRight: 10, maxHeight: '100%' },
+  boardColumn: { width: 270, backgroundColor: COLORS.inputBg, borderRadius: 12, padding: 10, marginRight: 10 },
   boardColumnTitle: { fontSize: 13, fontWeight: '700', color: COLORS.secondary, marginBottom: 10 },
   boardColumnScroll: { flex: 1 },
   boardCard: { backgroundColor: COLORS.white, borderRadius: 10, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: COLORS.border },
   boardCardTitle: { fontSize: 14, fontWeight: '600', color: COLORS.text, marginBottom: 4 },
   boardCardDesc: { fontSize: 12, color: COLORS.muted, marginBottom: 6 },
-  boardCardAssignee: { fontSize: 11, color: COLORS.violet, fontWeight: '500' },
+  boardCardAssignee: { fontSize: 11, color: COLORS.violet, fontWeight: '500', marginTop: 6 },
   boardEmpty: { fontSize: 12, color: COLORS.muted, textAlign: 'center', paddingVertical: 16 },
+  addCardBtn: { marginTop: 8, paddingVertical: 10, borderRadius: 8, alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.03)' },
+
+  // Archive toggle
+  archiveToggle: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: COLORS.inputBg },
+
+  // Badges
+  badge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  badgeText: { fontSize: 10, fontWeight: '600' },
+
+  // Progress bar
+  progressBar: { height: 4, backgroundColor: '#E2E8F0', borderRadius: 2, overflow: 'hidden', marginBottom: 4 },
+  progressFill: { height: 4, borderRadius: 2 },
+
+  // Checklist
+  checklistBlock: { backgroundColor: COLORS.inputBg, borderRadius: 10, padding: 12, marginBottom: 10 },
+  checklistItemRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
+  checkbox: { width: 18, height: 18, borderRadius: 4, borderWidth: 1.5, borderColor: COLORS.muted, justifyContent: 'center', alignItems: 'center' },
+  checkboxChecked: { backgroundColor: COLORS.violet, borderColor: COLORS.violet },
+  checklistItemText: { flex: 1, fontSize: 13, color: COLORS.text },
+  checklistItemDone: { textDecorationLine: 'line-through', color: COLORS.muted },
+
+  // Chips
+  chipBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: COLORS.inputBg },
+  chipBtnText: { fontSize: 12, fontWeight: '600', color: COLORS.secondary },
+
+  // Helpers
+  avatarSm: { width: 28, height: 28, borderRadius: 14, backgroundColor: COLORS.violet, justifyContent: 'center', alignItems: 'center' },
+  avatarSmText: { color: COLORS.white, fontSize: 12, fontWeight: '700' },
+  sectionLabel: { fontSize: 12, fontWeight: '600', color: COLORS.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+  addBtn: { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: COLORS.violet, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
+  addBtnText: { color: COLORS.white, fontSize: 13, fontWeight: '600' },
 
   // Empty
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40, paddingTop: 60 },

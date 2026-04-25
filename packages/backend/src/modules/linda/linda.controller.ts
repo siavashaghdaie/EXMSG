@@ -1498,6 +1498,14 @@ Rules for file forwarding:
 - If the user asks you to send/forward a file and you can see it in your recent files list, use [SEND_FILE]
 - If you can't find the file in the recent files list, ask the user to share it with you again
 
+PROJECT MANAGEMENT:
+- You have full visibility into all projects the user belongs to (see workspace context below)
+- When asked about projects, report on: project status, team lead, members, task counts, recent tasks, deadlines
+- You CAN assign tasks to specific projects using the "project:" field in [ASSIGN_TASK]
+- When asked "what's happening with Project X?" or "give me a project report", provide details from the context
+- You know about project members, their roles, and task assignments within each project
+- If asked to create or modify checklists, let the user know they can manage checklists directly in the project board or task detail view
+
 ANNOUNCEMENTS:
 - You CAN create public announcements using [CREATE_ANNOUNCEMENT] blocks
 - Use this when the user asks you to announce something, make a public announcement, or notify everyone
@@ -1642,6 +1650,61 @@ Guidelines:
         }
       } catch (err) {
         // Task table may not exist yet
+      }
+
+      // Include project context
+      try {
+        const userProjectMemberships = await prisma.projectMember.findMany({
+          where: { userId },
+          select: { projectId: true },
+        });
+        const userProjectIds = userProjectMemberships.map(m => m.projectId);
+
+        if (userProjectIds.length > 0) {
+          const projects = await prisma.project.findMany({
+            where: { id: { in: userProjectIds } },
+            include: {
+              teamLead: { select: { username: true, displayName: true } },
+              members: {
+                include: {
+                  user: { select: { username: true, displayName: true } },
+                },
+              },
+              _count: { select: { tasks: true, members: true } },
+              tasks: {
+                where: { archived: false },
+                select: {
+                  id: true,
+                  title: true,
+                  status: true,
+                  priority: true,
+                  deadline: true,
+                  assignedTo: { select: { username: true, displayName: true } },
+                },
+                orderBy: { createdAt: 'desc' },
+                take: 10,
+              },
+            },
+            orderBy: { updatedAt: 'desc' },
+            take: 10,
+          });
+
+          if (projects.length > 0) {
+            const projectSummaries = projects.map(p => {
+              const lead = p.teamLead ? `${p.teamLead.displayName || p.teamLead.username}` : 'None';
+              const memberNames = p.members.map(m => `@${m.user.username}`).join(', ');
+              const taskList = p.tasks.map(t => {
+                const assignee = t.assignedTo?.displayName || t.assignedTo?.username || 'Unassigned';
+                const deadline = t.deadline ? ` (due: ${t.deadline.toISOString().split('T')[0]})` : '';
+                return `    - "${t.title}" | ${t.status} | ${t.priority} | Assigned: ${assignee}${deadline}`;
+              }).join('\n');
+              return `- **${p.name}** (${p.status}) | Lead: ${lead} | Members: ${memberNames} | ${p._count.tasks} tasks\n${taskList || '    (no recent tasks)'}`;
+            });
+            parts.push(`Projects you are a member of:\n${projectSummaries.join('\n')}`);
+          }
+        }
+      } catch (err) {
+        // Projects query failed — not critical
       }
 
       // Include recent files shared in Linda's conversations (so she can forward them)

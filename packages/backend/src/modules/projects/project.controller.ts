@@ -71,6 +71,10 @@ export class ProjectController {
               assignedTo: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
               createdBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
               department: { select: { id: true, name: true } },
+              checklists: {
+                include: { items: { orderBy: { position: 'asc' } } },
+                orderBy: { position: 'asc' },
+              },
             },
             orderBy: { createdAt: 'desc' },
           },

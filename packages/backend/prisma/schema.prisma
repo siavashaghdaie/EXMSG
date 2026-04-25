@@ -335,6 +335,8 @@ model Task {
   projectId    String?  @map("project_id")
   project      Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
+  archived     Boolean  @default(false)
+
   lindaFollowing       Boolean  @default(false) @map("linda_following")
   lindaFollowInterval  String?  @map("linda_follow_interval")
 
@@ -344,6 +346,7 @@ model Task {
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   visibleToDepartments Department[] @relation("TaskDepartmentVisibility")
+  checklists   Checklist[]
 
   @@index([organizationId])
   @@index([assignedToId])
@@ -417,6 +420,7 @@ model Project {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   members        ProjectMember[]
   tasks          Task[]
+  checklists     Checklist[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
@@ -686,6 +690,46 @@ model OtpCode {
   @@index([email, purpose])
   @@index([code, email])
   @@map("otp_codes")
+}
+
+// ============================================
+// CHECKLISTS (Trello-style)
+// ============================================
+
+model Checklist {
+  id        String   @id @default(uuid())
+  taskId    String?  @map("task_id")
+  projectId String?  @map("project_id")
+  title     String
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  task    Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items   ChecklistItem[]
+
+  @@index([taskId])
+  @@index([projectId])
+  @@map("checklists")
+}
+
+model ChecklistItem {
+  id          String    @id @default(uuid())
+  checklistId String    @map("checklist_id")
+  title       String
+  completed   Boolean   @default(false)
+  position    Int       @default(0)
+  assigneeId  String?   @map("assignee_id")
+  dueDate     DateTime? @map("due_date")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  checklist Checklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+
+  @@index([checklistId])
+  @@index([assigneeId])
+  @@map("checklist_items")
 }
 
 // ============================================

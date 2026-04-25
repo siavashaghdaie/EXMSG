@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   ArrowLeft, Plus, Search, X, GitBranch, HardDrive, Target,
   Users, UserCheck, Trash2, ExternalLink, FolderKanban,
+  Archive, RotateCcw, CheckSquare, Calendar,
+  UserPlus,
 } from 'lucide-react';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
@@ -9,6 +11,40 @@ import Avatar from '@/components/common/Avatar';
 
 interface ProjectsPageProps {
   onClose: () => void;
+}
+
+interface ChecklistItem {
+  id: string;
+  checklistId: string;
+  title: string;
+  completed: boolean;
+  position: number;
+  assigneeId?: string;
+  dueDate?: string;
+}
+
+interface Checklist {
+  id: string;
+  taskId?: string;
+  projectId?: string;
+  title: string;
+  position: number;
+  items: ChecklistItem[];
+}
+
+interface TaskData {
+  id: string;
+  title: string;
+  description?: string;
+  status: string;
+  priority: string;
+  deadline?: string;
+  labels: string[];
+  archived?: boolean;
+  assignedTo?: { id: string; displayName: string; username: string; avatarUrl?: string };
+  createdBy?: { id: string; displayName: string; username: string; avatarUrl?: string };
+  department?: { id: string; name: string };
+  checklists?: Checklist[];
 }
 
 interface Project {
@@ -24,12 +60,19 @@ interface Project {
   createdBy: { id: string; username: string; displayName: string; avatarUrl?: string };
   members: Array<{ id: string; role: string; user: { id: string; username: string; displayName: string; avatarUrl?: string; email: string } }>;
   _count: { tasks: number; members: number };
-  tasks?: any[];
+  tasks?: TaskData[];
   createdAt: string;
   updatedAt: string;
 }
 
 type ViewMode = 'list' | 'detail' | 'board';
+
+const priorityColors: Record<string, string> = {
+  LOW: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+  MEDIUM: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  HIGH: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+  CRITICAL: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+};
 
 const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
   const { user } = useAuthStore();
@@ -50,6 +93,27 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
   // Member search
   const [memberSearch, setMemberSearch] = useState('');
   const [memberResults, setMemberResults] = useState<any[]>([]);
+
+  // Task detail modal
+  const [selectedTask, setSelectedTask] = useState<TaskData | null>(null);
+  const [showTaskDetail, setShowTaskDetail] = useState(false);
+
+  // New task form
+  const [showNewTask, setShowNewTask] = useState<string | null>(null); // status column key
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskAssignee, setNewTaskAssignee] = useState('');
+
+  // Edit task inline
+  const [editingTask, setEditingTask] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<any>({});
+
+  // Checklist
+  const [newChecklistTitle, setNewChecklistTitle] = useState('');
+  const [showAddChecklist, setShowAddChecklist] = useState(false);
+  const [newItemTitles, setNewItemTitles] = useState<Record<string, string>>({});
+
+  // Show archived
+  const [showArchived, setShowArchived] = useState(false);
 
   const loadProjects = useCallback(async () => {
     setLoading(true);
@@ -95,6 +159,14 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
     }
   };
 
+  const refreshProject = async () => {
+    if (!selectedProject) return;
+    try {
+      const res = await api.getProject(selectedProject.id);
+      setSelectedProject(res.project);
+    } catch { /* ignore */ }
+  };
+
   const handleCreate = async () => {
     if (!createForm.name.trim()) return;
     setCreating(true);
@@ -135,7 +207,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
     if (!selectedProject) return;
     try {
       await api.addProjectMember(selectedProject.id, userId);
-      openProjectDetail(selectedProject.id);
+      await refreshProject();
       setMemberSearch('');
       setMemberResults([]);
     } catch (err: any) {
@@ -147,10 +219,119 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
     if (!selectedProject) return;
     try {
       await api.removeProjectMember(selectedProject.id, userId);
-      openProjectDetail(selectedProject.id);
+      await refreshProject();
     } catch (err: any) {
       alert(err?.response?.data?.error || 'Failed to remove member');
     }
+  };
+
+  // ─── Task CRUD ──────────────────────────────────────────────────
+  const handleCreateTask = async (status: string) => {
+    if (!newTaskTitle.trim() || !selectedProject) return;
+    try {
+      await api.createTask({
+        title: newTaskTitle.trim(),
+        projectId: selectedProject.id,
+        assignedToId: newTaskAssignee || user?.id,
+        ...(status !== 'NOT_STARTED' && { status }),
+      });
+      setNewTaskTitle('');
+      setNewTaskAssignee('');
+      setShowNewTask(null);
+      await refreshProject();
+    } catch (err: any) {
+      alert(err?.response?.data?.error || 'Failed to create task');
+    }
+  };
+
+  const handleUpdateTask = async (taskId: string, data: any) => {
+    try {
+      const updated = await api.updateTask(taskId, data);
+      await refreshProject();
+      if (selectedTask?.id === taskId) {
+        setSelectedTask({ ...selectedTask, ...updated });
+      }
+    } catch (err: any) {
+      alert(err?.response?.data?.error || 'Failed to update task');
+    }
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    if (!confirm('Delete this task permanently?')) return;
+    try {
+      await api.deleteTask(taskId);
+      setShowTaskDetail(false);
+      setSelectedTask(null);
+      await refreshProject();
+    } catch (err: any) {
+      alert(err?.response?.data?.error || 'Failed to delete task');
+    }
+  };
+
+  const handleArchiveTask = async (taskId: string, archive: boolean) => {
+    await handleUpdateTask(taskId, { archived: archive });
+  };
+
+  // ─── Checklist CRUD ─────────────────────────────────────────────
+  const handleCreateChecklist = async (taskId: string) => {
+    if (!newChecklistTitle.trim()) return;
+    try {
+      await api.createChecklist({ taskId, title: newChecklistTitle.trim() });
+      setNewChecklistTitle('');
+      setShowAddChecklist(false);
+      await refreshProject();
+      // Refresh task detail
+      if (selectedTask) {
+        const res = await api.getChecklists({ taskId });
+        setSelectedTask({ ...selectedTask, checklists: res.checklists });
+      }
+    } catch (err: any) {
+      alert(err?.response?.data?.error || 'Failed to create checklist');
+    }
+  };
+
+  const handleDeleteChecklist = async (checklistId: string) => {
+    if (!confirm('Delete this checklist?')) return;
+    try {
+      await api.deleteChecklist(checklistId);
+      if (selectedTask) {
+        const res = await api.getChecklists({ taskId: selectedTask.id });
+        setSelectedTask({ ...selectedTask, checklists: res.checklists });
+      }
+    } catch { /* ignore */ }
+  };
+
+  const handleAddChecklistItem = async (checklistId: string) => {
+    const title = newItemTitles[checklistId];
+    if (!title?.trim()) return;
+    try {
+      await api.addChecklistItem(checklistId, { title: title.trim() });
+      setNewItemTitles({ ...newItemTitles, [checklistId]: '' });
+      if (selectedTask) {
+        const res = await api.getChecklists({ taskId: selectedTask.id });
+        setSelectedTask({ ...selectedTask, checklists: res.checklists });
+      }
+    } catch { /* ignore */ }
+  };
+
+  const handleToggleItem = async (checklistId: string, itemId: string) => {
+    try {
+      await api.toggleChecklistItem(checklistId, itemId);
+      if (selectedTask) {
+        const res = await api.getChecklists({ taskId: selectedTask.id });
+        setSelectedTask({ ...selectedTask, checklists: res.checklists });
+      }
+    } catch { /* ignore */ }
+  };
+
+  const handleDeleteChecklistItem = async (checklistId: string, itemId: string) => {
+    try {
+      await api.deleteChecklistItem(checklistId, itemId);
+      if (selectedTask) {
+        const res = await api.getChecklists({ taskId: selectedTask.id });
+        setSelectedTask({ ...selectedTask, checklists: res.checklists });
+      }
+    } catch { /* ignore */ }
   };
 
   // Search users for adding to project
@@ -185,43 +366,413 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
     BLOCKED: 'bg-red-50 dark:bg-red-900/20',
   };
 
+  const getChecklistProgress = (checklists?: Checklist[]) => {
+    if (!checklists || checklists.length === 0) return null;
+    let total = 0;
+    let done = 0;
+    checklists.forEach(cl => {
+      cl.items.forEach(item => {
+        total++;
+        if (item.completed) done++;
+      });
+    });
+    if (total === 0) return null;
+    return { total, done, percent: Math.round((done / total) * 100) };
+  };
+
+  // ─── Task Detail Modal ───────────────────────────────────────────
+  const renderTaskDetailModal = () => {
+    if (!showTaskDetail || !selectedTask) return null;
+    const task = selectedTask;
+    const progress = getChecklistProgress(task.checklists);
+
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center pt-16 overflow-y-auto" onClick={() => setShowTaskDetail(false)}>
+        <div className="bg-white dark:bg-slate-800 rounded-xl w-full max-w-2xl mx-4 mb-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          {/* Header */}
+          <div className="p-5 border-b border-slate-200 dark:border-slate-700">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                {editingTask === task.id ? (
+                  <input
+                    type="text"
+                    value={editForm.title || ''}
+                    onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                    onBlur={() => {
+                      if (editForm.title?.trim()) handleUpdateTask(task.id, { title: editForm.title.trim() });
+                      setEditingTask(null);
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                    className="text-lg font-bold text-slate-900 dark:text-white bg-transparent border-b-2 border-violet-500 focus:outline-none w-full"
+                    autoFocus
+                  />
+                ) : (
+                  <h2
+                    className="text-lg font-bold text-slate-900 dark:text-white cursor-pointer hover:text-violet-600 dark:hover:text-violet-400"
+                    onClick={() => { setEditingTask(task.id); setEditForm({ title: task.title }); }}
+                  >
+                    {task.title}
+                  </h2>
+                )}
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${priorityColors[task.priority]}`}>{task.priority}</span>
+                  {task.deadline && (
+                    <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                      <Calendar size={12} /> {new Date(task.deadline).toLocaleDateString()}
+                    </span>
+                  )}
+                  {progress && (
+                    <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                      <CheckSquare size={12} /> {progress.done}/{progress.total}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => handleArchiveTask(task.id, !task.archived)}
+                  className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500"
+                  title={task.archived ? 'Unarchive' : 'Archive'}
+                >
+                  {task.archived ? <RotateCcw size={16} /> : <Archive size={16} />}
+                </button>
+                <button
+                  onClick={() => handleDeleteTask(task.id)}
+                  className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 hover:text-red-500"
+                  title="Delete"
+                >
+                  <Trash2 size={16} />
+                </button>
+                <button onClick={() => setShowTaskDetail(false)} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500">
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Body */}
+          <div className="p-5 space-y-5 max-h-[60vh] overflow-y-auto">
+            {/* Status selector */}
+            <div>
+              <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Status</label>
+              <div className="flex flex-wrap gap-1.5">
+                {taskStatusGroups.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => handleUpdateTask(task.id, { status: s })}
+                    className={`px-3 py-1 text-xs rounded-full font-medium transition ${task.status === s
+                      ? 'bg-violet-600 text-white'
+                      : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
+                      }`}
+                  >
+                    {taskStatusLabels[s]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Priority selector */}
+            <div>
+              <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Priority</label>
+              <div className="flex gap-1.5">
+                {['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => handleUpdateTask(task.id, { priority: p })}
+                    className={`px-3 py-1 text-xs rounded-full font-medium transition ${task.priority === p
+                      ? 'ring-2 ring-violet-500 ' + priorityColors[p]
+                      : priorityColors[p] + ' opacity-60 hover:opacity-100'
+                      }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Assignee */}
+            <div className="flex items-center gap-3">
+              <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Assigned to</label>
+              <div className="flex items-center gap-2">
+                <Avatar name={task.assignedTo?.displayName || task.assignedTo?.username || ''} src={task.assignedTo?.avatarUrl} size="sm" />
+                <span className="text-sm text-slate-700 dark:text-slate-300">{task.assignedTo?.displayName || task.assignedTo?.username}</span>
+              </div>
+            </div>
+
+            {/* Description */}
+            <div>
+              <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Description</label>
+              <textarea
+                defaultValue={task.description || ''}
+                placeholder="Add a description..."
+                onBlur={(e) => {
+                  if (e.target.value !== (task.description || '')) {
+                    handleUpdateTask(task.id, { description: e.target.value });
+                  }
+                }}
+                rows={3}
+                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
+              />
+            </div>
+
+            {/* Deadline */}
+            <div>
+              <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-2">Deadline</label>
+              <input
+                type="date"
+                defaultValue={task.deadline ? new Date(task.deadline).toISOString().split('T')[0] : ''}
+                onChange={(e) => handleUpdateTask(task.id, { deadline: e.target.value || null })}
+                className="px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500"
+              />
+            </div>
+
+            {/* Checklists */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+                  <CheckSquare size={14} /> Checklists
+                </label>
+                <button
+                  onClick={() => setShowAddChecklist(!showAddChecklist)}
+                  className="text-xs text-violet-600 dark:text-violet-400 hover:underline flex items-center gap-1"
+                >
+                  <Plus size={12} /> Add Checklist
+                </button>
+              </div>
+
+              {showAddChecklist && (
+                <div className="flex gap-2 mb-3">
+                  <input
+                    type="text"
+                    value={newChecklistTitle}
+                    onChange={(e) => setNewChecklistTitle(e.target.value)}
+                    placeholder="Checklist title..."
+                    className="flex-1 px-3 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleCreateChecklist(task.id); }}
+                    autoFocus
+                  />
+                  <button onClick={() => handleCreateChecklist(task.id)} className="px-3 py-1.5 bg-violet-600 text-white text-sm rounded-lg hover:bg-violet-700">Add</button>
+                </div>
+              )}
+
+              {(task.checklists || []).map((cl) => {
+                const clProgress = cl.items.length > 0
+                  ? Math.round((cl.items.filter(i => i.completed).length / cl.items.length) * 100)
+                  : 0;
+                return (
+                  <div key={cl.id} className="mb-4 bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                        <CheckSquare size={14} /> {cl.title}
+                      </h4>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400">{clProgress}%</span>
+                        <button onClick={() => handleDeleteChecklist(cl.id)} className="text-slate-400 hover:text-red-500"><Trash2 size={12} /></button>
+                      </div>
+                    </div>
+
+                    {/* Progress bar */}
+                    {cl.items.length > 0 && (
+                      <div className="w-full bg-slate-200 dark:bg-slate-600 rounded-full h-1.5 mb-2">
+                        <div
+                          className={`h-1.5 rounded-full transition-all ${clProgress === 100 ? 'bg-green-500' : 'bg-violet-500'}`}
+                          style={{ width: `${clProgress}%` }}
+                        />
+                      </div>
+                    )}
+
+                    {/* Items */}
+                    <div className="space-y-1">
+                      {cl.items.map((item) => (
+                        <div key={item.id} className="flex items-center gap-2 py-1 group">
+                          <button
+                            onClick={() => handleToggleItem(cl.id, item.id)}
+                            className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center transition ${item.completed
+                              ? 'bg-violet-600 border-violet-600 text-white'
+                              : 'border-slate-300 dark:border-slate-500 hover:border-violet-500'
+                              }`}
+                          >
+                            {item.completed && <span className="text-[10px]">✓</span>}
+                          </button>
+                          <span className={`text-sm flex-1 ${item.completed ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-700 dark:text-slate-300'}`}>
+                            {item.title}
+                          </span>
+                          {item.dueDate && (
+                            <span className="text-[10px] text-slate-400 flex items-center gap-0.5">
+                              <Calendar size={10} /> {new Date(item.dueDate).toLocaleDateString()}
+                            </span>
+                          )}
+                          <button
+                            onClick={() => handleDeleteChecklistItem(cl.id, item.id)}
+                            className="text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Add item */}
+                    <div className="flex gap-2 mt-2">
+                      <input
+                        type="text"
+                        value={newItemTitles[cl.id] || ''}
+                        onChange={(e) => setNewItemTitles({ ...newItemTitles, [cl.id]: e.target.value })}
+                        placeholder="Add an item..."
+                        className="flex-1 px-2 py-1 bg-white dark:bg-slate-600 border border-slate-200 dark:border-slate-500 rounded text-xs focus:outline-none focus:ring-1 focus:ring-violet-500"
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleAddChecklistItem(cl.id); }}
+                      />
+                      <button
+                        onClick={() => handleAddChecklistItem(cl.id)}
+                        disabled={!newItemTitles[cl.id]?.trim()}
+                        className="px-2 py-1 bg-violet-600 text-white text-xs rounded hover:bg-violet-700 disabled:opacity-50"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // ─── Project Board View ───────────────────────────────────────────────
   if (viewMode === 'board' && selectedProject) {
-    const tasks = selectedProject.tasks || [];
+    const allTasks = selectedProject.tasks || [];
+    const tasks = showArchived ? allTasks.filter(t => t.archived) : allTasks.filter(t => !t.archived);
+
     return (
       <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900">
         <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-3 flex items-center gap-3">
           <button onClick={() => { setViewMode('detail'); }} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"><ArrowLeft size={18} /></button>
           <FolderKanban size={20} className="text-violet-600 dark:text-violet-400" />
-          <h1 className="text-lg font-bold text-slate-900 dark:text-white truncate">{selectedProject.name} — Board</h1>
+          <h1 className="text-lg font-bold text-slate-900 dark:text-white truncate flex-1">{selectedProject.name} — Board</h1>
+          <button
+            onClick={() => setShowArchived(!showArchived)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1.5 transition ${showArchived
+              ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+              : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
+              }`}
+          >
+            <Archive size={14} /> {showArchived ? 'Showing Archived' : 'Archive'}
+          </button>
         </div>
         <div className="flex-1 overflow-x-auto p-4">
           <div className="flex gap-4 min-w-max h-full">
             {taskStatusGroups.map((status) => {
-              const columnTasks = tasks.filter((t: any) => t.status === status);
+              const columnTasks = tasks.filter((t: TaskData) => t.status === status);
               return (
                 <div key={status} className={`w-72 rounded-xl p-3 ${taskStatusColors[status]} flex-shrink-0 flex flex-col`}>
                   <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2">
-                    {taskStatusLabels[status]} <span className="text-xs bg-white/50 dark:bg-black/20 px-1.5 py-0.5 rounded">{columnTasks.length}</span>
+                    {taskStatusLabels[status]}
+                    <span className="text-xs bg-white/50 dark:bg-black/20 px-1.5 py-0.5 rounded">{columnTasks.length}</span>
                   </h3>
                   <div className="space-y-2 flex-1 overflow-y-auto">
-                    {columnTasks.map((task: any) => (
-                      <div key={task.id} className="bg-white dark:bg-slate-800 rounded-lg p-3 shadow-sm border border-slate-200 dark:border-slate-700">
-                        <p className="text-sm font-medium text-slate-900 dark:text-white mb-1">{task.title}</p>
-                        {task.description && <p className="text-xs text-slate-500 dark:text-slate-400 mb-2 line-clamp-2">{task.description}</p>}
-                        <div className="flex items-center gap-2">
-                          <Avatar name={task.assignedTo?.displayName || task.assignedTo?.username} src={task.assignedTo?.avatarUrl} size="sm" />
-                          <span className="text-xs text-slate-600 dark:text-slate-400">{task.assignedTo?.displayName || task.assignedTo?.username}</span>
+                    {columnTasks.map((task: TaskData) => {
+                      const progress = getChecklistProgress(task.checklists);
+                      return (
+                        <div
+                          key={task.id}
+                          className="bg-white dark:bg-slate-800 rounded-lg p-3 shadow-sm border border-slate-200 dark:border-slate-700 cursor-pointer hover:shadow-md transition group"
+                          onClick={() => { setSelectedTask(task); setShowTaskDetail(true); }}
+                        >
+                          {/* Labels */}
+                          {task.labels && task.labels.length > 0 && (
+                            <div className="flex gap-1 mb-1.5 flex-wrap">
+                              {task.labels.map((_label, i) => (
+                                <span key={i} className="w-8 h-1.5 rounded-full bg-violet-400" />
+                              ))}
+                            </div>
+                          )}
+                          <p className="text-sm font-medium text-slate-900 dark:text-white mb-1">{task.title}</p>
+                          {task.description && <p className="text-xs text-slate-500 dark:text-slate-400 mb-2 line-clamp-2">{task.description}</p>}
+
+                          {/* Badges row */}
+                          <div className="flex items-center gap-2 flex-wrap mt-1.5">
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${priorityColors[task.priority]}`}>{task.priority}</span>
+                            {task.deadline && (
+                              <span className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-0.5">
+                                <Calendar size={10} /> {new Date(task.deadline).toLocaleDateString()}
+                              </span>
+                            )}
+                            {progress && (
+                              <span className={`text-[10px] flex items-center gap-0.5 ${progress.percent === 100 ? 'text-green-600' : 'text-slate-500 dark:text-slate-400'}`}>
+                                <CheckSquare size={10} /> {progress.done}/{progress.total}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Progress bar for checklists */}
+                          {progress && (
+                            <div className="w-full bg-slate-200 dark:bg-slate-600 rounded-full h-1 mt-2">
+                              <div
+                                className={`h-1 rounded-full transition-all ${progress.percent === 100 ? 'bg-green-500' : 'bg-violet-500'}`}
+                                style={{ width: `${progress.percent}%` }}
+                              />
+                            </div>
+                          )}
+
+                          {/* Assignee + actions */}
+                          <div className="flex items-center justify-between mt-2">
+                            <div className="flex items-center gap-2">
+                              <Avatar name={task.assignedTo?.displayName || task.assignedTo?.username || ''} src={task.assignedTo?.avatarUrl} size="sm" />
+                              <span className="text-xs text-slate-600 dark:text-slate-400">{task.assignedTo?.displayName || task.assignedTo?.username}</span>
+                            </div>
+                            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleArchiveTask(task.id, !task.archived); }}
+                                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400"
+                                title={task.archived ? 'Unarchive' : 'Archive'}
+                              >
+                                {task.archived ? <RotateCcw size={12} /> : <Archive size={12} />}
+                              </button>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                     {columnTasks.length === 0 && <p className="text-xs text-slate-400 text-center py-4">No tasks</p>}
                   </div>
+
+                  {/* Add task button */}
+                  {!showArchived && (
+                    <>
+                      {showNewTask === status ? (
+                        <div className="mt-2 bg-white dark:bg-slate-800 rounded-lg p-2 border border-slate-200 dark:border-slate-700">
+                          <input
+                            type="text"
+                            value={newTaskTitle}
+                            onChange={(e) => setNewTaskTitle(e.target.value)}
+                            placeholder="Enter a title..."
+                            className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-sm focus:outline-none focus:ring-1 focus:ring-violet-500 mb-2"
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleCreateTask(status); if (e.key === 'Escape') setShowNewTask(null); }}
+                            autoFocus
+                          />
+                          <div className="flex gap-2">
+                            <button onClick={() => handleCreateTask(status)} disabled={!newTaskTitle.trim()} className="px-3 py-1 bg-violet-600 text-white text-xs rounded hover:bg-violet-700 disabled:opacity-50">Add Card</button>
+                            <button onClick={() => { setShowNewTask(null); setNewTaskTitle(''); }} className="px-3 py-1 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">Cancel</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setShowNewTask(status)}
+                          className="mt-2 w-full py-2 text-xs text-slate-500 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-700/50 rounded-lg flex items-center justify-center gap-1 transition"
+                        >
+                          <Plus size={14} /> Add a card
+                        </button>
+                      )}
+                    </>
+                  )}
                 </div>
               );
             })}
           </div>
         </div>
+        {renderTaskDetailModal()}
       </div>
     );
   }
@@ -289,36 +840,46 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
             </div>
           )}
 
-          {/* Members */}
-          <div className="bg-white dark:bg-slate-800 rounded-xl p-5 border border-slate-200 dark:border-slate-700">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide flex items-center gap-1.5"><Users size={14} /> Members ({p.members.length})</h3>
+          {/* Add Members — PROMINENT CTA */}
+          <div className="bg-gradient-to-r from-violet-50 to-indigo-50 dark:from-violet-900/20 dark:to-indigo-900/20 rounded-xl p-5 border-2 border-dashed border-violet-300 dark:border-violet-700">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-violet-100 dark:bg-violet-900/50 flex items-center justify-center">
+                <UserPlus size={20} className="text-violet-600 dark:text-violet-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-violet-800 dark:text-violet-300">Add Team Members</h3>
+                <p className="text-xs text-violet-600 dark:text-violet-400">Search by name or username to add people to this project</p>
+              </div>
             </div>
-
-            {/* Add member search */}
-            <div className="relative mb-3">
-              <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+            <div className="relative">
+              <Search className="absolute left-3 top-2.5 w-4 h-4 text-violet-400" />
               <input
                 type="text"
                 value={memberSearch}
                 onChange={(e) => setMemberSearch(e.target.value)}
-                placeholder="Search to add members..."
-                className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm"
+                placeholder="Type a name to add members..."
+                className="w-full pl-9 pr-3 py-2.5 bg-white dark:bg-slate-800 border-2 border-violet-200 dark:border-violet-700 rounded-lg text-sm text-slate-900 dark:text-white placeholder-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
               />
             </div>
             {filteredMemberResults.length > 0 && (
-              <div className="space-y-1 mb-3 max-h-32 overflow-y-auto bg-slate-50 dark:bg-slate-700/50 rounded-lg p-2">
-                {filteredMemberResults.slice(0, 5).map((u: any) => (
-                  <button key={u.id} onClick={() => handleAddMember(u.id)} className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-white dark:hover:bg-slate-600 transition text-left">
+              <div className="space-y-1 mt-2 max-h-40 overflow-y-auto bg-white dark:bg-slate-800 rounded-lg p-2 border border-violet-200 dark:border-violet-700">
+                {filteredMemberResults.slice(0, 8).map((u: any) => (
+                  <button key={u.id} onClick={() => handleAddMember(u.id)} className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-violet-50 dark:hover:bg-violet-900/30 transition text-left">
                     <Avatar name={u.username} src={u.avatar} size="sm" />
-                    <span className="text-sm text-slate-900 dark:text-white">{u.username}</span>
-                    <Plus size={14} className="ml-auto text-blue-500" />
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium text-slate-900 dark:text-white block truncate">{u.displayName || u.username}</span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">@{u.username}</span>
+                    </div>
+                    <Plus size={16} className="text-violet-500 flex-shrink-0" />
                   </button>
                 ))}
               </div>
             )}
+          </div>
 
-            {/* Member list */}
+          {/* Current Members */}
+          <div className="bg-white dark:bg-slate-800 rounded-xl p-5 border border-slate-200 dark:border-slate-700">
+            <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide flex items-center gap-1.5 mb-4"><Users size={14} /> Members ({p.members.length})</h3>
             <div className="space-y-2">
               {p.members.map((m) => (
                 <div key={m.id} className="flex items-center gap-3 py-2">
@@ -348,6 +909,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
             </div>
           </div>
         </div>
+        {renderTaskDetailModal()}
       </div>
     );
   }

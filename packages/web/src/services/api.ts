@@ -1022,6 +1022,45 @@ class APIClient {
     return res.data;
   }
 
+  // ─── Checklist Management ───────────────────────────────────────────────
+  async getChecklists(params: { taskId?: string; projectId?: string }): Promise<{ checklists: any[] }> {
+    const res = await this.client.get('/checklists', { params });
+    return res.data;
+  }
+
+  async createChecklist(data: { taskId?: string; projectId?: string; title: string }): Promise<any> {
+    const res = await this.client.post('/checklists', data);
+    return res.data;
+  }
+
+  async updateChecklist(checklistId: string, data: { title?: string }): Promise<any> {
+    const res = await this.client.patch(`/checklists/${checklistId}`, data);
+    return res.data;
+  }
+
+  async deleteChecklist(checklistId: string): Promise<void> {
+    await this.client.delete(`/checklists/${checklistId}`);
+  }
+
+  async addChecklistItem(checklistId: string, data: { title: string; assigneeId?: string; dueDate?: string }): Promise<any> {
+    const res = await this.client.post(`/checklists/${checklistId}/items`, data);
+    return res.data;
+  }
+
+  async updateChecklistItem(checklistId: string, itemId: string, data: { title?: string; completed?: boolean; assigneeId?: string; dueDate?: string; position?: number }): Promise<any> {
+    const res = await this.client.patch(`/checklists/${checklistId}/items/${itemId}`, data);
+    return res.data;
+  }
+
+  async deleteChecklistItem(checklistId: string, itemId: string): Promise<void> {
+    await this.client.delete(`/checklists/${checklistId}/items/${itemId}`);
+  }
+
+  async toggleChecklistItem(checklistId: string, itemId: string): Promise<any> {
+    const res = await this.client.post(`/checklists/${checklistId}/items/${itemId}/toggle`);
+    return res.data;
+  }
+
   // ─── Department Management ─────────────────────────────────────────────
   async getDepartments(orgId?: string): Promise<{ departments: any[] }> {
     const res = await this.client.get('/org-admin/departments', { params: { orgId } });

@@ -30,7 +30,8 @@ export class TaskController {
       });
       const userProjectIds = userProjectMemberships.map((m) => m.projectId);
 
-      const where: any = { AND: [] };
+      const showArchived = req.query.archived === 'true';
+      const where: any = { AND: [{ archived: showArchived }] };
 
       // View modes: 'my' (default), 'department', 'project', 'all'
       const viewMode = (view as string) || 'my';
@@ -107,6 +108,10 @@ export class TaskController {
           department: { select: { id: true, name: true } },
           project: { select: { id: true, name: true } },
           visibleToDepartments: { select: { id: true, name: true } },
+          checklists: {
+            include: { items: { orderBy: { position: 'asc' } } },
+            orderBy: { position: 'asc' },
+          },
         },
         orderBy: { createdAt: 'desc' },
       });
@@ -209,7 +214,7 @@ export class TaskController {
     try {
       const { taskId } = req.params;
       const userId = req.user!.userId;
-      const { title, description, status, priority, deadline, labels, lindaFollowing, lindaFollowInterval } = req.body;
+      const { title, description, status, priority, deadline, labels, lindaFollowing, lindaFollowInterval, archived } = req.body;
 
       const task = await prisma.task.findUnique({ where: { id: taskId } });
       if (!task || (task.assignedToId !== userId && task.createdById !== userId)) {
@@ -238,11 +243,16 @@ export class TaskController {
           ...(labels !== undefined && { labels }),
           ...(lindaFollowing !== undefined && { lindaFollowing }),
           ...(lindaFollowInterval !== undefined && { lindaFollowInterval }),
+          ...(archived !== undefined && { archived: Boolean(archived) }),
         },
         include: {
           assignedTo: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
           createdBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
           orderedBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
+          checklists: {
+            include: { items: { orderBy: { position: 'asc' } } },
+            orderBy: { position: 'asc' },
+          },
         },
       });
 
@@ -279,7 +289,7 @@ export class TaskController {
       const userId = req.user!.userId;
 
       const task = await prisma.task.findUnique({ where: { id: taskId } });
-      if (!task || task.createdById !== userId) {
+      if (!task || (task.createdById !== userId && task.assignedToId !== userId)) {
         res.status(403).json({ error: 'Not authorized to delete this task' });
         return;
       }
