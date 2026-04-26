@@ -170,10 +170,17 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
     if (!targetUserId || targetUserId === user?.id) return;
     try {
       const conv = await api.createConversation([targetUserId]);
+      onClose?.();
       navigate(`/chat/${conv.id}`);
     } catch (err) {
       console.error('Failed to open chat:', err);
     }
+  };
+
+  // Navigate to a chat conversation (close task wall first so chat is visible)
+  const handleNavigateToChat = (convId: string) => {
+    onClose?.();
+    navigate(`/chat/${convId}`);
   };
 
   // Attachment handlers
@@ -352,7 +359,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                   onStatusChange={handleStatusChange}
                   onReact={handleReact}
                   onChatWithUser={handleChatWithUser}
-                  onNavigateToChat={(convId) => navigate(`/chat/${convId}`)}
+                  onNavigateToChat={handleNavigateToChat}
                   onStartChat={handleStartChat}
                   onAddAttachment={handleAddAttachment}
                   onDeleteAttachment={handleDeleteAttachment}
@@ -386,7 +393,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                           onStatusChange={handleStatusChange}
                           onReact={handleReact}
                           onChatWithUser={handleChatWithUser}
-                          onNavigateToChat={(convId) => navigate(`/chat/${convId}`)}
+                          onNavigateToChat={handleNavigateToChat}
                           onStartChat={handleStartChat}
                           onAddAttachment={handleAddAttachment}
                           onDeleteAttachment={handleDeleteAttachment}
@@ -426,7 +433,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                   onStatusChange={handleStatusChange}
                   onReact={handleReact}
                   onChatWithUser={handleChatWithUser}
-                  onNavigateToChat={(convId) => navigate(`/chat/${convId}`)}
+                  onNavigateToChat={handleNavigateToChat}
                   onStartChat={handleStartChat}
                   onAddAttachment={handleAddAttachment}
                   onDeleteAttachment={handleDeleteAttachment}

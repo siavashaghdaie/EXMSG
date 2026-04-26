@@ -1035,7 +1035,7 @@ class APIClient {
 
   async createChecklist(data: { taskId?: string; projectId?: string; title: string }): Promise<any> {
     const res = await this.client.post('/checklists', data);
-    return res.data;
+    return res.data.checklist;
   }
 
   async updateChecklist(checklistId: string, data: { title?: string }): Promise<any> {

@@ -152,8 +152,15 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
     if (!targetUserId || targetUserId === user?.id) return;
     try {
       const conv = await api.createConversation([targetUserId]);
+      onClose();
       navigate(`/chat/${conv.id}`);
     } catch (err) { console.error('Failed to open chat:', err); }
+  };
+
+  // Navigate to a chat conversation (close projects page first so chat is visible)
+  const handleNavigateToChat = (convId: string) => {
+    onClose();
+    navigate(`/chat/${convId}`);
   };
 
   const handleReactTask = async (taskId: string, type: 'like' | 'dislike') => {
@@ -760,7 +767,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
             <BarChart3 size={14} /> Roadmap
           </button>
           {selectedProject.conversationId && (
-            <button onClick={() => navigate(`/chat/${selectedProject.conversationId}`)} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium flex items-center gap-1.5 hover:bg-green-700 transition">
+            <button onClick={() => handleNavigateToChat(selectedProject.conversationId!)} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium flex items-center gap-1.5 hover:bg-green-700 transition">
               <MessageSquare size={14} /> Chat
             </button>
           )}
@@ -796,7 +803,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
                         onStatusChange={(taskId, newStatus) => handleUpdateTask(taskId, { status: newStatus })}
                         onReact={handleReactTask}
                         onChatWithUser={handleChatWithUser}
-                        onNavigateToChat={(convId) => navigate(`/chat/${convId}`)}
+                        onNavigateToChat={handleNavigateToChat}
                         onStartChat={async (taskId) => {
                           try {
                             const res = await api.createTaskConversation(taskId);
@@ -1082,7 +1089,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
                 <BarChart3 size={14} /> Roadmap
               </button>
               {p.conversationId && (
-                <button onClick={() => navigate(`/chat/${p.conversationId}`)} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium flex items-center gap-1.5 hover:bg-green-700 transition">
+                <button onClick={() => handleNavigateToChat(p.conversationId!)} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium flex items-center gap-1.5 hover:bg-green-700 transition">
                   <MessageSquare size={14} /> Chat
                 </button>
               )}

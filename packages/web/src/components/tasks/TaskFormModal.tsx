@@ -595,7 +595,8 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({
                   <div className="flex gap-1">
                     <input
                       type="text"
-                      placeholder="Add item (press Enter)..."
+                      placeholder="Add item..."
+                      id={`checklist-item-input-${clIdx}`}
                       className="flex-1 px-2 py-1 text-xs rounded bg-white dark:bg-surface-700 border border-gray-200 dark:border-surface-600 text-gray-900 dark:text-white placeholder-gray-400"
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
@@ -606,6 +607,22 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({
                         }
                       }}
                     />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const input = document.getElementById(`checklist-item-input-${clIdx}`) as HTMLInputElement;
+                        if (input && input.value.trim()) {
+                          const updated = [...formChecklists];
+                          updated[clIdx] = { ...updated[clIdx], items: [...updated[clIdx].items, { title: input.value.trim() }] };
+                          setFormChecklists(updated);
+                          input.value = '';
+                          input.focus();
+                        }
+                      }}
+                      className="px-2 py-1 bg-primary-600 hover:bg-primary-700 text-white rounded text-xs font-medium flex-shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                   {cl.items.length > 0 && (
                     <div className="space-y-1.5">
