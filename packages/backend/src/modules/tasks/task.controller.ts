@@ -409,7 +409,7 @@ export class TaskController {
     try {
       const { taskId } = req.params;
       const userId = req.user!.userId;
-      const { title, description, status, priority, deadline, labels, lindaFollowing, lindaFollowInterval, archived, coAssigneeIds, assignedToId, projectId, departmentId } = req.body;
+      const { title, description, status, priority, deadline, labels, lindaFollowing, lindaFollowInterval, archived, coAssigneeIds, assignedToId, projectId, projectName, departmentId } = req.body;
 
       const task = await prisma.task.findUnique({ where: { id: taskId } });
       if (!task || (task.assignedToId !== userId && task.createdById !== userId)) {
@@ -421,6 +421,41 @@ export class TaskController {
       if (req.orgId && (task as any).organizationId && (task as any).organizationId !== req.orgId) {
         res.status(403).json({ error: 'Not authorized to update this task' });
         return;
+      }
+
+      // Auto-create project if projectName is given but no valid projectId
+      let resolvedProjectId = projectId;
+      if ((!projectId || projectId === '') && projectName && typeof projectName === 'string' && projectName.trim()) {
+        const orgId = req.orgId;
+        let project = orgId
+          ? await prisma.project.findUnique({
+              where: { organizationId_name: { organizationId: orgId, name: projectName.trim() } },
+            })
+          : await prisma.project.findFirst({ where: { name: projectName.trim(), createdById: userId } });
+
+        if (!project) {
+          project = await prisma.project.create({
+            data: {
+              name: projectName.trim(),
+              createdById: userId,
+              ...(orgId && { organizationId: orgId }),
+            },
+          });
+          await prisma.projectMember.create({
+            data: { projectId: project.id, userId, role: 'LEAD' },
+          });
+        }
+        resolvedProjectId = project.id;
+
+        // Auto-add task assignee to the project
+        const targetUserId = assignedToId || task.assignedToId;
+        if (targetUserId && targetUserId !== userId) {
+          await prisma.projectMember.upsert({
+            where: { projectId_userId: { projectId: project.id, userId: targetUserId } },
+            create: { projectId: project.id, userId: targetUserId },
+            update: {},
+          });
+        }
       }
 
       // Capture old values before update for change detection
@@ -440,7 +475,7 @@ export class TaskController {
           ...(lindaFollowInterval !== undefined && { lindaFollowInterval }),
           ...(archived !== undefined && { archived: Boolean(archived) }),
           ...(assignedToId !== undefined && { assignedToId }),
-          ...(projectId !== undefined && { projectId: projectId || null }),
+          ...(resolvedProjectId !== undefined && { projectId: resolvedProjectId || null }),
           ...(departmentId !== undefined && { departmentId: departmentId || null }),
           ...(coAssigneeIds !== undefined && { coAssigneeIds: Array.isArray(coAssigneeIds) ? coAssigneeIds : [] }),
         },

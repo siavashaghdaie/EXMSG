@@ -12,6 +12,27 @@ import VoiceMessagePlayer from './VoiceMessagePlayer';
 import ForwardModal from './ForwardModal';
 import { extractUrls, linkifyText } from '@/utils/urlDetector';
 
+/** Render markdown-style formatting (bold, italic, strikethrough, code, line breaks) as HTML */
+function formatMarkdown(text: string): React.ReactNode[] {
+  return text.split('\n').map((line, i) => {
+    const html = line
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/~~(.*?)~~/g, '<del>$1</del>')
+      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+      .replace(/`(.*?)`/g, '<code class="bg-slate-200 dark:bg-slate-600 px-1 rounded text-xs font-mono">$1</code>')
+      // Render ─── lines as visual dividers
+      .replace(/^[─]{3,}$/g, '<hr class="border-slate-300 dark:border-slate-600 my-1" />')
+      // Render progress bars with monospace
+      .replace(/([█░]{2,}\s*\d+%)/g, '<span class="font-mono text-xs">$1</span>');
+    return (
+      <span key={i}>
+        {i > 0 && <br />}
+        <span dangerouslySetInnerHTML={{ __html: html }} />
+      </span>
+    );
+  });
+}
+
 interface MessageBubbleProps {
   message: MessageResponse;
   isOwnMessage: boolean;
@@ -315,27 +336,30 @@ export default function MessageBubble({
                   <>
                     <div className="flex items-end gap-1">
                       <div className="flex-1">
-                        <p className="break-words text-[13px] leading-snug">
-                          {linkifyText(message.content).map((part, i) =>
-                            typeof part === 'string'
-                              ? part
-                              : (
-                                <a
-                                  key={i}
-                                  href={part.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className={`underline transition ${
-                                    isOwnMessage
-                                      ? 'text-blue-100 hover:text-white'
-                                      : 'text-blue-500 hover:text-blue-600'
-                                  }`}
-                                >
-                                  {part.url}
-                                </a>
+                        <div className="break-words text-[13px] leading-snug">
+                          {message.sender?.username === 'linda'
+                            ? formatMarkdown(message.content)
+                            : linkifyText(message.content).map((part, i) =>
+                                typeof part === 'string'
+                                  ? part
+                                  : (
+                                    <a
+                                      key={i}
+                                      href={part.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className={`underline transition ${
+                                        isOwnMessage
+                                          ? 'text-blue-100 hover:text-white'
+                                          : 'text-blue-500 hover:text-blue-600'
+                                      }`}
+                                    >
+                                      {part.url}
+                                    </a>
+                                  )
                               )
-                          )}
-                        </p>
+                          }
+                        </div>
                       </div>
                       {/* Voice button for Linda's messages */}
                       {message.sender?.username === 'linda' && message.content && (

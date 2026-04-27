@@ -249,9 +249,10 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({
           lindaFollowing: formData.lindaFollowing,
           lindaFollowInterval: formData.lindaFollowing ? formData.lindaFollowInterval : null,
           projectId: (formData.projectId && formData.projectId !== '__new__') ? formData.projectId : '',
+          projectName: (formData.projectId === '__new__' && formData.projectName) ? formData.projectName : undefined,
           departmentId: formData.departmentId || '',
           coAssigneeIds: coAssignees.map(ca => ca.id),
-        });
+        } as any);
 
         // Always handle checklists when editing — delete old ones first, then recreate
         const existingChecklists = editingTask.checklists || [];

@@ -357,7 +357,13 @@ export default function LindaChat({ onClose }: LindaChatProps) {
     return content.split('\n').map((line, i) => {
       const formatted = line
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/`(.*?)`/g, '<code class="bg-slate-200 dark:bg-slate-600 px-1 rounded text-sm">$1</code>');
+        .replace(/~~(.*?)~~/g, '<del class="opacity-60">$1</del>')
+        .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>')
+        .replace(/`(.*?)`/g, '<code class="bg-slate-200 dark:bg-slate-600 px-1 rounded text-xs font-mono">$1</code>')
+        // Render ─── lines as visual dividers
+        .replace(/^[─]{3,}$/g, '<hr class="border-slate-300 dark:border-slate-600 my-1" />')
+        // Render progress bars with monospace
+        .replace(/([█░]{2,}\s*\d+%)/g, '<span class="font-mono text-xs tracking-tight">$1</span>');
       return (
         <span key={i}>
           {i > 0 && <br />}
