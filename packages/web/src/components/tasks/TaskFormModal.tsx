@@ -226,6 +226,9 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({
     }
 
     try {
+      // DEBUG: log checklist state before save
+      console.log('[TaskFormModal] formChecklists before save:', JSON.stringify(formChecklists, null, 2));
+
       if (editingTask) {
         await api.updateTask(editingTask.id, {
           title: formData.title,
@@ -242,22 +245,28 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({
         // Always handle checklists when editing — delete old ones first, then recreate
         const existingChecklists = editingTask.checklists || [];
         for (const cl of existingChecklists) {
-          try { await api.deleteChecklist(cl.id); } catch (e) { /* ignore */ }
+          try { await api.deleteChecklist(cl.id); } catch (e) { console.error('Delete checklist error:', e); }
         }
-        if (formChecklists.length > 0) {
-          for (const cl of formChecklists) {
-            try {
-              const checklist = await api.createChecklist({ taskId: editingTask.id, title: cl.title });
-              for (const item of cl.items) {
-                await api.addChecklistItem(checklist.id, {
-                  title: item.title,
-                  assigneeIds: (item.assigneeIds && item.assigneeIds.length > 0) ? item.assigneeIds : (item.assigneeId ? [item.assigneeId] : undefined),
-                  dueDate: item.dueDate || undefined,
-                });
-              }
-            } catch (clErr) {
-              console.error('Checklist update error:', clErr);
+        for (const cl of formChecklists) {
+          try {
+            const checklist = await api.createChecklist({ taskId: editingTask.id, title: cl.title });
+            console.log('[TaskFormModal] Created checklist:', checklist?.id, 'for task:', editingTask.id);
+            if (!checklist?.id) {
+              console.error('[TaskFormModal] createChecklist returned no id! Full response:', checklist);
+              continue;
             }
+            for (const item of cl.items) {
+              const payload = {
+                title: item.title,
+                assigneeIds: (item.assigneeIds && item.assigneeIds.length > 0) ? item.assigneeIds : (item.assigneeId ? [item.assigneeId] : undefined),
+                dueDate: item.dueDate || undefined,
+              };
+              console.log('[TaskFormModal] Adding item to checklist', checklist.id, ':', JSON.stringify(payload));
+              const result = await api.addChecklistItem(checklist.id, payload);
+              console.log('[TaskFormModal] addChecklistItem result:', JSON.stringify(result));
+            }
+          } catch (clErr) {
+            console.error('Checklist update error:', clErr);
           }
         }
       } else {
@@ -277,17 +286,27 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({
           coAssigneeIds: coAssignees.map(ca => ca.id),
         } as any);
 
+        console.log('[TaskFormModal] Created task:', created?.id, 'formChecklists count:', formChecklists.length);
+
         // Create checklists
         if (formChecklists.length > 0 && created?.id) {
           for (const cl of formChecklists) {
             try {
               const checklist = await api.createChecklist({ taskId: created.id, title: cl.title });
+              console.log('[TaskFormModal] Created checklist:', checklist?.id, 'for new task:', created.id);
+              if (!checklist?.id) {
+                console.error('[TaskFormModal] createChecklist returned no id! Full response:', checklist);
+                continue;
+              }
               for (const item of cl.items) {
-                await api.addChecklistItem(checklist.id, {
+                const payload = {
                   title: item.title,
                   assigneeIds: (item.assigneeIds && item.assigneeIds.length > 0) ? item.assigneeIds : (item.assigneeId ? [item.assigneeId] : undefined),
                   dueDate: item.dueDate || undefined,
-                });
+                };
+                console.log('[TaskFormModal] Adding item to checklist', checklist.id, ':', JSON.stringify(payload));
+                const result = await api.addChecklistItem(checklist.id, payload);
+                console.log('[TaskFormModal] addChecklistItem result:', JSON.stringify(result));
               }
             } catch (clErr) {
               console.error('Checklist creation error:', clErr);
