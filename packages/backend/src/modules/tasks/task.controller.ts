@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../../config/database';
-import { sendLindaDM } from '../../services/lindaNotify';
+import { sendLindaDM, sendLindaToConversation, getLindaBotUserId, ensureLindaInConversation, getAllTaskRelatedUserIds } from '../../services/lindaNotify';
 
 const STATUS_LABELS: Record<string, string> = {
   NOT_STARTED: 'Not Started',
@@ -322,6 +322,7 @@ export class TaskController {
       });
 
       // Auto-create linked group conversation for this task (non-blocking)
+      // Includes: creator, assignee, co-assignees, checklist item assignees, Linda bot
       let conversationId: string | null = null;
       try {
         const memberIds = new Set<string>([userId]); // creator
@@ -330,6 +331,25 @@ export class TaskController {
         if (Array.isArray(coAssigneeIds)) {
           coAssigneeIds.forEach((id: string) => memberIds.add(id));
         }
+
+        // Include checklist item assignees (fetch checklists for the newly created task)
+        const taskWithChecklists = await prisma.task.findUnique({
+          where: { id: task.id },
+          include: { checklists: { include: { items: true } } },
+        });
+        if (taskWithChecklists?.checklists) {
+          for (const cl of taskWithChecklists.checklists) {
+            for (const item of cl.items) {
+              if (Array.isArray((item as any).assigneeIds)) {
+                (item as any).assigneeIds.forEach((id: string) => memberIds.add(id));
+              }
+            }
+          }
+        }
+
+        // Add Linda bot to the conversation
+        const lindaBotId = await getLindaBotUserId();
+        memberIds.add(lindaBotId);
 
         const conversation = await prisma.conversation.create({
           data: {
@@ -355,6 +375,23 @@ export class TaskController {
           });
         } catch (linkErr) {
           console.error('Link task conversation error:', linkErr);
+        }
+
+        // Send Linda announcement in the new chat room
+        const creatorName = task.createdBy?.displayName || task.createdBy?.username || 'Someone';
+        const assigneeName = task.assignedTo?.displayName || task.assignedTo?.username || '';
+        const roomMsg = `📋 **New Task Created**\n\n**${title}**\n\nCreated by ${creatorName}${assigneeName ? ` and assigned to ${assigneeName}` : ''}.\n\nI'll keep everyone updated on changes to this task.`;
+        sendLindaToConversation(conversation.id, roomMsg).catch(err => {
+          console.error('[Tasks] Linda room announcement error:', err);
+        });
+
+        // Send Linda DM to all related users (except creator) about the new task assignment
+        const allRelated = getAllTaskRelatedUserIds({ ...task, coAssigneeIds: coAssigneeIds || [], checklists: taskWithChecklists?.checklists || [] }, userId);
+        const dmMsg = `⚠️ **New Task Assignment**\n\n**${title}**\n\nYou have been added to this task by ${creatorName}.\n\nCheck the Task Wall for details.`;
+        for (const uid of allRelated) {
+          sendLindaDM(uid, dmMsg).catch(err => {
+            console.error(`[Tasks] Linda DM assignment error for user ${uid}:`, err);
+          });
         }
       } catch (convErr) {
         console.error('Auto-create task conversation error:', convErr);
@@ -422,9 +459,9 @@ export class TaskController {
         },
       });
 
-      // Linda notification: notify task creator when assignee changes status or priority
-      // Only notify if the person making the change is the assignee (not the creator themselves)
-      if (task.assignedToId === userId && task.createdById !== userId) {
+      // Linda notification: notify ALL task-related users about ANY change
+      // Build change description
+      {
         const changes: string[] = [];
         if (status !== undefined && status !== oldStatus) {
           changes.push(`status from **${STATUS_LABELS[oldStatus] || oldStatus}** to **${STATUS_LABELS[status] || status}**`);
@@ -432,12 +469,73 @@ export class TaskController {
         if (priority !== undefined && priority !== oldPriority) {
           changes.push(`priority from **${oldPriority}** to **${priority}**`);
         }
+        if (title !== undefined && title !== task.title) {
+          changes.push(`title to **${title}**`);
+        }
+        if (description !== undefined && description !== task.description) {
+          changes.push(`description was updated`);
+        }
+        if (assignedToId !== undefined && assignedToId !== task.assignedToId) {
+          const newAssigneeName = updated.assignedTo?.displayName || updated.assignedTo?.username || 'someone';
+          changes.push(`assignee changed to **${newAssigneeName}**`);
+        }
+        if (projectId !== undefined && projectId !== task.projectId) {
+          changes.push(`project was changed`);
+        }
+        if (departmentId !== undefined && departmentId !== task.departmentId) {
+          changes.push(`department was changed`);
+        }
+        if (archived !== undefined && Boolean(archived) !== task.archived) {
+          changes.push(archived ? `task was **archived**` : `task was **unarchived**`);
+        }
+        if (coAssigneeIds !== undefined) {
+          const oldCoIds = Array.isArray(task.coAssigneeIds) ? (task.coAssigneeIds as string[]).sort().join(',') : '';
+          const newCoIds = Array.isArray(coAssigneeIds) ? [...coAssigneeIds].sort().join(',') : '';
+          if (oldCoIds !== newCoIds) {
+            changes.push(`co-assignees were updated`);
+          }
+        }
+        if (deadline !== undefined) {
+          const oldDl = task.deadline ? new Date(task.deadline).toISOString() : null;
+          const newDl = deadline ? new Date(deadline).toISOString() : null;
+          if (oldDl !== newDl) {
+            changes.push(`deadline was ${deadline ? 'changed to **' + new Date(deadline).toLocaleDateString() + '**' : '**removed**'}`);
+          }
+        }
+
         if (changes.length > 0) {
-          const assigneeName = updated.assignedTo.displayName || updated.assignedTo.username;
-          const msg = `📋 **Task Update**\n\n**${updated.title}**\n\n${assigneeName} changed ${changes.join(' and ')}.\n\nCheck the Task Wall for details.`;
-          sendLindaDM(task.createdById, msg).catch(err => {
-            console.error('[Tasks] Linda notification error:', err);
+          // Fetch the user who made the change
+          const changer = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { displayName: true, username: true },
           });
+          const changerName = changer?.displayName || changer?.username || 'Someone';
+
+          // Get the updated task WITH checklists to find all related users
+          const taskWithChecklists = await prisma.task.findUnique({
+            where: { id: taskId },
+            include: {
+              checklists: { include: { items: true } },
+            },
+          });
+
+          const relatedUserIds = getAllTaskRelatedUserIds(taskWithChecklists || updated, userId);
+
+          // DM each related user with ⚠️
+          const dmMsg = `⚠️ **Task Update**\n\n**${updated.title}**\n\n${changerName} changed: ${changes.join(', ')}.\n\nCheck the Task Wall for details.`;
+          for (const uid of relatedUserIds) {
+            sendLindaDM(uid, dmMsg).catch(err => {
+              console.error(`[Tasks] Linda DM notification error for user ${uid}:`, err);
+            });
+          }
+
+          // Post in the task chat room
+          if (updated.conversationId) {
+            const roomMsg = `⚠️ **Task Changed**\n\n${changerName} updated **${updated.title}**:\n${changes.map(c => `• ${c}`).join('\n')}`;
+            sendLindaToConversation(updated.conversationId, roomMsg).catch(err => {
+              console.error('[Tasks] Linda room notification error:', err);
+            });
+          }
         }
       }
 
@@ -672,19 +770,26 @@ export class TaskController {
   }
 
   // POST /api/tasks/:taskId/conversation — create chat room on demand
+  // Includes: creator, assignee, co-assignees, checklist item assignees, Linda bot
   async createConversation(req: Request, res: Response): Promise<void> {
     try {
       const { taskId } = req.params;
       const userId = req.user!.userId;
 
-      const task = await prisma.task.findUnique({ where: { id: taskId } });
+      const task = await prisma.task.findUnique({
+        where: { id: taskId },
+        include: { checklists: { include: { items: true } } },
+      });
       if (!task) {
         res.status(404).json({ error: 'Task not found' });
         return;
       }
 
-      // Already has a conversation
+      // Already has a conversation — ensure Linda is in it and return
       if (task.conversationId) {
+        ensureLindaInConversation(task.conversationId).catch(err => {
+          console.error('[Tasks] ensureLindaInConversation error:', err);
+        });
         res.json({ conversationId: task.conversationId });
         return;
       }
@@ -696,6 +801,21 @@ export class TaskController {
       if (Array.isArray((task as any).coAssigneeIds)) {
         (task as any).coAssigneeIds.forEach((id: string) => memberIds.add(id));
       }
+      // Include checklist item assignees
+      if (Array.isArray(task.checklists)) {
+        for (const cl of task.checklists) {
+          if (Array.isArray(cl.items)) {
+            for (const item of cl.items) {
+              if (Array.isArray((item as any).assigneeIds)) {
+                (item as any).assigneeIds.forEach((id: string) => memberIds.add(id));
+              }
+            }
+          }
+        }
+      }
+      // Add Linda bot
+      const lindaBotId = await getLindaBotUserId();
+      memberIds.add(lindaBotId);
 
       const conversation = await prisma.conversation.create({
         data: {
@@ -714,6 +834,12 @@ export class TaskController {
       await prisma.task.update({
         where: { id: taskId },
         data: { conversationId: conversation.id },
+      });
+
+      // Linda announcement
+      const roomMsg = `📋 **Task Chat Room Created**\n\n**${task.title}**\n\nI'll keep everyone updated on changes to this task.`;
+      sendLindaToConversation(conversation.id, roomMsg).catch(err => {
+        console.error('[Tasks] Linda room announcement error:', err);
       });
 
       res.json({ conversationId: conversation.id });
