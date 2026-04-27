@@ -251,7 +251,7 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({
               for (const item of cl.items) {
                 await api.addChecklistItem(checklist.id, {
                   title: item.title,
-                  assigneeIds: item.assigneeIds || (item.assigneeId ? [item.assigneeId] : undefined),
+                  assigneeIds: (item.assigneeIds && item.assigneeIds.length > 0) ? item.assigneeIds : (item.assigneeId ? [item.assigneeId] : undefined),
                   dueDate: item.dueDate || undefined,
                 });
               }
@@ -285,7 +285,7 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({
               for (const item of cl.items) {
                 await api.addChecklistItem(checklist.id, {
                   title: item.title,
-                  assigneeIds: item.assigneeIds || (item.assigneeId ? [item.assigneeId] : undefined),
+                  assigneeIds: (item.assigneeIds && item.assigneeIds.length > 0) ? item.assigneeIds : (item.assigneeId ? [item.assigneeId] : undefined),
                   dueDate: item.dueDate || undefined,
                 });
               }
@@ -646,7 +646,7 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({
                                 <span className="truncate text-blue-700 dark:text-blue-300">{item.assigneeName}</span>
                                 <button onClick={() => {
                                   const updated = [...formChecklists];
-                                  updated[clIdx].items[itemIdx] = { ...updated[clIdx].items[itemIdx], assigneeId: undefined, assigneeName: undefined };
+                                  updated[clIdx].items[itemIdx] = { ...updated[clIdx].items[itemIdx], assigneeId: undefined, assigneeName: undefined, assigneeIds: [], assigneeNames: [] };
                                   setFormChecklists(updated);
                                 }} className="flex-shrink-0">
                                   <X className="w-3 h-3 text-blue-400" />
@@ -668,7 +668,13 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({
                                     key={u.id}
                                     onClick={() => {
                                       const updated = [...formChecklists];
-                                      updated[clIdx].items[itemIdx] = { ...updated[clIdx].items[itemIdx], assigneeId: u.id, assigneeName: u.username };
+                                      updated[clIdx].items[itemIdx] = {
+                                        ...updated[clIdx].items[itemIdx],
+                                        assigneeId: u.id,
+                                        assigneeName: u.username,
+                                        assigneeIds: [u.id],
+                                        assigneeNames: [u.username],
+                                      };
                                       setFormChecklists(updated);
                                       setItemAssigneeTarget(null);
                                       setItemAssigneeSearch('');
