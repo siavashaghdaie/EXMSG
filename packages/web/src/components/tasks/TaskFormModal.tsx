@@ -248,6 +248,8 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({
           labels: formData.labels,
           lindaFollowing: formData.lindaFollowing,
           lindaFollowInterval: formData.lindaFollowing ? formData.lindaFollowInterval : null,
+          projectId: (formData.projectId && formData.projectId !== '__new__') ? formData.projectId : '',
+          departmentId: formData.departmentId || '',
           coAssigneeIds: coAssignees.map(ca => ca.id),
         });
 

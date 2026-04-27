@@ -372,7 +372,7 @@ export class TaskController {
     try {
       const { taskId } = req.params;
       const userId = req.user!.userId;
-      const { title, description, status, priority, deadline, labels, lindaFollowing, lindaFollowInterval, archived, coAssigneeIds, assignedToId } = req.body;
+      const { title, description, status, priority, deadline, labels, lindaFollowing, lindaFollowInterval, archived, coAssigneeIds, assignedToId, projectId, departmentId } = req.body;
 
       const task = await prisma.task.findUnique({ where: { id: taskId } });
       if (!task || (task.assignedToId !== userId && task.createdById !== userId)) {
@@ -403,6 +403,8 @@ export class TaskController {
           ...(lindaFollowInterval !== undefined && { lindaFollowInterval }),
           ...(archived !== undefined && { archived: Boolean(archived) }),
           ...(assignedToId !== undefined && { assignedToId }),
+          ...(projectId !== undefined && { projectId: projectId || null }),
+          ...(departmentId !== undefined && { departmentId: departmentId || null }),
           ...(coAssigneeIds !== undefined && { coAssigneeIds: Array.isArray(coAssigneeIds) ? coAssigneeIds : [] }),
         },
         include: {
