@@ -448,6 +448,8 @@ export class TaskController {
           assignedTo: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
           createdBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
           orderedBy: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
+          project: { select: { id: true, name: true } },
+          department: { select: { id: true, name: true } },
           checklists: {
             include: { items: { orderBy: { position: 'asc' } } },
             orderBy: { position: 'asc' },
@@ -480,10 +482,12 @@ export class TaskController {
           changes.push(`assignee changed to **${newAssigneeName}**`);
         }
         if (projectId !== undefined && projectId !== task.projectId) {
-          changes.push(`project was changed`);
+          const newProjectName = updated.project?.name || (projectId ? 'another project' : 'none');
+          changes.push(`project changed to **${newProjectName}**`);
         }
         if (departmentId !== undefined && departmentId !== task.departmentId) {
-          changes.push(`department was changed`);
+          const newDeptName = updated.department?.name || (departmentId ? 'another department' : 'none');
+          changes.push(`department changed to **${newDeptName}**`);
         }
         if (archived !== undefined && Boolean(archived) !== task.archived) {
           changes.push(archived ? `task was **archived**` : `task was **unarchived**`);

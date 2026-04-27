@@ -527,25 +527,15 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({
           {(!defaultProjectId || editingTask) && (
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Project</label>
-              {projects.length > 0 ? (
-                <select
-                  value={formData.projectId}
-                  onChange={(e) => setFormData({ ...formData, projectId: e.target.value, projectName: '' })}
-                  className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-surface-800 text-gray-900 dark:text-white border border-gray-300 dark:border-surface-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="">No project</option>
-                  {projects.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
-                  <option value="__new__">+ New Project...</option>
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  value={formData.projectName}
-                  onChange={(e) => setFormData({ ...formData, projectName: e.target.value, projectId: '' })}
-                  placeholder="Type a project name to create one..."
-                  className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-surface-800 text-gray-900 dark:text-white border border-gray-300 dark:border-surface-700 focus:outline-none focus:ring-2 focus:ring-primary-500 placeholder-gray-400"
-                />
-              )}
+              <select
+                value={formData.projectId}
+                onChange={(e) => setFormData({ ...formData, projectId: e.target.value, projectName: '' })}
+                className="w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-surface-800 text-gray-900 dark:text-white border border-gray-300 dark:border-surface-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="">No project</option>
+                {projects.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+                <option value="__new__">+ New Project...</option>
+              </select>
               {formData.projectId === '__new__' && (
                 <input
                   type="text"
