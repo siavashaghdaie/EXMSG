@@ -919,6 +919,7 @@ export class LindaController {
     while ((taskMatch = assignTaskRegex.exec(responseText)) !== null) {
       const block = taskMatch[1];
       const assigneeMatch = block.match(/assignee:\s*@?(\S+)/i);
+      const coAssigneesMatch = block.match(/coAssignees:\s*(.+)/i);
       const titleMatch = block.match(/title:\s*(.+)/i);
       const descMatch = block.match(/description:\s*(.+)/i);
       const priorityMatch = block.match(/priority:\s*(LOW|MEDIUM|HIGH|CRITICAL)/i);
@@ -979,6 +980,34 @@ export class LindaController {
           }
         }
 
+        // Resolve co-assignees by username/displayName
+        const coAssigneeIds: string[] = [];
+        if (coAssigneesMatch) {
+          const coNames = coAssigneesMatch[1].split(',').map((n: string) => n.trim().replace(/^@/, '')).filter(Boolean);
+          for (const coName of coNames) {
+            const coUser = await prisma.user.findFirst({
+              where: {
+                OR: [
+                  { username: { equals: coName, mode: 'insensitive' } },
+                  { displayName: { equals: coName, mode: 'insensitive' } },
+                ],
+              },
+              select: { id: true },
+            });
+            if (coUser && coUser.id !== targetUser.id) {
+              coAssigneeIds.push(coUser.id);
+              // Auto-add co-assignees to project too
+              if (projectId) {
+                await prisma.projectMember.upsert({
+                  where: { projectId_userId: { projectId, userId: coUser.id } },
+                  create: { projectId, userId: coUser.id },
+                  update: {},
+                });
+              }
+            }
+          }
+        }
+
         // Resolve department by name
         let departmentId: string | undefined;
         if (departmentMatch) {
@@ -1007,6 +1036,7 @@ export class LindaController {
             deadline: deadlineMatch ? new Date(deadlineMatch[1]) : null,
             status: 'NOT_STARTED',
             lindaFollowing: true,
+            ...(coAssigneeIds.length > 0 && { coAssigneeIds }),
             ...(projectId && { projectId }),
             ...(departmentId && { departmentId }),
           },
@@ -1023,58 +1053,64 @@ export class LindaController {
           details: { taskId: task.id, title: task.title, priority: task.priority, assignee: targetUser.displayName },
         });
 
-        // Notify assignee via DM from Linda
-        try {
-          let conversation = await prisma.conversation.findFirst({
-            where: {
-              type: 'DIRECT',
-              AND: [
-                { members: { some: { userId: lindaId } } },
-                { members: { some: { userId: targetUser.id } } },
-              ],
-            },
-          });
+        // Notify assignee and co-assignees via DM from Linda
+        const priorityLabel = priorityMatch ? priorityMatch[1].toUpperCase() : 'MEDIUM';
+        const deadlineInfo = deadlineMatch ? ` Due by ${deadlineMatch[1]}.` : '';
 
-          if (!conversation) {
-            conversation = await prisma.conversation.create({
-              data: {
+        // Helper to send a Linda DM to a user
+        const sendLindaTaskDM = async (userId: string, content: string) => {
+          try {
+            let conv = await prisma.conversation.findFirst({
+              where: {
                 type: 'DIRECT',
-                members: {
-                  create: [
-                    { userId: lindaId, role: 'OWNER' },
-                    { userId: targetUser.id, role: 'MEMBER' },
-                  ],
-                },
+                AND: [
+                  { members: { some: { userId: lindaId } } },
+                  { members: { some: { userId } } },
+                ],
               },
             });
+            if (!conv) {
+              conv = await prisma.conversation.create({
+                data: {
+                  type: 'DIRECT',
+                  members: {
+                    create: [
+                      { userId: lindaId, role: 'OWNER' },
+                      { userId, role: 'MEMBER' },
+                    ],
+                  },
+                },
+              });
+            }
+            const msg = await prisma.message.create({
+              data: { conversationId: conv.id, senderId: lindaId, content, type: 'TEXT' },
+              include: { sender: { select: { id: true, username: true, displayName: true, avatarUrl: true } } },
+            });
+            await prisma.conversation.update({ where: { id: conv.id }, data: { updatedAt: new Date() } });
+            emitToConversation(conv.id, 'message:new', {
+              id: msg.id, conversationId: conv.id, senderId: msg.sender.id,
+              content: msg.content, type: msg.type, reactions: {},
+              createdAt: msg.createdAt, sender: msg.sender,
+            });
+          } catch (err) {
+            console.error(`[Linda] Failed to notify user ${userId}:`, err);
           }
+        };
 
-          const priorityLabel = priorityMatch ? priorityMatch[1].toUpperCase() : 'MEDIUM';
-          const deadlineInfo = deadlineMatch ? ` Due by ${deadlineMatch[1]}.` : '';
-          const notifyMsg = await prisma.message.create({
-            data: {
-              conversationId: conversation.id,
-              senderId: lindaId,
-              content: `Hey ${targetUser.displayName || targetUser.username}! You've been assigned a new task: **${titleMatch[1].trim()}** (Priority: ${priorityLabel}).${deadlineInfo} Let me know if you need any help with it!`,
-              type: 'TEXT',
-            },
-            include: { sender: { select: { id: true, username: true, displayName: true, avatarUrl: true } } },
-          });
+        // DM the primary assignee
+        await sendLindaTaskDM(
+          targetUser.id,
+          `Hey ${targetUser.displayName || targetUser.username}! You've been assigned a new task: **${titleMatch[1].trim()}** (Priority: ${priorityLabel}).${deadlineInfo} Let me know if you need any help with it!`
+        );
 
-          await prisma.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } });
-
-          emitToConversation(conversation.id, 'message:new', {
-            id: notifyMsg.id,
-            conversationId: conversation.id,
-            senderId: notifyMsg.sender.id,
-            content: notifyMsg.content,
-            type: notifyMsg.type,
-            reactions: {},
-            createdAt: notifyMsg.createdAt,
-            sender: notifyMsg.sender,
-          });
-        } catch (notifyErr) {
-          console.error('[Linda] Failed to notify assignee:', notifyErr);
+        // DM each co-assignee with a different message
+        for (const coId of coAssigneeIds) {
+          const coUser = await prisma.user.findUnique({ where: { id: coId }, select: { displayName: true, username: true } });
+          const coName = coUser?.displayName || coUser?.username || 'there';
+          await sendLindaTaskDM(
+            coId,
+            `Hey ${coName}! You've been added as a **co-assignee** on a new task: **${titleMatch[1].trim()}** (Priority: ${priorityLabel}).${deadlineInfo} Check the Task Wall for details!`
+          );
         }
       } catch (err) {
         console.error('[Linda] Failed to create task:', err);
@@ -1443,6 +1479,7 @@ message: Your natural, human-like message here
 Format for assigning a task:
 [ASSIGN_TASK]
 assignee: @username
+coAssignees: @user1, @user2 (optional — additional people to co-assign)
 title: Task title here
 description: Optional task description
 priority: LOW | MEDIUM | HIGH | CRITICAL
@@ -1477,6 +1514,7 @@ Rules for actions:
 
 TASK MANAGEMENT:
 - You CAN create tasks and assign them to team members using [ASSIGN_TASK] blocks
+- You CAN add co-assignees using the "coAssignees: @user1, @user2" field in [ASSIGN_TASK] — use this when the user mentions multiple people for a task
 - You CAN update task status and priority using [UPDATE_TASK] blocks
 - When asked to follow up on tasks, check the task context and report back
 - When asked to mark a task as done/complete, use [UPDATE_TASK] with status: COMPLETED

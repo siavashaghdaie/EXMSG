@@ -386,7 +386,7 @@ export class TaskController {
         });
 
         // Send role-specific Linda DMs to related users (except creator)
-        const coAssigneeSet = new Set(coAssigneeIds || []);
+        const coAssigneeSet = new Set<string>((coAssigneeIds || []) as string[]);
 
         // Primary assignee gets "assigned to you"
         if (task.assignedToId && task.assignedToId !== userId) {
