@@ -170,6 +170,10 @@ export class TaskController {
           OR: [
             { assignedToId: userId },
             { createdById: userId },
+            // Tasks ordered by user (e.g. via Linda)
+            { orderedById: userId },
+            // Tasks where user is a co-assignee
+            { coAssigneeIds: { has: userId } },
             // Tasks in the same department
             ...(userDeptIds.length > 0
               ? [{ departmentId: { in: userDeptIds } }]
