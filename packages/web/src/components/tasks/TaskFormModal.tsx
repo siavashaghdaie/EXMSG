@@ -105,8 +105,8 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({
         lindaFollowing: editingTask.lindaFollowing || false,
         lindaFollowInterval: editingTask.lindaFollowInterval || 'daily',
         visibleToDepartmentIds: editingTask.visibleToDepartments?.map((d: any) => d.id) || [],
-        departmentId: editingTask.department?.id || '',
-        projectId: editingTask.project?.id || '',
+        departmentId: editingTask.department?.id || editingTask.departmentId || '',
+        projectId: editingTask.project?.id || editingTask.projectId || '',
         projectName: '',
       });
       if (editingTask.assignedTo) {

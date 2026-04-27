@@ -755,106 +755,108 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
     const tasks = showArchived ? allTasks.filter(t => t.archived) : allTasks.filter(t => !t.archived);
 
     return (
-      <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900">
-        <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-3 flex items-center gap-3">
-          <button onClick={() => { setViewMode('detail'); }} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"><ArrowLeft size={18} /></button>
-          <FolderKanban size={20} className="text-violet-600 dark:text-violet-400" />
-          <h1 className="text-lg font-bold text-slate-900 dark:text-white truncate flex-1">{selectedProject.name} — Board</h1>
-          <button onClick={() => { setSelectedProject(selectedProject); setViewMode('detail'); }} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition" title="Project Settings">
-            <Settings size={18} className="text-slate-500 dark:text-slate-400" />
-          </button>
-          <button onClick={() => setViewMode('roadmap')} className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium flex items-center gap-1.5 hover:bg-slate-200 dark:hover:bg-slate-600 transition">
-            <BarChart3 size={14} /> Roadmap
-          </button>
-          {selectedProject.conversationId && (
-            <button onClick={() => handleNavigateToChat(selectedProject.conversationId!)} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium flex items-center gap-1.5 hover:bg-green-700 transition">
-              <MessageSquare size={14} /> Chat
+      <>
+        <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900">
+          <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-3 flex items-center gap-3">
+            <button onClick={() => { setViewMode('detail'); }} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"><ArrowLeft size={18} /></button>
+            <FolderKanban size={20} className="text-violet-600 dark:text-violet-400" />
+            <h1 className="text-lg font-bold text-slate-900 dark:text-white truncate flex-1">{selectedProject.name} — Board</h1>
+            <button onClick={() => { setSelectedProject(selectedProject); setViewMode('detail'); }} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition" title="Project Settings">
+              <Settings size={18} className="text-slate-500 dark:text-slate-400" />
             </button>
-          )}
-          <button
-            onClick={() => setShowArchived(!showArchived)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1.5 transition ${showArchived
-              ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-              : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
-              }`}
-          >
-            <Archive size={14} /> {showArchived ? 'Showing Archived' : 'Archive'}
-          </button>
-        </div>
-        <div className="flex-1 overflow-x-auto p-4">
-          <div className="flex gap-4 min-w-max h-full">
-            {taskStatusGroups.map((status) => {
-              const columnTasks = tasks.filter((t: TaskData) => t.status === status);
-              return (
-                <div key={status} className={`w-72 rounded-xl p-3 ${taskStatusColors[status]} flex-shrink-0 flex flex-col`}>
-                  <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2">
-                    {taskStatusLabels[status]}
-                    <span className="text-xs bg-white/50 dark:bg-black/20 px-1.5 py-0.5 rounded">{columnTasks.length}</span>
-                  </h3>
-                  <div className="space-y-2 flex-1 overflow-y-auto">
-                    {columnTasks.map((task: TaskData) => (
-                      <TaskCard
-                        key={task.id}
-                        task={task}
-                        isMobile={false}
-                        currentUserId={user?.id || ''}
-                        onDelete={handleDeleteTask}
-                        onEdit={(t) => { setTaskFormEditingTask(t); setShowTaskFormModal(true); }}
-                        onStatusChange={(taskId, newStatus) => handleUpdateTask(taskId, { status: newStatus })}
-                        onReact={handleReactTask}
-                        onChatWithUser={handleChatWithUser}
-                        onNavigateToChat={handleNavigateToChat}
-                        onStartChat={async (taskId) => {
-                          try {
-                            const res = await api.createTaskConversation(taskId);
-                            if (res?.conversationId) {
-                              await refreshProject();
-                              window.dispatchEvent(new Event('conversations:refresh'));
-                              return res.conversationId;
-                            }
-                          } catch (err) {
-                            console.error('Failed to create task chat:', err);
-                            alert('Failed to create chat room');
-                          }
-                          return null;
-                        }}
-                        onAddAttachment={async (taskId, data) => {
-                          try {
-                            await api.addTaskAttachment(taskId, data);
-                            await refreshProject();
-                          } catch (err) { console.error('Add attachment error:', err); }
-                        }}
-                        onDeleteAttachment={async (taskId, attachmentId) => {
-                          try {
-                            await api.deleteTaskAttachment(taskId, attachmentId);
-                            await refreshProject();
-                          } catch (err) { console.error('Delete attachment error:', err); }
-                        }}
-                        onArchive={(taskId, archive) => handleArchiveTask(taskId, archive)}
-                      />
-                    ))}
-                    {columnTasks.length === 0 && <p className="text-xs text-slate-400 text-center py-4">No tasks</p>}
-                  </div>
-
-                  {/* Add task button */}
-                  {!showArchived && (
-                    <button
-                      onClick={() => {
-                        setTaskFormEditingTask(null);
-                        setTaskFormDefaultStatus(status);
-                        setShowTaskFormModal(true);
-                      }}
-                      className="mt-2 w-full py-2 text-xs text-slate-500 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-700/50 rounded-lg flex items-center justify-center gap-1 transition"
-                    >
-                      <Plus size={14} /> Add a card
-                    </button>
-                  )}
-                </div>
-              );
-            })}
+            <button onClick={() => setViewMode('roadmap')} className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium flex items-center gap-1.5 hover:bg-slate-200 dark:hover:bg-slate-600 transition">
+              <BarChart3 size={14} /> Roadmap
+            </button>
+            {selectedProject.conversationId && (
+              <button onClick={() => handleNavigateToChat(selectedProject.conversationId!)} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium flex items-center gap-1.5 hover:bg-green-700 transition">
+                <MessageSquare size={14} /> Chat
+              </button>
+            )}
+            <button
+              onClick={() => setShowArchived(!showArchived)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1.5 transition ${showArchived
+                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
+                }`}
+            >
+              <Archive size={14} /> {showArchived ? 'Showing Archived' : 'Archive'}
+            </button>
           </div>
+          <div className="flex-1 overflow-x-auto p-4">
+            <div className="flex gap-4 min-w-max h-full">
+              {taskStatusGroups.map((status) => {
+                const columnTasks = tasks.filter((t: TaskData) => t.status === status);
+                return (
+                  <div key={status} className={`w-72 rounded-xl p-3 ${taskStatusColors[status]} flex-shrink-0 flex flex-col`}>
+                    <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2">
+                      {taskStatusLabels[status]}
+                      <span className="text-xs bg-white/50 dark:bg-black/20 px-1.5 py-0.5 rounded">{columnTasks.length}</span>
+                    </h3>
+                    <div className="space-y-2 flex-1 overflow-y-auto">
+                      {columnTasks.map((task: TaskData) => (
+                        <TaskCard
+                          key={task.id}
+                          task={task}
+                          isMobile={false}
+                          currentUserId={user?.id || ''}
+                          onDelete={handleDeleteTask}
+                          onEdit={(t) => { setTaskFormEditingTask(t); setShowTaskFormModal(true); }}
+                          onStatusChange={(taskId, newStatus) => handleUpdateTask(taskId, { status: newStatus })}
+                          onReact={handleReactTask}
+                          onChatWithUser={handleChatWithUser}
+                          onNavigateToChat={handleNavigateToChat}
+                          onStartChat={async (taskId) => {
+                            try {
+                              const res = await api.createTaskConversation(taskId);
+                              if (res?.conversationId) {
+                                await refreshProject();
+                                window.dispatchEvent(new Event('conversations:refresh'));
+                                return res.conversationId;
+                              }
+                            } catch (err) {
+                              console.error('Failed to create task chat:', err);
+                              alert('Failed to create chat room');
+                            }
+                            return null;
+                          }}
+                          onAddAttachment={async (taskId, data) => {
+                            try {
+                              await api.addTaskAttachment(taskId, data);
+                              await refreshProject();
+                            } catch (err) { console.error('Add attachment error:', err); }
+                          }}
+                          onDeleteAttachment={async (taskId, attachmentId) => {
+                            try {
+                              await api.deleteTaskAttachment(taskId, attachmentId);
+                              await refreshProject();
+                            } catch (err) { console.error('Delete attachment error:', err); }
+                          }}
+                          onArchive={(taskId, archive) => handleArchiveTask(taskId, archive)}
+                        />
+                      ))}
+                      {columnTasks.length === 0 && <p className="text-xs text-slate-400 text-center py-4">No tasks</p>}
+                    </div>
+
+                    {/* Add task button */}
+                    {!showArchived && (
+                      <button
+                        onClick={() => {
+                          setTaskFormEditingTask(null);
+                          setTaskFormDefaultStatus(status);
+                          setShowTaskFormModal(true);
+                        }}
+                        className="mt-2 w-full py-2 text-xs text-slate-500 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-700/50 rounded-lg flex items-center justify-center gap-1 transition"
+                      >
+                        <Plus size={14} /> Add a card
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          {renderTaskDetailModal()}
         </div>
-        {renderTaskDetailModal()}
         <TaskFormModal
           visible={showTaskFormModal}
           onClose={() => { setShowTaskFormModal(false); setTaskFormEditingTask(null); }}
@@ -866,11 +868,11 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
           defaultProjectId={selectedProject?.id}
           defaultStatus={taskFormDefaultStatus}
         />
-      </div>
+      </>
     );
   }
 
-  // ─── Project Roadmap / Gantt View ──────────────────────────────────────────────
+  // ─── Project Roadmap / Gantt View (uses fragment so TaskFormModal renders outside view container) ──
   if (viewMode === 'roadmap' && selectedProject) {
     const allTasks = selectedProject.tasks || [];
     const activeTasks = allTasks.filter(t => !t.archived);
@@ -913,6 +915,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
     const rowHeight = 36;
 
     return (
+      <>
       <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900">
         <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-3 flex items-center gap-3">
           <button onClick={() => setViewMode('detail')} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"><ArrowLeft size={18} /></button>
@@ -1045,18 +1048,19 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
           </div>
         )}
         {renderTaskDetailModal()}
-        <TaskFormModal
-          visible={showTaskFormModal}
-          onClose={() => { setShowTaskFormModal(false); setTaskFormEditingTask(null); }}
-          onSave={async () => {
-            await refreshProject();
-            window.dispatchEvent(new Event('badges:refresh'));
-          }}
-          editingTask={taskFormEditingTask}
-          defaultProjectId={selectedProject?.id}
-          defaultStatus={taskFormDefaultStatus}
-        />
       </div>
+      <TaskFormModal
+        visible={showTaskFormModal}
+        onClose={() => { setShowTaskFormModal(false); setTaskFormEditingTask(null); }}
+        onSave={async () => {
+          await refreshProject();
+          window.dispatchEvent(new Event('badges:refresh'));
+        }}
+        editingTask={taskFormEditingTask}
+        defaultProjectId={selectedProject?.id}
+        defaultStatus={taskFormDefaultStatus}
+      />
+      </>
     );
   }
 
@@ -1301,6 +1305,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
 
   // ─── Project List View ────────────────────────────────────────────────
   return (
+    <>
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900">
       {/* Header */}
       <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-3 flex items-center gap-3 sticky top-0 z-10">
@@ -1497,19 +1502,20 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
           </div>
         )}
       </div>
-      {/* Task Form Modal for board view */}
-      <TaskFormModal
-        visible={showTaskFormModal}
-        onClose={() => { setShowTaskFormModal(false); setTaskFormEditingTask(null); }}
-        onSave={async () => {
-          await refreshProject();
-          window.dispatchEvent(new Event('badges:refresh'));
-        }}
-        editingTask={taskFormEditingTask}
-        defaultProjectId={selectedProject?.id}
-        defaultStatus={taskFormDefaultStatus}
-      />
     </div>
+    {/* Task Form Modal — rendered outside inner container for reliable z-index */}
+    <TaskFormModal
+      visible={showTaskFormModal}
+      onClose={() => { setShowTaskFormModal(false); setTaskFormEditingTask(null); }}
+      onSave={async () => {
+        await refreshProject();
+        window.dispatchEvent(new Event('badges:refresh'));
+      }}
+      editingTask={taskFormEditingTask}
+      defaultProjectId={selectedProject?.id}
+      defaultStatus={taskFormDefaultStatus}
+    />
+    </>
   );
 };
 
