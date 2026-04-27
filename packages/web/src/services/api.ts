@@ -1380,6 +1380,18 @@ class APIClient {
     const res = await this.client.post('/org-admin/profile/logo', formData);
     return res.data;
   }
+
+  // ==================== CALLS ====================
+
+  async getCallHistory(params?: { limit?: number; offset?: number }): Promise<{ calls: any[] }> {
+    const res = await this.client.get('/calls', { params });
+    return res.data;
+  }
+
+  async getCall(callId: string): Promise<{ call: any }> {
+    const res = await this.client.get(`/calls/${callId}`);
+    return res.data;
+  }
 }
 
 // Export singleton instance

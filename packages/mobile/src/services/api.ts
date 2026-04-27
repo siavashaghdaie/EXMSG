@@ -1408,6 +1408,18 @@ class APIClient {
     const res = await this.client.post(`/super-admin/users/${id}/reset-password`, { newPassword });
     return res.data;
   }
+
+  // ─── Calls ──────────────────────────────────────────────────────────────────
+
+  async getCallHistory(page = 1, limit = 30): Promise<any> {
+    const res = await this.client.get('/calls', { params: { page, limit } });
+    return res.data;
+  }
+
+  async getCall(callId: string): Promise<any> {
+    const res = await this.client.get(`/calls/${callId}`);
+    return res.data;
+  }
 }
 
 // Export singleton instance

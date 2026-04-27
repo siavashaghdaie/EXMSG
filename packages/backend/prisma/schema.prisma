@@ -105,6 +105,8 @@ model User {
   projectsCreated    Project[]        @relation("ProjectsCreated")
   projectsLead       Project[]        @relation("ProjectTeamLead")
   taskAttachments    TaskAttachment[] @relation("TaskAttachmentUploads")
+  callsMade          Call[]           @relation("CallsMade")
+  callsReceived      Call[]           @relation("CallsReceived")
 
   @@map("users")
 }
@@ -165,6 +167,7 @@ model Conversation {
   interPanelRequests InterPanelRequest[]
   linkedTask    Task?    @relation("TaskConversation")
   linkedProject Project? @relation("ProjectConversation")
+  calls         Call[]
 
   @@index([organizationId])
   @@map("conversations")
@@ -817,4 +820,27 @@ model InterPanelRequest {
   @@unique([senderOrgId, receiverOrgId]) // Only one request per pair
   @@index([receiverOrgId, status])
   @@map("inter_panel_requests")
+}
+
+/// A voice or video call between two users (1-on-1).
+model Call {
+  id             String    @id @default(uuid())
+  callerId       String    @map("caller_id")
+  calleeId       String    @map("callee_id")
+  conversationId String?   @map("conversation_id")
+  type           String    @default("audio") // "audio" | "video"
+  status         String    @default("RINGING") // "RINGING" | "ACTIVE" | "ENDED" | "MISSED" | "REJECTED" | "BUSY"
+  startedAt      DateTime? @map("started_at")  // When call was answered
+  endedAt        DateTime? @map("ended_at")    // When call ended
+  duration       Int?      // Duration in seconds
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  caller       User          @relation("CallsMade", fields: [callerId], references: [id], onDelete: Cascade)
+  callee       User          @relation("CallsReceived", fields: [calleeId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([callerId, createdAt])
+  @@index([calleeId, createdAt])
+  @@index([conversationId])
+  @@map("calls")
 }

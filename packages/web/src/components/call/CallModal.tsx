@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff } from 'lucide-react';
 import { callService } from '@/services/callService';
+import Avatar from '@/components/common/Avatar';
 
 export default function CallModal() {
   const [callState, setCallState] = useState(callService.getState());
@@ -47,91 +48,127 @@ export default function CallModal() {
   const isVideo = callState.callType === 'video';
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center">
-      <div className="bg-slate-900 rounded-2xl w-full max-w-md mx-4 overflow-hidden shadow-2xl">
-        {/* Header */}
-        <div className="p-6 text-center">
-          <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-slate-700 flex items-center justify-center text-3xl font-bold text-white">
-            {callState.remoteUserName?.charAt(0)?.toUpperCase() || '?'}
-          </div>
-          <h2 className="text-xl font-semibold text-white">
-            {callState.remoteUserName}
-          </h2>
-          <p className="text-slate-400 mt-1">
-            {isRinging && 'Incoming call...'}
-            {isCalling && 'Calling...'}
-            {isConnected && formatTime(elapsed)}
-          </p>
-          <p className="text-sm text-slate-500 mt-1">
-            {isVideo ? 'Video Call' : 'Voice Call'}
-          </p>
+    <div className="fixed inset-0 z-[100] bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+      {/* Full-screen video for connected video calls */}
+      {isVideo && isConnected && (
+        <div className="absolute inset-0">
+          <video
+            ref={remoteVideoRef}
+            autoPlay
+            playsInline
+            className="w-full h-full object-cover"
+          />
+          {/* Local video PiP */}
+          <video
+            ref={localVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className="absolute top-4 right-4 w-32 h-44 object-cover rounded-2xl border-2 border-white/30 shadow-lg"
+          />
         </div>
+      )}
 
-        {/* Video area */}
-        {isVideo && isConnected && (
-          <div className="relative bg-black aspect-video mx-4 rounded-lg overflow-hidden mb-4">
-            <video
-              ref={remoteVideoRef}
-              autoPlay
-              playsInline
-              className="w-full h-full object-cover"
-            />
-            <video
-              ref={localVideoRef}
-              autoPlay
-              playsInline
-              muted
-              className="absolute bottom-2 right-2 w-24 h-32 object-cover rounded-lg border-2 border-white/30"
-            />
+      {/* Overlay content */}
+      <div className={`relative z-10 text-center ${isVideo && isConnected ? 'mt-auto mb-32' : ''}`}>
+        {/* Avatar / Status - show when not in active video */}
+        {!(isVideo && isConnected) && (
+          <div className="mb-6">
+            {/* Animated ring for ringing state */}
+            <div className={`relative inline-block ${isRinging ? 'animate-pulse' : ''}`}>
+              {isRinging && (
+                <>
+                  <div className="absolute -inset-3 rounded-full border-2 border-green-400/40 animate-ping" />
+                  <div className="absolute -inset-6 rounded-full border border-green-400/20 animate-ping" style={{ animationDelay: '0.5s' }} />
+                </>
+              )}
+              {isCalling && (
+                <div className="absolute -inset-3 rounded-full border-2 border-blue-400/40 animate-ping" />
+              )}
+              <div className="relative">
+                <Avatar
+                  src={callState.remoteUserAvatar || undefined}
+                  name={callState.remoteUserName}
+                  size="xl"
+                  className="ring-4 ring-white/20"
+                />
+              </div>
+            </div>
           </div>
         )}
 
-        {/* Controls */}
-        <div className="p-6 flex items-center justify-center gap-4">
+        <h2 className="text-2xl font-semibold text-white drop-shadow-lg">
+          {callState.remoteUserName}
+        </h2>
+        <p className="text-white/70 mt-2 text-lg">
+          {isRinging && (isVideo ? '📹 Incoming Video Call...' : '📞 Incoming Voice Call...')}
+          {isCalling && 'Calling...'}
+          {isConnected && formatTime(elapsed)}
+        </p>
+        {!isConnected && (
+          <p className="text-white/40 text-sm mt-1">
+            {isVideo ? 'Video Call' : 'Voice Call'}
+          </p>
+        )}
+      </div>
+
+      {/* Audio-only: hidden audio element for remote stream */}
+      {!isVideo && isConnected && (
+        <audio ref={remoteVideoRef as any} autoPlay />
+      )}
+
+      {/* Controls bar */}
+      <div className="absolute bottom-0 left-0 right-0 pb-10 pt-6 bg-gradient-to-t from-black/60 to-transparent">
+        <div className="flex items-center justify-center gap-5">
           {isRinging ? (
             <>
               <button
                 onClick={() => callService.rejectCall()}
-                className="p-4 bg-red-500 text-white rounded-full hover:bg-red-600 transition"
+                className="p-5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-all shadow-lg shadow-red-500/30 active:scale-95"
+                title="Decline"
               >
-                <PhoneOff size={24} />
+                <PhoneOff size={28} />
               </button>
               <button
                 onClick={() => callService.acceptCall()}
-                className="p-4 bg-green-500 text-white rounded-full hover:bg-green-600 transition animate-pulse"
+                className="p-5 bg-green-500 text-white rounded-full hover:bg-green-600 transition-all shadow-lg shadow-green-500/30 active:scale-95 animate-bounce"
+                title="Accept"
               >
-                <Phone size={24} />
+                <Phone size={28} />
               </button>
             </>
           ) : (
             <>
               <button
                 onClick={() => callService.toggleMute()}
-                className={`p-3 rounded-full transition ${
+                className={`p-4 rounded-full transition-all active:scale-95 ${
                   callState.isMuted
-                    ? 'bg-red-500/20 text-red-400'
-                    : 'bg-slate-700 text-white hover:bg-slate-600'
+                    ? 'bg-red-500 text-white shadow-lg shadow-red-500/30'
+                    : 'bg-white/10 text-white hover:bg-white/20 backdrop-blur-sm'
                 }`}
+                title={callState.isMuted ? 'Unmute' : 'Mute'}
               >
-                {callState.isMuted ? <MicOff size={20} /> : <Mic size={20} />}
+                {callState.isMuted ? <MicOff size={22} /> : <Mic size={22} />}
               </button>
               {isVideo && (
                 <button
                   onClick={() => callService.toggleVideo()}
-                  className={`p-3 rounded-full transition ${
+                  className={`p-4 rounded-full transition-all active:scale-95 ${
                     callState.isVideoOff
-                      ? 'bg-red-500/20 text-red-400'
-                      : 'bg-slate-700 text-white hover:bg-slate-600'
+                      ? 'bg-red-500 text-white shadow-lg shadow-red-500/30'
+                      : 'bg-white/10 text-white hover:bg-white/20 backdrop-blur-sm'
                   }`}
+                  title={callState.isVideoOff ? 'Turn on camera' : 'Turn off camera'}
                 >
-                  {callState.isVideoOff ? <VideoOff size={20} /> : <Video size={20} />}
+                  {callState.isVideoOff ? <VideoOff size={22} /> : <Video size={22} />}
                 </button>
               )}
               <button
                 onClick={() => callService.endCall()}
-                className="p-4 bg-red-500 text-white rounded-full hover:bg-red-600 transition"
+                className="p-5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-all shadow-lg shadow-red-500/30 active:scale-95"
+                title="End call"
               >
-                <PhoneOff size={24} />
+                <PhoneOff size={28} />
               </button>
             </>
           )}

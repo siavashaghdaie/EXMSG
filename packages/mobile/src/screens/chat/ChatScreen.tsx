@@ -22,6 +22,7 @@ import { usePresenceStore } from '@/store/presenceStore';
 import { socket } from '@/services/socket';
 import { api } from '@/services/api';
 import { ChatStackParamList } from '@/navigation/ChatNavigator';
+import { callService } from '@/services/callService';
 
 type ChatRouteProp = RouteProp<ChatStackParamList, 'Chat'>;
 
@@ -552,6 +553,27 @@ export default function ChatScreen() {
   }, [conversations, conversationId, currentUser, isLinda]);
 
   const isOtherOnline = otherUserId ? onlineUsers.has(otherUserId) : false;
+
+  // Get other user details for call initiation
+  const otherUser = useMemo(() => {
+    if (isLinda || !currentUser) return null;
+    const conv = conversations.find((c: any) => c.id === conversationId);
+    if (!conv) return null;
+    const participants = (conv as any).participants || (conv as any).members || [];
+    if (participants.length !== 2) return null;
+    return participants.find((p: any) => p.id !== currentUser.id) || null;
+  }, [conversations, conversationId, currentUser, isLinda]);
+
+  const handleCall = (callType: 'audio' | 'video') => {
+    if (!otherUser) return;
+    callService.initiateCall(
+      conversationId,
+      otherUser.id,
+      otherUser.displayName || otherUser.username || name,
+      callType,
+      otherUser.avatar || otherUser.avatarUrl || null,
+    );
+  };
   const otherLastSeen = otherUserId && !isOtherOnline
     ? (lastSeenMap instanceof Map ? lastSeenMap.get(otherUserId) : undefined)
     : undefined;
@@ -611,6 +633,26 @@ export default function ChatScreen() {
           </View>
           {getHeaderSubtitle()}
         </View>
+
+        {/* Call buttons — only for DM chats (not Linda, not group) */}
+        {otherUser && !isLinda && (
+          <View style={styles.headerCallButtons}>
+            <TouchableOpacity
+              style={styles.headerCallBtn}
+              onPress={() => handleCall('audio')}
+              activeOpacity={0.6}
+            >
+              <Text style={styles.headerCallIcon}>📞</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.headerCallBtn}
+              onPress={() => handleCall('video')}
+              activeOpacity={0.6}
+            >
+              <Text style={styles.headerCallIcon}>📹</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
 
       <KeyboardAvoidingView
@@ -810,6 +852,9 @@ const styles = StyleSheet.create({
   headerStatus: { fontSize: 12, color: COLORS.green },
   headerStatusOffline: { fontSize: 12, color: COLORS.muted },
   headerStatusLinda: { fontSize: 12, color: COLORS.lindaPurple },
+  headerCallButtons: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 8 },
+  headerCallBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: COLORS.inputBg, justifyContent: 'center', alignItems: 'center' },
+  headerCallIcon: { fontSize: 18 },
   headerTyping: { fontSize: 12, color: COLORS.green, fontStyle: 'italic' },
 
   // Messages list

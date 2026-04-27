@@ -3,6 +3,7 @@ import { Text, StyleSheet } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import ChatNavigator from '@/navigation/ChatNavigator';
 import ContactsScreen from '@/screens/main/ContactsScreen';
+import CallsScreen from '@/screens/main/CallsScreen';
 import AgentsScreen from '@/screens/main/AgentsScreen';
 import TasksScreen from '@/screens/main/TasksScreen';
 import ProjectsScreen from '@/screens/main/ProjectsScreen';
@@ -10,6 +11,7 @@ import SettingsScreen from '@/screens/main/SettingsScreen';
 
 export type MainTabParamList = {
   Chats: undefined;
+  Calls: undefined;
   Contacts: undefined;
   Agents: undefined;
   Tasks: undefined;
@@ -48,6 +50,15 @@ export default function MainNavigator() {
         options={{
           tabBarIcon: ({ focused }) => (
             <TabIcon label="💬" focused={focused} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Calls"
+        component={CallsScreen}
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon label="📞" focused={focused} />
           ),
         }}
       />

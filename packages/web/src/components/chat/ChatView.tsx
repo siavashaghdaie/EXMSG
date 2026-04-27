@@ -445,30 +445,34 @@ export default function ChatView() {
                 if (conversation) {
                   const otherParticipants = conversation.participants.filter(p => p.id !== user?.id);
                   if (otherParticipants.length > 0) {
+                    const target = otherParticipants[0];
                     callService.initiateCall(
                       conversationId!,
-                      otherParticipants[0].id,
-                      otherParticipants[0].username,
-                      'audio'
+                      target.id,
+                      target.displayName || target.username,
+                      'audio',
+                      target.avatar
                     );
                   }
                 }
               }}
-              className="p-1.5 sm:p-2 hover:bg-slate-100 rounded-lg transition"
+              className="p-1.5 sm:p-2 hover:bg-slate-100 dark:hover:bg-surface-700 rounded-lg transition"
               title="Voice call"
             >
-              <Phone size={18} className="text-slate-600" />
+              <Phone size={18} className="text-slate-600 dark:text-slate-300" />
             </button>
             <button
               onClick={() => {
                 if (conversation) {
                   const otherParticipants = conversation.participants.filter(p => p.id !== user?.id);
                   if (otherParticipants.length > 0) {
+                    const target = otherParticipants[0];
                     callService.initiateCall(
                       conversationId!,
-                      otherParticipants[0].id,
-                      otherParticipants[0].username,
-                      'video'
+                      target.id,
+                      target.displayName || target.username,
+                      'video',
+                      target.avatar
                     );
                   }
                 }

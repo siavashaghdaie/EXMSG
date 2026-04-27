@@ -21,6 +21,7 @@ import { announcementRoutes } from './modules/announcements/announcement.routes'
 import { interPanelRoutes } from './modules/inter-panel/interPanel.routes';
 import { projectRoutes } from './modules/projects/project.routes';
 import { checklistRoutes } from './modules/checklists/checklist.routes';
+import { callRoutes } from './modules/calls/call.routes';
 import { initializeLinda } from './modules/linda/linda.controller';
 import { startTaskReminderJob } from './modules/tasks/taskReminder';
 import { resolveOrganization } from './middleware/orgScope';
@@ -76,6 +77,7 @@ async function bootstrap() {
   app.use('/api', taskRoutes);
   app.use('/api', projectRoutes);
   app.use('/api', checklistRoutes);
+  app.use('/api', callRoutes);
   app.use('/api', adminRoutes);
   // IMPORTANT: orgAdminRoutes MUST be scoped to /api/org-admin so its
   // router.use(requireOrgAdmin) middleware does not leak to subsequent
