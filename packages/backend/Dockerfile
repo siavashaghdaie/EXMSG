@@ -64,6 +64,10 @@ COPY --from=builder /app/package.json ./
 # Re-generate Prisma client for Debian (different platform than Alpine builder)
 RUN npx prisma generate --schema=packages/backend/prisma/schema.prisma
 
+# Copy entrypoint script
+COPY packages/backend/docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
 # Create uploads directories and set ownership
 RUN mkdir -p /app/uploads/avatars && \
     chown -R nodejs:nodejs /app
@@ -76,4 +80,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 EXPOSE 3001
 
-CMD ["node", "packages/backend/dist/index.js"]
+CMD ["/app/docker-entrypoint.sh"]
