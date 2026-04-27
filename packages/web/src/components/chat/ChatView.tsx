@@ -12,7 +12,6 @@ import BuzzButton from './BuzzButton';
 import BuzzOverlay from './BuzzOverlay';
 import Avatar from '@/components/common/Avatar';
 import StoryViewerModal from '@/components/common/StoryViewerModal';
-import CallModal from '@/components/call/CallModal';
 import PresenceIndicator from '@/components/common/PresenceIndicator';
 import { callService } from '@/services/callService';
 
@@ -748,9 +747,6 @@ export default function ChatView() {
           onComplete={() => {}}
         />
       )}
-
-      {/* Call Modal */}
-      <CallModal />
 
       {/* Story Viewer Modal */}
       {showStoryViewer && storyViewUserId && (

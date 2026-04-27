@@ -210,6 +210,30 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
       }
     });
 
+    // --- Helper: create a SYSTEM message in a conversation and broadcast it ---
+    async function postCallSystemMessage(conversationId: string | null, senderId: string, content: string) {
+      if (!conversationId) return;
+      try {
+        const msg = await prisma.message.create({
+          data: {
+            conversationId,
+            senderId,
+            content,
+            type: 'SYSTEM',
+          },
+          include: { sender: { select: { id: true, username: true, displayName: true, avatarUrl: true } } },
+        });
+        io.to(`conversation:${conversationId}`).emit('message:new', msg);
+        // Also update conversation's last message timestamp
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: { lastMessageAt: new Date() },
+        });
+      } catch (err) {
+        console.error('[Call] Failed to post system message:', err);
+      }
+    }
+
     // --- WEBRTC CALL SIGNALING (with DB tracking) ---
 
     // Initiate a call — creates a Call record and rings the target
@@ -266,6 +290,11 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
               io.to(`user:${userId}`).emit('call:missed', { callId: call.id, targetUserId: data.targetUserId });
               io.to(`user:${data.targetUserId}`).emit('call:expired', { callId: call.id });
 
+              // Post "Missed call" system message in the conversation
+              const callerName = caller?.displayName || caller?.username || 'Someone';
+              const callTypeEmoji = data.callType === 'video' ? '📹' : '📞';
+              await postCallSystemMessage(data.conversationId, userId, `${callTypeEmoji} Missed ${data.callType} call from ${callerName}`);
+
               // Linda missed-call notification
               try {
                 const { sendLindaDM } = await import('./lindaNotify');
@@ -310,6 +339,7 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
     // Reject a call
     socket.on('call:reject', async (data: { callId: string; targetUserId: string; reason?: string }) => {
       try {
+        const call = await (prisma as any).call.findUnique({ where: { id: data.callId } });
         await (prisma as any).call.update({
           where: { id: data.callId },
           data: { status: data.reason === 'busy' ? 'BUSY' : 'REJECTED', endedAt: new Date() },
@@ -319,6 +349,13 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
           rejecterId: userId,
           reason: data.reason || 'declined',
         });
+
+        // Post system message in conversation
+        if (call?.conversationId) {
+          const callTypeEmoji = call.type === 'video' ? '📹' : '📞';
+          const reasonText = data.reason === 'busy' ? 'User was busy' : 'Call declined';
+          await postCallSystemMessage(call.conversationId, userId, `${callTypeEmoji} ${reasonText}`);
+        }
       } catch (err) {
         console.error('[Call] Reject error:', err);
       }
@@ -328,8 +365,9 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
     socket.on('call:end', async (data: { callId: string; targetUserId: string }) => {
       try {
         const call = await (prisma as any).call.findUnique({ where: { id: data.callId } });
+        let duration = 0;
         if (call) {
-          const duration = call.startedAt ? Math.round((Date.now() - new Date(call.startedAt).getTime()) / 1000) : 0;
+          duration = call.startedAt ? Math.round((Date.now() - new Date(call.startedAt).getTime()) / 1000) : 0;
           await (prisma as any).call.update({
             where: { id: data.callId },
             data: { status: 'ENDED', endedAt: new Date(), duration },
@@ -339,6 +377,19 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
           callId: data.callId,
           enderId: userId,
         });
+
+        // Post system message with call duration
+        if (call?.conversationId) {
+          const callTypeEmoji = call.type === 'video' ? '📹' : '📞';
+          if (duration > 0) {
+            const mins = Math.floor(duration / 60);
+            const secs = duration % 60;
+            const durationStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+            await postCallSystemMessage(call.conversationId, userId, `${callTypeEmoji} ${call.type === 'video' ? 'Video' : 'Voice'} call · ${durationStr}`);
+          } else {
+            await postCallSystemMessage(call.conversationId, userId, `${callTypeEmoji} Call ended`);
+          }
+        }
       } catch (err) {
         console.error('[Call] End error:', err);
       }

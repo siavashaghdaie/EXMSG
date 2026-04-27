@@ -203,6 +203,17 @@ export default function MessageBubble({
     );
   }
 
+  // Render SYSTEM messages (calls, etc.) as centered info messages
+  if (message.type === 'SYSTEM') {
+    return (
+      <div className="flex justify-center my-2">
+        <div className="px-4 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded-full text-xs font-medium">
+          {message.content}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={bubbleRef}

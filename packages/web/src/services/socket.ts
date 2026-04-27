@@ -236,7 +236,10 @@ class SocketService {
       this.socket.disconnect();
     }
     this.socket = null;
-    this.eventListeners.clear();
+    // NOTE: Do NOT clear eventListeners here.
+    // Services like callService register listeners once in their constructor.
+    // Clearing here would permanently break them after logout/reconnect
+    // since they won't re-register. Listeners are managed by individual services.
   }
 
   /**

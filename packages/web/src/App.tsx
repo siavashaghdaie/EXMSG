@@ -15,6 +15,7 @@ import { SuperAdminLogin } from '@/components/super-admin/SuperAdminLogin';
 import SuperAdminLayout from '@/components/super-admin/SuperAdminLayout';
 import ChatLayout from '@/components/layout/ChatLayout';
 import ChatView from '@/components/chat/ChatView';
+import CallModal from '@/components/call/CallModal';
 
 function App() {
   const { checkAuth, isAuthenticated, hasCheckedAuth } = useAuthStore();
@@ -52,6 +53,10 @@ function App() {
   }
 
   return (
+    <>
+    {/* Global call overlay — always mounted when authenticated */}
+    {isAuthenticated && <CallModal />}
+
     <Routes>
       {/* Super Admin routes — obscured path for security */}
       <Route
@@ -109,6 +114,7 @@ function App() {
       {/* Catch-all redirect */}
       <Route path="*" element={<Navigate to={isAuthenticated ? '/chat' : '/'} replace />} />
     </Routes>
+    </>
   );
 }
 
