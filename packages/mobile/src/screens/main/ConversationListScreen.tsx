@@ -86,6 +86,8 @@ function formatLastSeen(dateStr: string | undefined): string {
   return `Last seen ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
 }
 
+type ConvCategory = 'all' | 'dms' | 'tasks' | 'projects' | 'groups';
+
 interface ConversationItemData {
   id: string;
   name: string;
@@ -101,6 +103,9 @@ interface ConversationItemData {
   isLinda: boolean;
   otherUserId: string | null;
   lastSeen: string | undefined;
+  category: ConvCategory;
+  isTaskChat: boolean;
+  isProjectChat: boolean;
 }
 
 export default function ConversationListScreen() {
@@ -110,6 +115,7 @@ export default function ConversationListScreen() {
   const lastSeenMap = usePresenceStore((s) => s.lastSeen);
   const currentUser = useAuthStore((s) => s.user);
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<ConvCategory>('all');
   const [refreshing, setRefreshing] = useState(false);
 
   // New chat modal state
@@ -255,6 +261,13 @@ export default function ConversationListScreen() {
         ? (lastSeenMap instanceof Map ? lastSeenMap.get(otherUser.id) : undefined)
         : undefined;
 
+      const isTaskChat = !!conv.linkedTask;
+      const isProjectChat = !!conv.linkedProject;
+      let category: ConvCategory = 'dms';
+      if (isTaskChat) category = 'tasks';
+      else if (isProjectChat) category = 'projects';
+      else if (!isDm) category = 'groups';
+
       return {
         id: conv.id,
         name: displayName,
@@ -270,17 +283,25 @@ export default function ConversationListScreen() {
         isLinda,
         otherUserId: otherUser?.id || null,
         lastSeen,
+        category,
+        isTaskChat,
+        isProjectChat,
       };
     });
   }, [conversations, currentUser, typingIndicators, unreadCounts, onlineUsers, lastSeenMap]);
 
   const filtered = useMemo(() => {
-    if (!searchQuery.trim()) return conversationItems;
+    let items = conversationItems;
+    // Apply tab filter
+    if (activeTab !== 'all') {
+      items = items.filter((c) => c.category === activeTab);
+    }
+    if (!searchQuery.trim()) return items;
     const q = searchQuery.toLowerCase();
-    return conversationItems.filter((c) =>
+    return items.filter((c) =>
       c.name.toLowerCase().includes(q) || c.lastMessage.toLowerCase().includes(q)
     );
-  }, [conversationItems, searchQuery]);
+  }, [conversationItems, searchQuery, activeTab]);
 
   const handlePress = (item: ConversationItemData) => {
     navigation.navigate('Chat', {
@@ -343,6 +364,16 @@ export default function ConversationListScreen() {
             {item.isLinda && (
               <View style={styles.aiBadge}>
                 <Text style={styles.aiBadgeText}>AI</Text>
+              </View>
+            )}
+            {item.isTaskChat && (
+              <View style={[styles.aiBadge, { backgroundColor: '#FEF3C7' }]}>
+                <Text style={[styles.aiBadgeText, { color: '#D97706' }]}>Task</Text>
+              </View>
+            )}
+            {item.isProjectChat && (
+              <View style={[styles.aiBadge, { backgroundColor: '#DBEAFE' }]}>
+                <Text style={[styles.aiBadgeText, { color: '#2563EB' }]}>Project</Text>
               </View>
             )}
           </View>
@@ -479,6 +510,35 @@ export default function ConversationListScreen() {
           onChangeText={setSearchQuery}
           autoCorrect={false}
         />
+      </View>
+
+      {/* Category Tabs */}
+      <View style={styles.tabsContainer}>
+        {([
+          { key: 'all' as ConvCategory, label: 'All' },
+          { key: 'dms' as ConvCategory, label: 'DMs' },
+          { key: 'tasks' as ConvCategory, label: 'Tasks' },
+          { key: 'projects' as ConvCategory, label: 'Projects' },
+          { key: 'groups' as ConvCategory, label: 'Groups' },
+        ]).map(({ key, label }) => (
+          <TouchableOpacity
+            key={key}
+            onPress={() => setActiveTab(key)}
+            style={[
+              styles.tabButton,
+              activeTab === key && styles.tabButtonActive,
+            ]}
+          >
+            <Text
+              style={[
+                styles.tabText,
+                activeTab === key && styles.tabTextActive,
+              ]}
+            >
+              {label}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
       {/* Conversation List */}
@@ -760,6 +820,31 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontSize: 16,
     color: COLORS.text,
+  },
+
+  // Category tabs
+  tabsContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingBottom: 8,
+    gap: 6,
+  },
+  tabButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: COLORS.inputBg,
+  },
+  tabButtonActive: {
+    backgroundColor: COLORS.primary,
+  },
+  tabText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.secondary,
+  },
+  tabTextActive: {
+    color: COLORS.white,
   },
 
   // Conversation item

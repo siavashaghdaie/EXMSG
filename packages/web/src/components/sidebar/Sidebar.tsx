@@ -40,6 +40,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navigate = useNavigate();
   const { conversationId } = useParams<{ conversationId?: string }>();
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<'all' | 'dms' | 'tasks' | 'projects' | 'groups'>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
 
@@ -192,6 +193,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setShowStoryCreation(true);
   };
 
+  // Helper to determine conversation category
+  const getConvCategory = (conv: any): 'dms' | 'tasks' | 'projects' | 'groups' => {
+    if (conv.linkedTask) return 'tasks';
+    if (conv.linkedProject) return 'projects';
+    if (conv.type === 'DIRECT' || conv.participants.length <= 2) return 'dms';
+    return 'groups';
+  };
+
   // Sort conversations by most recent activity, then filter by search query
   const sortedConversations = [...conversations].sort((a, b) => {
     const aTime = a.lastMessage?.createdAt || a.updatedAt || a.createdAt;
@@ -199,7 +208,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return new Date(bTime).getTime() - new Date(aTime).getTime();
   });
 
+  // Category counts for tab badges
+  const categoryCounts = sortedConversations.reduce((acc, conv) => {
+    const cat = getConvCategory(conv);
+    const unread = unreadCounts.get(conv.id) ?? conv.unreadCount ?? 0;
+    if (unread > 0) acc[cat] = (acc[cat] || 0) + unread;
+    return acc;
+  }, {} as Record<string, number>);
+
   const filteredConversations = sortedConversations.filter((conv) => {
+    // Apply tab filter
+    if (activeTab !== 'all' && getConvCategory(conv) !== activeTab) return false;
+
     if (!searchQuery.trim()) return true;
     const query = searchQuery.toLowerCase();
 
@@ -547,7 +567,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Search bar */}
-        <div className="px-4 py-3 flex-shrink-0">
+        <div className="px-4 py-3 pb-0 flex-shrink-0">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
@@ -557,6 +577,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
               placeholder="Search conversations..."
               className="w-full pl-9 pr-3 py-2 border border-gray-300 dark:border-surface-700 rounded-lg bg-gray-50 dark:bg-surface-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 transition-colors"
             />
+          </div>
+        </div>
+
+        {/* Category Tabs */}
+        <div className="px-3 pt-2 pb-1 flex-shrink-0">
+          <div className="flex gap-1 overflow-x-auto no-scrollbar">
+            {([
+              { key: 'all', label: 'All' },
+              { key: 'dms', label: 'DMs' },
+              { key: 'tasks', label: 'Tasks' },
+              { key: 'projects', label: 'Projects' },
+              { key: 'groups', label: 'Groups' },
+            ] as const).map(({ key, label }) => {
+              const isActive = activeTab === key;
+              const count = key === 'all' ? 0 : (categoryCounts[key] || 0);
+              return (
+                <button
+                  key={key}
+                  onClick={() => setActiveTab(key)}
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
+                    isActive
+                      ? 'bg-primary-600 dark:bg-primary-500 text-white shadow-sm'
+                      : 'bg-gray-100 dark:bg-surface-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-surface-700'
+                  }`}
+                >
+                  {label}
+                  {count > 0 && !isActive && (
+                    <span className="ml-1.5 inline-flex items-center justify-center min-w-[16px] h-[16px] bg-red-500 text-white text-[9px] font-bold rounded-full px-1 leading-none">
+                      {count > 9 ? '9+' : count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
 

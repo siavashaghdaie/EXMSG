@@ -154,6 +154,7 @@ interface MessageResponse {
 interface ConversationResponse {
   id: string;
   name?: string;
+  type?: 'DIRECT' | 'GROUP' | 'CHANNEL';
   participants: Array<{
     id: string;
     email: string;
@@ -163,6 +164,8 @@ interface ConversationResponse {
   }>;
   lastMessage?: MessageResponse;
   unreadCount: number;
+  linkedTask?: { id: string; title: string } | null;
+  linkedProject?: { id: string; name: string } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -561,9 +564,12 @@ class APIClient {
     return {
       id: conv.id,
       name: conv.name || undefined,
+      type: conv.type || undefined,
       participants,
       lastMessage,
       unreadCount: conv.unreadCount || 0,
+      linkedTask: conv.linkedTask || null,
+      linkedProject: conv.linkedProject || null,
       createdAt: conv.createdAt,
       updatedAt: conv.updatedAt,
     };

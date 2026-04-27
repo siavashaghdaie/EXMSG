@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { Trash2, Archive, VolumeX, Pin, Sparkles } from 'lucide-react';
+import { Trash2, Archive, VolumeX, Pin, Sparkles, ClipboardList, FolderKanban, Users } from 'lucide-react';
 import { ConversationResponse } from '@/services/api';
 import Avatar from '@/components/common/Avatar';
 import { useAuthStore } from '@/store/authStore';
@@ -237,6 +237,24 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
                   <div className="flex items-center gap-0.5 px-1.5 py-0.5 bg-violet-100 dark:bg-violet-900/30 rounded-full flex-shrink-0">
                     <Sparkles size={10} className="text-violet-600 dark:text-violet-400" />
                     <span className="text-[10px] font-medium text-violet-600 dark:text-violet-400">AI</span>
+                  </div>
+                )}
+                {conversation.linkedTask && (
+                  <div className="flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 rounded-full flex-shrink-0">
+                    <ClipboardList size={10} className="text-amber-600 dark:text-amber-400" />
+                    <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400">Task</span>
+                  </div>
+                )}
+                {conversation.linkedProject && (
+                  <div className="flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 rounded-full flex-shrink-0">
+                    <FolderKanban size={10} className="text-blue-600 dark:text-blue-400" />
+                    <span className="text-[10px] font-medium text-blue-600 dark:text-blue-400">Project</span>
+                  </div>
+                )}
+                {!isLindaConversation && !conversation.linkedTask && !conversation.linkedProject && conversation.participants.length > 2 && (
+                  <div className="flex items-center gap-0.5 px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 rounded-full flex-shrink-0">
+                    <Users size={10} className="text-green-600 dark:text-green-400" />
+                    <span className="text-[10px] font-medium text-green-600 dark:text-green-400">Group</span>
                   </div>
                 )}
               </div>

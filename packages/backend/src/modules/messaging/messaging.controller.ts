@@ -52,6 +52,12 @@ export class MessagingController {
               sender: { select: { id: true, displayName: true } },
             },
           },
+          linkedTask: {
+            select: { id: true, title: true },
+          },
+          linkedProject: {
+            select: { id: true, name: true },
+          },
         },
         orderBy: { updatedAt: 'desc' },
       });
