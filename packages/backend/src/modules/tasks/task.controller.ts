@@ -385,13 +385,47 @@ export class TaskController {
           console.error('[Tasks] Linda room announcement error:', err);
         });
 
-        // Send Linda DM to all related users (except creator) about the new task assignment
-        const allRelated = getAllTaskRelatedUserIds({ ...task, coAssigneeIds: coAssigneeIds || [], checklists: taskWithChecklists?.checklists || [] }, userId);
-        const dmMsg = `⚠️ **New Task Assignment**\n\n**${title}**\n\nYou have been added to this task by ${creatorName}.\n\nCheck the Task Wall for details.`;
-        for (const uid of allRelated) {
-          sendLindaDM(uid, dmMsg).catch(err => {
-            console.error(`[Tasks] Linda DM assignment error for user ${uid}:`, err);
+        // Send role-specific Linda DMs to related users (except creator)
+        const coAssigneeSet = new Set(coAssigneeIds || []);
+
+        // Primary assignee gets "assigned to you"
+        if (task.assignedToId && task.assignedToId !== userId) {
+          const assigneeMsg = `📋 **New Task Assigned to You**\n\n**${title}**\n\nYou have been assigned this task by ${creatorName}.\n\nCheck the Task Wall for details.`;
+          sendLindaDM(task.assignedToId, assigneeMsg).catch(err => {
+            console.error(`[Tasks] Linda DM assignee error for user ${task.assignedToId}:`, err);
           });
+        }
+
+        // Co-assignees get "added as co-assignee"
+        for (const coId of coAssigneeSet) {
+          if (coId !== userId && coId !== task.assignedToId) {
+            const coMsg = `📋 **Added as Co-Assignee**\n\n**${title}**\n\nYou have been added as a co-assignee on this task by ${creatorName}.\n\nCheck the Task Wall for details.`;
+            sendLindaDM(coId, coMsg).catch(err => {
+              console.error(`[Tasks] Linda DM co-assignee error for user ${coId}:`, err);
+            });
+          }
+        }
+
+        // Checklist item assignees get "assigned to checklist item"
+        if (taskWithChecklists?.checklists) {
+          const notified = new Set<string>([userId, task.assignedToId, ...coAssigneeSet].filter(Boolean) as string[]);
+          for (const cl of taskWithChecklists.checklists) {
+            if (Array.isArray(cl.items)) {
+              for (const item of cl.items) {
+                if (Array.isArray(item.assigneeIds)) {
+                  for (const aId of item.assigneeIds) {
+                    if (!notified.has(aId)) {
+                      notified.add(aId);
+                      const clMsg = `📋 **Checklist Item Assignment**\n\n**${title}**\n\nYou have been assigned to a checklist item on this task by ${creatorName}.\n\nCheck the Task Wall for details.`;
+                      sendLindaDM(aId, clMsg).catch(err => {
+                        console.error(`[Tasks] Linda DM checklist assignee error for user ${aId}:`, err);
+                      });
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       } catch (convErr) {
         console.error('Auto-create task conversation error:', convErr);
