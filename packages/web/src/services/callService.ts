@@ -59,6 +59,7 @@ class CallService {
   private listeners: Set<CallStateListener> = new Set();
   private pendingOffer: RTCSessionDescriptionInit | null = null;
   private isCaller: boolean = false;
+  private callerReadyToOffer: boolean = false;
 
   private state: CallState = {
     status: 'idle',
@@ -76,7 +77,21 @@ class CallService {
   private iceServers: RTCIceServer[] = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
+    // Free TURN relay for NAT traversal in production
+    {
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turn:openrelay.metered.ca:443?transport=tcp',
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:relay1.expressturn.com:3478',
+      username: 'efQ3OIYQZ0DLJIPMAW',
+      credential: 'c0Q0NhJENDSoTcJN',
+    },
   ];
 
   constructor() {
@@ -361,20 +376,18 @@ class CallService {
     };
 
     this.peerConnection.onnegotiationneeded = async () => {
-      // Only the CALLER creates offers — callee must never create offers
-      // (callee's onnegotiationneeded fires after addTrack but they respond with answers, not offers)
-      if (!this.isCaller) return;
-      if (this.state.status === 'calling' || this.state.status === 'connected') {
-        try {
-          const offer = await this.peerConnection!.createOffer();
-          await this.peerConnection!.setLocalDescription(offer);
-          socket.getSocket()?.emit('call:offer', {
-            targetUserId: this.state.remoteUserId,
-            offer: this.peerConnection!.localDescription,
-          });
-        } catch (e) {
-          console.error('[Call] Negotiation error:', e);
-        }
+      // Only the CALLER creates offers, and only AFTER the callee has accepted
+      // (onnegotiationneeded fires on addTrack, but we must wait for acceptance first)
+      if (!this.isCaller || !this.callerReadyToOffer) return;
+      try {
+        const offer = await this.peerConnection!.createOffer();
+        await this.peerConnection!.setLocalDescription(offer);
+        socket.getSocket()?.emit('call:offer', {
+          targetUserId: this.state.remoteUserId,
+          offer: this.peerConnection!.localDescription,
+        });
+      } catch (e) {
+        console.error('[Call] Negotiation error:', e);
       }
     };
 
@@ -410,17 +423,32 @@ class CallService {
     });
   }
 
-  private handleCallAccepted(_data: any) {
+  private async handleCallAccepted(_data: any) {
     stopRingtone();
     this.updateState({ status: 'connected', startTime: Date.now() });
 
-    // The callee accepted — the onnegotiationneeded handler will fire
-    // when we add tracks, creating and sending the offer automatically
+    // The callee accepted — NOW we can send the SDP offer
+    // onnegotiationneeded already fired (when we added tracks) but was suppressed.
+    // Manually create and send the offer now.
+    this.callerReadyToOffer = true;
+    if (this.peerConnection) {
+      try {
+        const offer = await this.peerConnection.createOffer();
+        await this.peerConnection.setLocalDescription(offer);
+        socket.getSocket()?.emit('call:offer', {
+          targetUserId: this.state.remoteUserId,
+          offer: this.peerConnection.localDescription,
+        });
+      } catch (e) {
+        console.error('[Call] Failed to create offer after acceptance:', e);
+      }
+    }
   }
 
   private cleanup() {
     stopRingtone();
     this.isCaller = false;
+    this.callerReadyToOffer = false;
     this.pendingOffer = null;
     this.localStream?.getTracks().forEach(t => t.stop());
     this.localStream = null;
