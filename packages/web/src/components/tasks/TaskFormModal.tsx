@@ -524,7 +524,7 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({
           )}
 
           {/* Project */}
-          {!defaultProjectId && (
+          {(!defaultProjectId || editingTask) && (
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Project</label>
               {projects.length > 0 ? (

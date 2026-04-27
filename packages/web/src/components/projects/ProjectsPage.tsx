@@ -855,6 +855,17 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
           </div>
         </div>
         {renderTaskDetailModal()}
+        <TaskFormModal
+          visible={showTaskFormModal}
+          onClose={() => { setShowTaskFormModal(false); setTaskFormEditingTask(null); }}
+          onSave={async () => {
+            await refreshProject();
+            window.dispatchEvent(new Event('badges:refresh'));
+          }}
+          editingTask={taskFormEditingTask}
+          defaultProjectId={selectedProject?.id}
+          defaultStatus={taskFormDefaultStatus}
+        />
       </div>
     );
   }
@@ -1034,6 +1045,17 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
           </div>
         )}
         {renderTaskDetailModal()}
+        <TaskFormModal
+          visible={showTaskFormModal}
+          onClose={() => { setShowTaskFormModal(false); setTaskFormEditingTask(null); }}
+          onSave={async () => {
+            await refreshProject();
+            window.dispatchEvent(new Event('badges:refresh'));
+          }}
+          editingTask={taskFormEditingTask}
+          defaultProjectId={selectedProject?.id}
+          defaultStatus={taskFormDefaultStatus}
+        />
       </div>
     );
   }
