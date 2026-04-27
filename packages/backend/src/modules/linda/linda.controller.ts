@@ -4,6 +4,7 @@ import { prisma } from '../../config/database';
 import { env } from '../../config/env';
 import { emitToConversation, getIO, registerLindaBotUserId } from '../../services/socket';
 import { processFile, buildClaudeContentForFile, isMultimodalContent } from './fileProcessor';
+import { getLindaBotUserId as getSharedLindaBotUserId } from '../../services/lindaNotify';
 
 // Type-safe accessors for new Prisma models (available after running `npx prisma generate`)
 const db = prisma as any;
@@ -28,22 +29,9 @@ const LINDA_EMAIL = 'linda@omnilink.system';
 
 async function getLindaBotUserId(): Promise<string> {
   if (lindaBotUserId) return lindaBotUserId;
-  let lindaUser = await prisma.user.findFirst({ where: { email: LINDA_EMAIL }, select: { id: true } });
-  if (!lindaUser) {
-    const bcrypt = await import('bcryptjs');
-    const hash = await bcrypt.hash(`linda-bot-${Date.now()}-${Math.random()}`, 10);
-    lindaUser = await prisma.user.create({
-      data: {
-        email: LINDA_EMAIL, username: 'linda', displayName: 'Linda AI',
-        passwordHash: hash, bio: 'AI Coordinator', isOnline: true,
-        status: 'Always here to help!',
-      },
-      select: { id: true },
-    });
-    console.log('[Linda] Created bot user:', lindaUser.id);
-  }
-  await prisma.user.update({ where: { id: lindaUser.id }, data: { isOnline: true } }).catch(() => {});
-  lindaBotUserId = lindaUser.id;
+  const id = await getSharedLindaBotUserId();
+  await prisma.user.update({ where: { id }, data: { isOnline: true } }).catch(() => {});
+  lindaBotUserId = id;
   return lindaBotUserId!;
 }
 

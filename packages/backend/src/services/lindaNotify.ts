@@ -7,27 +7,41 @@ import { emitToConversation } from './socket';
 
 const LINDA_EMAIL = 'linda@omnilink.system';
 
-/** Get (or create) the Linda bot user ID */
+/** Get (or create) the Linda bot user ID — handles race conditions gracefully */
 export async function getLindaBotUserId(): Promise<string> {
   let lindaUser = await prisma.user.findFirst({
     where: { email: LINDA_EMAIL },
     select: { id: true },
   });
   if (!lindaUser) {
-    const bcrypt = await import('bcryptjs');
-    const hash = await bcrypt.hash(`linda-bot-${Date.now()}-${Math.random()}`, 10);
-    lindaUser = await prisma.user.create({
-      data: {
-        email: LINDA_EMAIL,
-        username: 'linda',
-        displayName: 'Linda AI',
-        passwordHash: hash,
-        bio: 'AI Coordinator',
-        isOnline: true,
-        status: 'Always here to help!',
-      },
-      select: { id: true },
-    });
+    try {
+      const bcrypt = await import('bcryptjs');
+      const hash = await bcrypt.hash(`linda-bot-${Date.now()}-${Math.random()}`, 10);
+      lindaUser = await prisma.user.create({
+        data: {
+          email: LINDA_EMAIL,
+          username: 'linda',
+          displayName: 'Linda AI',
+          passwordHash: hash,
+          bio: 'Hi! I\'m Linda, your AI assistant. I can help you with tasks, documents, and more.',
+          isOnline: true,
+          status: 'Always here to help!',
+          emailVerified: true,
+        },
+        select: { id: true },
+      });
+    } catch (err: any) {
+      // Handle race condition: another process created Linda between our findFirst and create
+      if (err.code === 'P2002') {
+        lindaUser = await prisma.user.findFirst({
+          where: { email: LINDA_EMAIL },
+          select: { id: true },
+        });
+        if (!lindaUser) throw new Error('Failed to find or create Linda bot user');
+      } else {
+        throw err;
+      }
+    }
   }
   return lindaUser.id;
 }

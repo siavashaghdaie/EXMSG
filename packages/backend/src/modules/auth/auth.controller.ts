@@ -6,9 +6,8 @@ import { RegisterInput, LoginInput } from './auth.validation';
 import { createAndSendOtp, verifyOtp } from '../../services/otp';
 import { sendWelcomeEmail, isEmailConfigured } from '../../services/email';
 import { validateInviteToken, consumeInviteToken } from '../../services/invite';
+import { getLindaBotUserId } from '../../services/lindaNotify';
 import { PLAN_ORDER, PLANS, PlanId, canSelfRegisterOn, isValidPlan } from './plans';
-
-const LINDA_EMAIL = 'linda@omnilink.system';
 
 /**
  * Derive a URL-friendly slug from a company name. Collisions are resolved
@@ -40,25 +39,9 @@ async function generateUniqueOrgSlug(companyName: string): Promise<string> {
 /** Ensure a DM conversation exists between a user and Linda */
 async function ensureLindaDM(userId: string): Promise<void> {
   try {
-    // Find or create the Linda bot user
-    let lindaUser = await prisma.user.findFirst({ where: { email: LINDA_EMAIL }, select: { id: true } });
-    if (!lindaUser) {
-      lindaUser = await prisma.user.create({
-        data: {
-          email: LINDA_EMAIL,
-          username: 'linda',
-          displayName: 'Linda AI',
-          passwordHash: 'BOT_ACCOUNT_NO_LOGIN',
-          bio: 'Hi! I\'m Linda, your AI assistant. I can help you with tasks, documents, and more.',
-          status: 'Always here to help!',
-          isOnline: true,
-          emailVerified: true,
-        },
-        select: { id: true },
-      });
-      console.log(`[Linda] Created bot user: ${lindaUser.id}`);
-    }
-    if (lindaUser.id === userId) return;
+    // Use the shared getLindaBotUserId to avoid duplicate-creation race conditions
+    const lindaId = await getLindaBotUserId();
+    if (lindaId === userId) return;
 
     // Check if DM already exists
     const existing = await prisma.conversation.findFirst({
@@ -66,7 +49,7 @@ async function ensureLindaDM(userId: string): Promise<void> {
         type: 'DIRECT',
         AND: [
           { members: { some: { userId } } },
-          { members: { some: { userId: lindaUser.id } } },
+          { members: { some: { userId: lindaId } } },
         ],
       },
     });
@@ -77,7 +60,7 @@ async function ensureLindaDM(userId: string): Promise<void> {
           type: 'DIRECT',
           members: {
             create: [
-              { userId: lindaUser.id, role: 'OWNER' },
+              { userId: lindaId, role: 'OWNER' },
               { userId, role: 'MEMBER' },
             ],
           },
