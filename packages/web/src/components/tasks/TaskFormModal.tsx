@@ -112,6 +112,12 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({
       if (editingTask.assignedTo) {
         setSelectedAssignee(editingTask.assignedTo);
       }
+      // Load co-assignees from resolved data
+      if (Array.isArray(editingTask.coAssignees) && editingTask.coAssignees.length > 0) {
+        setCoAssignees(editingTask.coAssignees.map((u: any) => ({
+          id: u.id, displayName: u.displayName || u.username, username: u.username, avatarUrl: u.avatarUrl,
+        })));
+      }
       const existingChecklists = editingTask.checklists || [];
       setFormChecklists(existingChecklists.map((cl: any) => ({
         id: cl.id,
@@ -119,10 +125,10 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({
         items: (cl.items || []).map((item: any) => ({
           id: item.id,
           title: item.title,
-          assigneeId: item.assigneeId || (item.assigneeIds?.length ? item.assigneeIds[0] : undefined),
-          assigneeName: item.assigneeName || (item.assigneeNames?.length ? item.assigneeNames[0] : undefined),
-          assigneeIds: item.assigneeIds || (item.assigneeId ? [item.assigneeId] : []),
-          assigneeNames: item.assigneeNames || (item.assigneeName ? [item.assigneeName] : []),
+          assigneeId: item.assigneeIds?.length ? item.assigneeIds[0] : undefined,
+          assigneeName: item.assigneeNames?.length ? item.assigneeNames[0] : (item.assignees?.length ? (item.assignees[0].displayName || item.assignees[0].username) : undefined),
+          assigneeIds: item.assigneeIds || [],
+          assigneeNames: item.assigneeNames || [],
           dueDate: item.dueDate ? new Date(item.dueDate).toISOString().split('T')[0] : undefined,
         })),
       })));
@@ -146,7 +152,10 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({
     }
     setAssigneeSearch('');
     setShowAssigneeDropdown(false);
-    setCoAssignees([]);
+    // Only reset co-assignees for new tasks — editing populates from task data above
+    if (!editingTask) {
+      setCoAssignees([]);
+    }
     setCoAssigneeSearch('');
     setCoAssigneeResults([]);
     setShowCoAssigneeDropdown(false);

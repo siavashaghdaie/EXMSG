@@ -86,6 +86,57 @@ export class ProjectController {
         return;
       }
 
+      // Resolve coAssigneeIds and checklist item assigneeIds to user details
+      if (project.tasks && project.tasks.length > 0) {
+        const userIds = new Set<string>();
+        for (const task of project.tasks) {
+          if (Array.isArray((task as any).coAssigneeIds)) {
+            (task as any).coAssigneeIds.forEach((id: string) => userIds.add(id));
+          }
+          if (Array.isArray((task as any).checklists)) {
+            for (const cl of (task as any).checklists) {
+              if (Array.isArray(cl.items)) {
+                for (const item of cl.items) {
+                  if (Array.isArray(item.assigneeIds)) {
+                    item.assigneeIds.forEach((id: string) => userIds.add(id));
+                  }
+                }
+              }
+            }
+          }
+        }
+        if (userIds.size > 0) {
+          const users = await prisma.user.findMany({
+            where: { id: { in: Array.from(userIds) } },
+            select: { id: true, username: true, displayName: true, avatarUrl: true },
+          });
+          const userMap = new Map(users.map((u: any) => [u.id, u]));
+          for (const task of project.tasks) {
+            const t = task as any;
+            if (Array.isArray(t.coAssigneeIds) && t.coAssigneeIds.length > 0) {
+              t.coAssignees = t.coAssigneeIds.map((id: string) => userMap.get(id)).filter(Boolean);
+            } else {
+              t.coAssignees = [];
+            }
+            if (Array.isArray(t.checklists)) {
+              for (const cl of t.checklists) {
+                if (Array.isArray(cl.items)) {
+                  for (const item of cl.items) {
+                    if (Array.isArray(item.assigneeIds) && item.assigneeIds.length > 0) {
+                      item.assignees = item.assigneeIds.map((id: string) => userMap.get(id)).filter(Boolean);
+                      item.assigneeNames = item.assignees.map((u: any) => u.displayName || u.username);
+                    } else {
+                      item.assignees = [];
+                      item.assigneeNames = [];
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
       res.json({ project });
     } catch (error) {
       console.error('Get project error:', error);

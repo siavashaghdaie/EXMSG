@@ -10,6 +10,117 @@ const STATUS_LABELS: Record<string, string> = {
   BLOCKED: 'Blocked',
 };
 
+// Helper: resolve coAssigneeIds and checklist item assigneeIds to user details
+async function resolveTaskUserIds(task: any): Promise<any> {
+  if (!task) return task;
+
+  // Collect all user IDs that need resolving
+  const userIds = new Set<string>();
+  if (Array.isArray(task.coAssigneeIds)) {
+    task.coAssigneeIds.forEach((id: string) => userIds.add(id));
+  }
+  if (Array.isArray(task.checklists)) {
+    for (const cl of task.checklists) {
+      if (Array.isArray(cl.items)) {
+        for (const item of cl.items) {
+          if (Array.isArray(item.assigneeIds)) {
+            item.assigneeIds.forEach((id: string) => userIds.add(id));
+          }
+        }
+      }
+    }
+  }
+
+  if (userIds.size === 0) return task;
+
+  // Batch fetch user details
+  const users = await prisma.user.findMany({
+    where: { id: { in: Array.from(userIds) } },
+    select: { id: true, username: true, displayName: true, avatarUrl: true, email: true },
+  });
+  const userMap = new Map(users.map((u: any) => [u.id, u]));
+
+  // Attach resolved co-assignees
+  if (Array.isArray(task.coAssigneeIds) && task.coAssigneeIds.length > 0) {
+    task.coAssignees = task.coAssigneeIds.map((id: string) => userMap.get(id)).filter(Boolean);
+  } else {
+    task.coAssignees = [];
+  }
+
+  // Attach resolved assignee names to checklist items
+  if (Array.isArray(task.checklists)) {
+    for (const cl of task.checklists) {
+      if (Array.isArray(cl.items)) {
+        for (const item of cl.items) {
+          if (Array.isArray(item.assigneeIds) && item.assigneeIds.length > 0) {
+            item.assignees = item.assigneeIds.map((id: string) => userMap.get(id)).filter(Boolean);
+            item.assigneeNames = item.assignees.map((u: any) => u.displayName || u.username);
+          } else {
+            item.assignees = [];
+            item.assigneeNames = [];
+          }
+        }
+      }
+    }
+  }
+
+  return task;
+}
+
+async function resolveTasksUserIds(tasks: any[]): Promise<any[]> {
+  // Collect ALL user IDs across all tasks in one pass
+  const userIds = new Set<string>();
+  for (const task of tasks) {
+    if (Array.isArray(task.coAssigneeIds)) {
+      task.coAssigneeIds.forEach((id: string) => userIds.add(id));
+    }
+    if (Array.isArray(task.checklists)) {
+      for (const cl of task.checklists) {
+        if (Array.isArray(cl.items)) {
+          for (const item of cl.items) {
+            if (Array.isArray(item.assigneeIds)) {
+              item.assigneeIds.forEach((id: string) => userIds.add(id));
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (userIds.size === 0) return tasks;
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: Array.from(userIds) } },
+    select: { id: true, username: true, displayName: true, avatarUrl: true, email: true },
+  });
+  const userMap = new Map(users.map((u: any) => [u.id, u]));
+
+  for (const task of tasks) {
+    if (Array.isArray(task.coAssigneeIds) && task.coAssigneeIds.length > 0) {
+      task.coAssignees = task.coAssigneeIds.map((id: string) => userMap.get(id)).filter(Boolean);
+    } else {
+      task.coAssignees = [];
+    }
+    if (Array.isArray(task.checklists)) {
+      for (const cl of task.checklists) {
+        if (Array.isArray(cl.items)) {
+          for (const item of cl.items) {
+            if (Array.isArray(item.assigneeIds) && item.assigneeIds.length > 0) {
+              item.assignees = item.assigneeIds.map((id: string) => userMap.get(id)).filter(Boolean);
+              item.assigneeNames = item.assignees.map((u: any) => u.displayName || u.username);
+            } else {
+              item.assignees = [];
+              item.assigneeNames = [];
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return tasks;
+}
+
 export class TaskController {
   // GET /api/tasks
   async getTasks(req: Request, res: Response): Promise<void> {
@@ -122,7 +233,8 @@ export class TaskController {
         orderBy: { createdAt: 'desc' },
       });
 
-      res.json({ tasks });
+      const resolved = await resolveTasksUserIds(tasks);
+      res.json({ tasks: resolved });
     } catch (error) {
       console.error('Get tasks error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -326,7 +438,8 @@ export class TaskController {
         }
       }
 
-      res.json({ task: updated });
+      const resolved = await resolveTaskUserIds(updated);
+      res.json({ task: resolved });
     } catch (error) {
       console.error('Update task error:', error);
       res.status(500).json({ error: 'Internal server error' });
