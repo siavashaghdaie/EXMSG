@@ -32,6 +32,7 @@ class CallService {
   private remoteStream: MediaStream | null = null;
   private listeners: Set<CallStateListener> = new Set();
   private pendingOffer: any | null = null;
+  private isCaller: boolean = false;
   private unsubscribers: (() => void)[] = [];
 
   private state: CallState = {
@@ -197,6 +198,8 @@ class CallService {
     if (this.state.status !== 'idle') return;
 
     try {
+      this.isCaller = true;
+
       this.updateState({
         status: 'calling',
         callType,
@@ -366,7 +369,8 @@ class CallService {
     });
 
     this.peerConnection.addEventListener('negotiationneeded' as any, async () => {
-      // Caller creates offer when negotiation is needed
+      // Only the CALLER creates offers — callee must never create offers
+      if (!this.isCaller) return;
       if (this.state.status === 'calling' || this.state.status === 'connected') {
         try {
           const offer = await this.peerConnection!.createOffer({});
@@ -417,6 +421,7 @@ class CallService {
   }
 
   private cleanup() {
+    this.isCaller = false;
     this.pendingOffer = null;
     if (this.localStream) {
       this.localStream.getTracks().forEach((t: any) => t.stop());

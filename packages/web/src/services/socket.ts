@@ -176,6 +176,55 @@ class SocketService {
       this.socket.on('messagesRead', (data: any) => {
         this.emit('messagesRead', data);
       });
+
+      // Call signaling events
+      this.socket.on('call:initiated', (data: any) => {
+        this.emit('call:initiated', data);
+      });
+
+      this.socket.on('call:incoming', (data: any) => {
+        this.emit('call:incoming', data);
+      });
+
+      this.socket.on('call:accepted', (data: any) => {
+        this.emit('call:accepted', data);
+      });
+
+      this.socket.on('call:rejected', (data: any) => {
+        this.emit('call:rejected', data);
+      });
+
+      this.socket.on('call:ended', (data: any) => {
+        this.emit('call:ended', data);
+      });
+
+      this.socket.on('call:expired', (data: any) => {
+        this.emit('call:expired', data);
+      });
+
+      this.socket.on('call:missed', (data: any) => {
+        this.emit('call:missed', data);
+      });
+
+      this.socket.on('call:offer', (data: any) => {
+        this.emit('call:offer', data);
+      });
+
+      this.socket.on('call:answer', (data: any) => {
+        this.emit('call:answer', data);
+      });
+
+      this.socket.on('call:ice-candidate', (data: any) => {
+        this.emit('call:ice-candidate', data);
+      });
+
+      this.socket.on('call:signal', (data: any) => {
+        this.emit('call:signal', data);
+      });
+
+      this.socket.on('call:error', (data: any) => {
+        this.emit('call:error', data);
+      });
     });
   }
 

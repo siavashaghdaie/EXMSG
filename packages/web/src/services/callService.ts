@@ -58,6 +58,7 @@ class CallService {
   private remoteStream: MediaStream | null = null;
   private listeners: Set<CallStateListener> = new Set();
   private pendingOffer: RTCSessionDescriptionInit | null = null;
+  private isCaller: boolean = false;
 
   private state: CallState = {
     status: 'idle',
@@ -208,6 +209,8 @@ class CallService {
     if (this.state.status !== 'idle') return; // Already in a call
 
     try {
+      this.isCaller = true;
+
       this.updateState({
         status: 'calling',
         callType,
@@ -358,7 +361,9 @@ class CallService {
     };
 
     this.peerConnection.onnegotiationneeded = async () => {
-      // Caller creates offer when negotiation is needed
+      // Only the CALLER creates offers — callee must never create offers
+      // (callee's onnegotiationneeded fires after addTrack but they respond with answers, not offers)
+      if (!this.isCaller) return;
       if (this.state.status === 'calling' || this.state.status === 'connected') {
         try {
           const offer = await this.peerConnection!.createOffer();
@@ -415,6 +420,7 @@ class CallService {
 
   private cleanup() {
     stopRingtone();
+    this.isCaller = false;
     this.pendingOffer = null;
     this.localStream?.getTracks().forEach(t => t.stop());
     this.localStream = null;
