@@ -90,21 +90,25 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
       } else if (filter === 'project') {
         params.view = 'project';
         if (selectedProjectFilter) params.projectId = selectedProjectFilter;
+      } else if (filter === 'all') {
+        params.view = 'all';
       }
       // Always fetch everything, filter client-side for checkbox combos
       params.showAll = 'true';
       const allTasks = await api.getTasks(params);
 
-      // Client-side status filter
+      // Step 1: Apply status checkboxes (active / archived / deleted)
       let filtered = allTasks.filter((t: any) => {
         if (t.deleted) return statusChecked.has('deleted');
         if (t.archived) return statusChecked.has('archived');
         return statusChecked.has('active');
       });
+
+      // Step 2: Apply tab filter ON TOP of the status filter (not from scratch)
       if (filter === 'my-tasks') {
-        filtered = allTasks.filter((t: any) => t.assignedToId === user?.id);
+        filtered = filtered.filter((t: any) => t.assignedToId === user?.id);
       } else if (filter === 'assigned-by-me') {
-        filtered = allTasks.filter((t: any) => t.createdById === user?.id);
+        filtered = filtered.filter((t: any) => t.createdById === user?.id);
       }
 
       if (searchQuery) {
