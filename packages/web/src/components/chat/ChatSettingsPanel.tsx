@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import {
   X, Bell, BellOff, Clock, Lock, Star, Image, FileText,
   Download, Shield, UserPlus, Heart, Languages,
-  ChevronRight, Volume2, Palette, Save, Ban, Flag, MessageSquareOff
+  ChevronRight, Volume2, Palette, Save, Ban, Flag, MessageSquareOff,
+  Check
 } from 'lucide-react';
 import { api } from '@/services/api';
 import Avatar from '@/components/common/Avatar';
@@ -16,6 +17,39 @@ interface ChatSettingsPanelProps {
 
 type MediaTab = 'media' | 'docs' | 'links';
 
+// Preset wallpaper colors
+const WALLPAPER_PRESETS = [
+  { name: 'Default', value: null, color: '#ffffff' },
+  { name: 'Soft Blue', value: '#e3f2fd', color: '#e3f2fd' },
+  { name: 'Mint', value: '#e8f5e9', color: '#e8f5e9' },
+  { name: 'Lavender', value: '#ede7f6', color: '#ede7f6' },
+  { name: 'Peach', value: '#fce4ec', color: '#fce4ec' },
+  { name: 'Sand', value: '#fff8e1', color: '#fff8e1' },
+  { name: 'Sky', value: '#e0f7fa', color: '#e0f7fa' },
+  { name: 'Rose', value: '#fbe9e7', color: '#fbe9e7' },
+  { name: 'Slate', value: '#eceff1', color: '#eceff1' },
+  { name: 'Cream', value: '#fffde7', color: '#fffde7' },
+  { name: 'Cool Gray', value: '#f5f5f5', color: '#f5f5f5' },
+  { name: 'Ocean', value: '#b3e5fc', color: '#b3e5fc' },
+  { name: 'Forest', value: '#c8e6c9', color: '#c8e6c9' },
+  { name: 'Sunset', value: '#ffccbc', color: '#ffccbc' },
+  { name: 'Night', value: '#263238', color: '#263238' },
+  { name: 'Dark Blue', value: '#1a237e', color: '#1a237e' },
+  { name: 'Dark Teal', value: '#004d40', color: '#004d40' },
+  { name: 'Dark Purple', value: '#311b92', color: '#311b92' },
+];
+
+// Notification sound options
+const NOTIFICATION_SOUNDS = [
+  { label: 'Default', value: null },
+  { label: 'Chime', value: 'chime' },
+  { label: 'Bell', value: 'bell' },
+  { label: 'Pop', value: 'pop' },
+  { label: 'Ding', value: 'ding' },
+  { label: 'Swoosh', value: 'swoosh' },
+  { label: 'None', value: 'none' },
+];
+
 export default function ChatSettingsPanel({ conversationId, onClose, onNavigateToChat }: ChatSettingsPanelProps) {
   const [loading, setLoading] = useState(true);
   const [chatInfo, setChatInfo] = useState<any>(null);
@@ -28,6 +62,15 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
   const [showBlockConfirm, setShowBlockConfirm] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
+  const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
+  const [showNotificationSound, setShowNotificationSound] = useState(false);
+  const [showSaveMedia, setShowSaveMedia] = useState(false);
+  const [showLockChat, setShowLockChat] = useState(false);
+  const [lockPin, setLockPin] = useState('');
+  const [lockPinConfirm, setLockPinConfirm] = useState('');
+  const [lockStep, setLockStep] = useState<'set' | 'confirm' | 'unlock'>('set');
+  const [lockError, setLockError] = useState('');
+  const [customColor, setCustomColor] = useState('#e3f2fd');
   const [reportReason, setReportReason] = useState('');
   const [reportDetails, setReportDetails] = useState('');
 
@@ -141,6 +184,56 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
     }
   };
 
+  const handleLockToggle = () => {
+    if (settings.isLocked) {
+      // Unlock — ask for PIN
+      setLockStep('unlock');
+      setLockPin('');
+      setLockError('');
+      setShowLockChat(true);
+    } else {
+      // Lock — set a PIN
+      setLockStep('set');
+      setLockPin('');
+      setLockPinConfirm('');
+      setLockError('');
+      setShowLockChat(true);
+    }
+  };
+
+  const handleLockSubmit = () => {
+    if (lockStep === 'set') {
+      if (lockPin.length < 4) {
+        setLockError('PIN must be at least 4 digits');
+        return;
+      }
+      setLockStep('confirm');
+      setLockPinConfirm('');
+      setLockError('');
+    } else if (lockStep === 'confirm') {
+      if (lockPinConfirm !== lockPin) {
+        setLockError('PINs do not match. Try again.');
+        setLockPinConfirm('');
+        return;
+      }
+      // Save the PIN locally and lock the chat
+      localStorage.setItem(`chat_lock_${conversationId}`, lockPin);
+      updateSetting('isLocked', true);
+      setShowLockChat(false);
+    } else if (lockStep === 'unlock') {
+      const savedPin = localStorage.getItem(`chat_lock_${conversationId}`);
+      if (savedPin && lockPin !== savedPin) {
+        setLockError('Incorrect PIN');
+        setLockPin('');
+        return;
+      }
+      // Unlock
+      localStorage.removeItem(`chat_lock_${conversationId}`);
+      updateSetting('isLocked', false);
+      setShowLockChat(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="w-80 border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex items-center justify-center">
@@ -157,7 +250,10 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
   const chatAvatar = isDM && otherUser ? otherUser.avatarUrl : conversation?.avatarUrl;
   const chatSubtitle = isDM && otherUser ? (otherUser.bio || otherUser.status || otherUser.email) : `${conversation?.members?.length || 0} members`;
 
+  // ============================================
   // Sub-panels
+  // ============================================
+
   if (showStarred) {
     return (
       <div className="w-80 border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex flex-col h-full">
@@ -239,7 +335,173 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
     );
   }
 
+  // ============================================
+  // Wallpaper Picker Sub-panel
+  // ============================================
+  if (showWallpaperPicker) {
+    return (
+      <div className="w-80 border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex flex-col h-full">
+        <div className="flex items-center gap-2 p-4 border-b border-slate-200 dark:border-surface-700">
+          <button onClick={() => setShowWallpaperPicker(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-surface-700 rounded">
+            <ChevronRight size={18} className="rotate-180 text-slate-600 dark:text-slate-400" />
+          </button>
+          <h3 className="font-semibold text-slate-900 dark:text-white">Chat Wallpaper</h3>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          {/* Preview */}
+          <div
+            className="w-full h-32 rounded-xl mb-4 border-2 border-slate-200 dark:border-surface-600 flex items-center justify-center overflow-hidden"
+            style={{ backgroundColor: settings.chatWallpaper || '#ffffff' }}
+          >
+            <div className="bg-white/80 dark:bg-surface-800/80 backdrop-blur-sm rounded-lg px-3 py-2 shadow-sm">
+              <p className="text-xs text-slate-600 dark:text-slate-300">Preview</p>
+            </div>
+          </div>
+
+          {/* Preset Colors Grid */}
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-3">Preset Colors</p>
+          <div className="grid grid-cols-6 gap-2 mb-5">
+            {WALLPAPER_PRESETS.map((preset) => {
+              const isActive = (preset.value === null && !settings.chatWallpaper) || settings.chatWallpaper === preset.value;
+              return (
+                <button
+                  key={preset.name}
+                  onClick={() => updateSetting('chatWallpaper', preset.value)}
+                  className={`relative w-10 h-10 rounded-lg border-2 transition-all ${
+                    isActive
+                      ? 'border-primary-500 ring-2 ring-primary-200 dark:ring-primary-800 scale-110'
+                      : 'border-slate-200 dark:border-surface-600 hover:border-slate-400 dark:hover:border-surface-500'
+                  }`}
+                  style={{ backgroundColor: preset.color }}
+                  title={preset.name}
+                >
+                  {isActive && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Check size={14} className={preset.value && isLightColor(preset.value) ? 'text-slate-700' : 'text-white'} />
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Custom Color Picker */}
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-3">Custom Color</p>
+          <div className="flex items-center gap-3 mb-4">
+            <input
+              type="color"
+              value={customColor}
+              onChange={(e) => setCustomColor(e.target.value)}
+              className="w-10 h-10 rounded-lg cursor-pointer border border-slate-200 dark:border-surface-600"
+              style={{ padding: 0 }}
+            />
+            <span className="text-sm text-slate-600 dark:text-slate-400 font-mono">{customColor}</span>
+            <button
+              onClick={() => updateSetting('chatWallpaper', customColor)}
+              className="px-3 py-1.5 text-xs font-medium bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition"
+            >
+              Apply
+            </button>
+          </div>
+
+          {/* Reset */}
+          <button
+            onClick={() => updateSetting('chatWallpaper', null)}
+            className="w-full py-2.5 text-sm text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-surface-800 rounded-lg hover:bg-slate-100 dark:hover:bg-surface-700 transition"
+          >
+            Reset to Default
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================
+  // Notification Sound Picker Sub-panel
+  // ============================================
+  if (showNotificationSound) {
+    return (
+      <div className="w-80 border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex flex-col h-full">
+        <div className="flex items-center gap-2 p-4 border-b border-slate-200 dark:border-surface-700">
+          <button onClick={() => setShowNotificationSound(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-surface-700 rounded">
+            <ChevronRight size={18} className="rotate-180 text-slate-600 dark:text-slate-400" />
+          </button>
+          <h3 className="font-semibold text-slate-900 dark:text-white">Notification Sound</h3>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2">
+          {NOTIFICATION_SOUNDS.map((sound) => {
+            const isActive = (sound.value === null && !settings.customNotificationSound) || settings.customNotificationSound === sound.value;
+            return (
+              <button
+                key={sound.label}
+                onClick={() => updateSetting('customNotificationSound', sound.value)}
+                className={`w-full text-left px-4 py-3 rounded-lg mb-1 text-sm transition flex items-center justify-between ${
+                  isActive
+                    ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400 font-medium'
+                    : 'hover:bg-slate-50 dark:hover:bg-surface-800 text-slate-700 dark:text-slate-300'
+                }`}
+              >
+                <span>{sound.label}</span>
+                {isActive && <Check size={16} className="text-primary-600 dark:text-primary-400" />}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================
+  // Save Media Picker Sub-panel
+  // ============================================
+  if (showSaveMedia) {
+    const saveOptions = [
+      { label: 'Default (Follow global setting)', value: 'default', desc: 'Use your account default' },
+      { label: 'Always Save', value: 'always', desc: 'Auto-save all media from this chat' },
+      { label: 'Never Save', value: 'never', desc: 'Don\'t auto-save media from this chat' },
+    ];
+    return (
+      <div className="w-80 border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex flex-col h-full">
+        <div className="flex items-center gap-2 p-4 border-b border-slate-200 dark:border-surface-700">
+          <button onClick={() => setShowSaveMedia(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-surface-700 rounded">
+            <ChevronRight size={18} className="rotate-180 text-slate-600 dark:text-slate-400" />
+          </button>
+          <h3 className="font-semibold text-slate-900 dark:text-white">Save Media</h3>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2">
+          <p className="px-4 py-2 text-xs text-slate-500 dark:text-slate-400">
+            Choose how media (images, videos, files) from this chat is saved.
+          </p>
+          {saveOptions.map((opt) => {
+            const isActive = settings.saveMedia === opt.value;
+            return (
+              <button
+                key={opt.value}
+                onClick={() => { updateSetting('saveMedia', opt.value); setShowSaveMedia(false); }}
+                className={`w-full text-left px-4 py-3 rounded-lg mb-1 transition ${
+                  isActive
+                    ? 'bg-primary-50 dark:bg-primary-900/30 border border-primary-200 dark:border-primary-800'
+                    : 'hover:bg-slate-50 dark:hover:bg-surface-800'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className={`text-sm font-medium ${isActive ? 'text-primary-700 dark:text-primary-400' : 'text-slate-700 dark:text-slate-300'}`}>
+                    {opt.label}
+                  </span>
+                  {isActive && <Check size={16} className="text-primary-600 dark:text-primary-400" />}
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{opt.desc}</p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================
   // Main settings panel
+  // ============================================
   return (
     <div className="w-80 border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex flex-col h-full">
       {/* Header */}
@@ -317,30 +579,35 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
           <SettingRow
             icon={<Volume2 size={18} className="text-slate-500" />}
             label="Notification Sound"
-            subtitle={settings.customNotificationSound || 'Default'}
-            onClick={() => {/* TODO: notification sound picker */}}
+            subtitle={settings.customNotificationSound ? capitalize(settings.customNotificationSound) : 'Default'}
+            onClick={() => setShowNotificationSound(true)}
           />
 
           {/* Chat Wallpaper */}
           <SettingRow
             icon={<Palette size={18} className="text-slate-500" />}
             label="Chat Wallpaper"
-            subtitle={settings.chatWallpaper || 'Default'}
-            onClick={() => {
-              const color = prompt('Enter wallpaper color (e.g. #f0f0f0) or "default":');
-              if (color) updateSetting('chatWallpaper', color === 'default' ? null : color);
-            }}
+            subtitle={settings.chatWallpaper ? '' : 'Default'}
+            trailing={
+              settings.chatWallpaper ? (
+                <div className="flex items-center gap-2">
+                  <div
+                    className="w-5 h-5 rounded border border-slate-300 dark:border-surface-600"
+                    style={{ backgroundColor: settings.chatWallpaper }}
+                  />
+                  <ChevronRight size={16} className="text-slate-400" />
+                </div>
+              ) : undefined
+            }
+            onClick={() => setShowWallpaperPicker(true)}
           />
 
           {/* Save Media */}
           <SettingRow
             icon={<Save size={18} className="text-slate-500" />}
             label="Save Media"
-            subtitle={settings.saveMedia === 'default' ? 'Default' : settings.saveMedia === 'always' ? 'Always' : 'Never'}
-            onClick={() => {
-              const next = settings.saveMedia === 'default' ? 'always' : settings.saveMedia === 'always' ? 'never' : 'default';
-              updateSetting('saveMedia', next);
-            }}
+            subtitle={settings.saveMedia === 'default' ? 'Default' : settings.saveMedia === 'always' ? 'Always Save' : 'Never Save'}
+            onClick={() => setShowSaveMedia(true)}
           />
 
           {/* Auto-Translate */}
@@ -374,11 +641,11 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
           <SettingRow
             icon={<Lock size={18} className={settings.isLocked ? 'text-amber-500' : 'text-slate-500'} />}
             label="Lock Chat"
-            subtitle="Lock and hide this chat"
+            subtitle={settings.isLocked ? 'Chat is locked with PIN' : 'Lock and hide this chat'}
             trailing={
               <ToggleSwitch
                 value={settings.isLocked}
-                onChange={(v) => updateSetting('isLocked', v)}
+                onChange={handleLockToggle}
               />
             }
           />
@@ -475,6 +742,10 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
         </div>
       </div>
 
+      {/* ============================================ */}
+      {/* Modals                                       */}
+      {/* ============================================ */}
+
       {/* Disappearing Messages Modal */}
       {showDisappearing && (
         <Modal onClose={() => setShowDisappearing(false)} title="Disappearing Messages">
@@ -490,15 +761,72 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
             <button
               key={opt.label}
               onClick={() => handleDisappearing(opt.value)}
-              className={`w-full text-left px-4 py-3 rounded-lg mb-1 text-sm transition ${
+              className={`w-full text-left px-4 py-3 rounded-lg mb-1 text-sm transition flex items-center justify-between ${
                 conversation?.disappearingSeconds === opt.value
                   ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400 font-medium'
                   : 'hover:bg-slate-50 dark:hover:bg-surface-800 text-slate-700 dark:text-slate-300'
               }`}
             >
-              {opt.label}
+              <span>{opt.label}</span>
+              {conversation?.disappearingSeconds === opt.value && <Check size={16} className="text-primary-600" />}
             </button>
           ))}
+        </Modal>
+      )}
+
+      {/* Lock Chat Modal */}
+      {showLockChat && (
+        <Modal onClose={() => setShowLockChat(false)} title={settings.isLocked ? 'Unlock Chat' : 'Lock Chat'}>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+            {lockStep === 'set' && 'Set a PIN to lock this chat. You\'ll need it to unlock.'}
+            {lockStep === 'confirm' && 'Confirm your PIN to lock this chat.'}
+            {lockStep === 'unlock' && 'Enter your PIN to unlock this chat.'}
+          </p>
+          <div className="flex justify-center gap-2 mb-4">
+            {[0, 1, 2, 3].map((i) => {
+              const pin = lockStep === 'confirm' ? lockPinConfirm : lockPin;
+              return (
+                <div
+                  key={i}
+                  className={`w-10 h-10 rounded-lg border-2 flex items-center justify-center text-lg font-bold transition ${
+                    pin.length > i
+                      ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400'
+                      : 'border-slate-300 dark:border-surface-600 bg-slate-50 dark:bg-surface-800'
+                  }`}
+                >
+                  {pin.length > i ? '•' : ''}
+                </div>
+              );
+            })}
+          </div>
+          <input
+            type="password"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            maxLength={6}
+            autoFocus
+            value={lockStep === 'confirm' ? lockPinConfirm : lockPin}
+            onChange={(e) => {
+              const val = e.target.value.replace(/\D/g, '');
+              if (lockStep === 'confirm') setLockPinConfirm(val);
+              else setLockPin(val);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleLockSubmit();
+            }}
+            className="w-full px-3 py-2 text-sm text-center tracking-[0.5em] bg-slate-50 dark:bg-surface-800 border border-slate-200 dark:border-surface-700 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500 mb-3"
+            placeholder="Enter PIN"
+          />
+          {lockError && (
+            <p className="text-xs text-red-500 text-center mb-3">{lockError}</p>
+          )}
+          <button
+            onClick={handleLockSubmit}
+            disabled={(lockStep === 'confirm' ? lockPinConfirm : lockPin).length < 4}
+            className="w-full px-4 py-2 text-sm bg-primary-500 text-white rounded-lg hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition"
+          >
+            {lockStep === 'set' ? 'Next' : lockStep === 'confirm' ? 'Lock Chat' : 'Unlock Chat'}
+          </button>
         </Modal>
       )}
 
@@ -660,4 +988,16 @@ function formatDuration(seconds: number): string {
   if (seconds < 86400) return `${Math.round(seconds / 3600)} hours`;
   if (seconds < 604800) return `${Math.round(seconds / 86400)} days`;
   return `${Math.round(seconds / 604800)} weeks`;
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function isLightColor(hex: string): boolean {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.5;
 }

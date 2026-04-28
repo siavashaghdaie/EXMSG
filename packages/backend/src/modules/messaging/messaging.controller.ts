@@ -83,7 +83,13 @@ export class MessagingController {
               isDeleted: false,
             },
           });
-          return { ...conv, unreadCount };
+          return {
+            ...conv,
+            unreadCount,
+            isFavorite: membership?.isFavorite || false,
+            isMuted: membership?.isMuted || false,
+            isPinned: membership?.isPinned || false,
+          };
         })
       );
 

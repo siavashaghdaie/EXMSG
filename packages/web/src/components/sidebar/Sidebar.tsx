@@ -40,7 +40,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navigate = useNavigate();
   const { conversationId } = useParams<{ conversationId?: string }>();
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'all' | 'dms' | 'tasks' | 'projects'>('dms');
+  const [activeTab, setActiveTab] = useState<'all' | 'dms' | 'tasks' | 'projects' | 'favorites'>('dms');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
 
@@ -229,16 +229,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
   });
 
   // Category counts for tab badges
-  const categoryCounts = sortedConversations.reduce((acc, conv) => {
+  const categoryCounts = sortedConversations.reduce((acc, conv: any) => {
     const cat = getConvCategory(conv);
     const unread = unreadCounts.get(conv.id) ?? conv.unreadCount ?? 0;
     if (unread > 0) acc[cat] = (acc[cat] || 0) + unread;
+    if (conv.isFavorite) {
+      const favUnread = unreadCounts.get(conv.id) ?? conv.unreadCount ?? 0;
+      if (favUnread > 0) acc['favorites'] = (acc['favorites'] || 0) + favUnread;
+    }
     return acc;
   }, {} as Record<string, number>);
 
-  const filteredConversations = sortedConversations.filter((conv) => {
+  const filteredConversations = sortedConversations.filter((conv: any) => {
     // Apply tab filter
-    if (activeTab !== 'all' && getConvCategory(conv) !== activeTab) return false;
+    if (activeTab === 'favorites') {
+      if (!conv.isFavorite) return false;
+    } else if (activeTab !== 'all' && getConvCategory(conv) !== activeTab) return false;
 
     if (!searchQuery.trim()) return true;
     const query = searchQuery.toLowerCase();
@@ -247,8 +253,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const convName =
       conv.name ||
       conv.participants
-        .filter((p) => p.id !== user?.id)
-        .map((p) => p.displayName || p.username)
+        .filter((p: any) => p.id !== user?.id)
+        .map((p: any) => p.displayName || p.username)
         .join(', ');
 
     return convName.toLowerCase().includes(query);
@@ -605,6 +611,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="flex gap-1.5 overflow-x-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
             {([
               { key: 'all', label: 'All' },
+              { key: 'favorites', label: '★ Favs' },
               { key: 'dms', label: 'DMs' },
               { key: 'tasks', label: 'Tasks' },
               { key: 'projects', label: 'Projects' },
