@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  Calendar, MoreVertical, X, Loader2,
+  Calendar, MoreVertical, Loader2,
   ThumbsUp, ThumbsDown, MessageCircle, Pencil, Trash2,
   Send, Paperclip, Link2, FileText, ExternalLink, CheckSquare,
   MessageSquare, Archive, RotateCcw,
@@ -121,6 +121,9 @@ const TaskCard: React.FC<TaskCardProps> = ({
 }) => {
   const { user } = useAuthStore();
 
+  // Dropdown menu state
+  const [showMenu, setShowMenu] = useState(false);
+
   // Internal comment state
   const [expandedComments, setExpandedComments] = useState(false);
   const [taskComments, setTaskComments] = useState<any[]>([]);
@@ -200,6 +203,52 @@ const TaskCard: React.FC<TaskCardProps> = ({
         onNavigateToChat(conversationId);
       }
     }
+  };
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!showMenu) return;
+    const handler = () => setShowMenu(false);
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, [showMenu]);
+
+  // Render 3-dot dropdown menu
+  const renderDropdownMenu = () => {
+    if (!showMenu) return null;
+    return (
+      <div className="absolute right-0 top-full mt-1 z-50 bg-white dark:bg-surface-800 border border-gray-200 dark:border-surface-600 rounded-lg shadow-lg py-1 min-w-[140px]">
+        <button
+          onClick={(e) => { e.stopPropagation(); setShowMenu(false); onEdit(task); }}
+          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-surface-700"
+        >
+          <Pencil className="w-3.5 h-3.5" /> Edit
+        </button>
+        {onArchive && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowMenu(false); onArchive(task.id, !task.archived); }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-surface-700"
+          >
+            {task.archived ? <RotateCcw className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
+            {task.archived ? 'Unarchive' : 'Archive'}
+          </button>
+        )}
+        {onRestore && (task.deleted || task.archived) && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowMenu(false); onRestore(task.id); }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-green-600 dark:text-green-400 hover:bg-gray-100 dark:hover:bg-surface-700"
+          >
+            <RotateCcw className="w-3.5 h-3.5" /> Restore
+          </button>
+        )}
+        <button
+          onClick={(e) => { e.stopPropagation(); setShowMenu(false); onDelete(task.id); }}
+          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+        >
+          <Trash2 className="w-3.5 h-3.5" /> Delete
+        </button>
+      </div>
+    );
   };
 
   const likes = (task.reactions || []).filter((r: any) => r.type === 'like').length;
@@ -336,15 +385,6 @@ const TaskCard: React.FC<TaskCardProps> = ({
       >
         <Paperclip className="w-3.5 h-3.5" /> {(task as any).attachments?.length > 0 && (task as any).attachments.length}
       </button>
-      {onArchive && (
-        <button
-          onClick={() => onArchive(task.id, !task.archived)}
-          className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-surface-700 text-gray-500 dark:text-gray-400"
-          title={task.archived ? 'Unarchive' : 'Archive'}
-        >
-          {task.archived ? <RotateCcw className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
-        </button>
-      )}
       <button
         onClick={handleStartChat}
         className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-surface-700 text-green-600 dark:text-green-400 ml-auto"
@@ -398,17 +438,20 @@ const TaskCard: React.FC<TaskCardProps> = ({
             )}
           </div>
         )}
-        {/* Title */}
+        {/* Title + menu */}
         <div className="flex items-start justify-between mb-2">
           <h4 className="font-semibold text-gray-900 dark:text-white flex-1">
             {task.title}
           </h4>
-          <button
-            onClick={() => onDelete(task.id)}
-            className="p-1 hover:bg-gray-100 dark:hover:bg-surface-700 rounded ml-2 flex-shrink-0"
-          >
-            <X className="w-4 h-4 text-gray-500" />
-          </button>
+          <div className="relative ml-2 flex-shrink-0">
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
+              className="p-1 hover:bg-gray-100 dark:hover:bg-surface-700 rounded"
+            >
+              <MoreVertical className="w-4 h-4 text-gray-500" />
+            </button>
+            {renderDropdownMenu()}
+          </div>
         </div>
 
         {/* Description */}
@@ -488,9 +531,6 @@ const TaskCard: React.FC<TaskCardProps> = ({
             ))}
           </select>
 
-          <button onClick={() => onEdit(task)} className="p-1 hover:bg-gray-100 dark:hover:bg-surface-700 rounded">
-            <MoreVertical className="w-4 h-4 text-gray-500" />
-          </button>
         </div>
 
         {/* Attachments */}
@@ -524,12 +564,15 @@ const TaskCard: React.FC<TaskCardProps> = ({
         <h4 className="font-medium text-gray-900 dark:text-white flex-1 text-sm line-clamp-2">
           {task.title}
         </h4>
-        <button
-          onClick={() => onDelete(task.id)}
-          className="p-1 hover:bg-gray-100 dark:hover:bg-surface-700 rounded"
-        >
-          <X className="w-4 h-4 text-gray-500" />
-        </button>
+        <div className="relative flex-shrink-0">
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
+            className="p-1 hover:bg-gray-100 dark:hover:bg-surface-700 rounded"
+          >
+            <MoreVertical className="w-4 h-4 text-gray-500" />
+          </button>
+          {renderDropdownMenu()}
+        </div>
       </div>
 
       {task.description && (
@@ -609,9 +652,6 @@ const TaskCard: React.FC<TaskCardProps> = ({
           ))}
         </select>
 
-        <button onClick={() => onEdit(task)} className="p-1 hover:bg-gray-100 dark:hover:bg-surface-700 rounded">
-          <MoreVertical className="w-4 h-4 text-gray-500" />
-        </button>
       </div>
 
       {/* Attachments */}

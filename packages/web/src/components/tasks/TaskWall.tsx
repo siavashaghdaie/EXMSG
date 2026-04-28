@@ -457,6 +457,8 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                           onStartChat={handleStartChat}
                           onAddAttachment={handleAddAttachment}
                           onDeleteAttachment={handleDeleteAttachment}
+                          onArchive={handleArchiveTask}
+                          onRestore={(statusFilter === 'archived' || statusFilter === 'deleted') ? handleRestoreTask : undefined}
                         />
                       ))
                     )}
