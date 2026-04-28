@@ -620,7 +620,15 @@ export default function ChatScreen() {
             <Text style={styles.headerLindaAvatarText}>AI</Text>
           </View>
         )}
-        <View style={styles.headerInfo}>
+        <TouchableOpacity
+          style={styles.headerInfo}
+          activeOpacity={isLinda ? 1 : 0.6}
+          onPress={() => {
+            if (!isLinda) {
+              navigation.navigate('ChatSettings' as any, { conversationId, name });
+            }
+          }}
+        >
           <View style={styles.headerNameRow}>
             <Text style={styles.headerName} numberOfLines={1}>
               {isLinda ? 'Linda' : name}
@@ -632,7 +640,7 @@ export default function ChatScreen() {
             )}
           </View>
           {getHeaderSubtitle()}
-        </View>
+        </TouchableOpacity>
 
         {/* Call buttons — only for DM chats (not Linda, not group) */}
         {otherUser && !isLinda && (

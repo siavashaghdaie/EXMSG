@@ -108,6 +108,11 @@ model User {
   taskAttachments    TaskAttachment[] @relation("TaskAttachmentUploads")
   callsMade          Call[]           @relation("CallsMade")
   callsReceived      Call[]           @relation("CallsReceived")
+  starredMessages    StarredMessage[]
+  blockedByMe        BlockedUser[]    @relation("BlockedByMe")
+  blockedMe          BlockedUser[]    @relation("BlockedMe")
+  reportsMade        ReportedUser[]   @relation("ReportsMade")
+  reportsReceived    ReportedUser[]   @relation("ReportsReceived")
 
   @@map("users")
 }
@@ -158,6 +163,8 @@ model Conversation {
   isArchived     Boolean          @default(false) @map("is_archived")
   // When true, this is a cross-panel DM between two org owners
   isInterPanel   Boolean          @default(false) @map("is_inter_panel")
+  // Disappearing messages: null = off, otherwise duration in seconds
+  disappearingSeconds Int?        @map("disappearing_seconds")
   createdAt      DateTime         @default(now()) @map("created_at")
   updatedAt      DateTime         @updatedAt @map("updated_at")
 
@@ -165,6 +172,7 @@ model Conversation {
   members      ConversationMember[]
   messages     Message[]
   pins         PinnedMessage[]
+  starredMessages StarredMessage[]
   interPanelRequests InterPanelRequest[]
   linkedTask    Task?    @relation("TaskConversation")
   linkedProject Project? @relation("ProjectConversation")
@@ -186,6 +194,15 @@ model ConversationMember {
   userId         String         @map("user_id")
   role           ConvRole       @default(MEMBER)
   isMuted        Boolean        @default(false) @map("is_muted")
+  muteUntil      DateTime?      @map("mute_until") // null = muted forever when isMuted
+  isPinned       Boolean        @default(false) @map("is_pinned")
+  isLocked       Boolean        @default(false) @map("is_locked") // Lock chat (hide behind biometrics)
+  isFavorite     Boolean        @default(false) @map("is_favorite")
+  autoTranslate  Boolean        @default(false) @map("auto_translate")
+  translateLang  String?        @map("translate_lang") // Target language for auto-translate
+  customNotificationSound String? @map("custom_notification_sound")
+  chatWallpaper  String?        @map("chat_wallpaper") // CSS color or image URL
+  saveMedia      String         @default("default") @map("save_media") // "default", "always", "never"
   joinedAt       DateTime       @default(now()) @map("joined_at")
   lastReadAt     DateTime?      @map("last_read_at")
 
@@ -242,6 +259,7 @@ model Message {
   reactions    MessageReaction[]
   readReceipts ReadReceipt[]
   pins         PinnedMessage[]
+  stars        StarredMessage[]
 
   @@index([conversationId, createdAt])
   @@map("messages")
@@ -310,6 +328,50 @@ model PinnedMessage {
 
   @@unique([messageId, conversationId])
   @@map("pinned_messages")
+}
+
+model StarredMessage {
+  id             String   @id @default(uuid())
+  messageId      String   @map("message_id")
+  conversationId String   @map("conversation_id")
+  userId         String   @map("user_id")
+  starredAt      DateTime @default(now()) @map("starred_at")
+
+  message      Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@map("starred_messages")
+}
+
+model BlockedUser {
+  id        String   @id @default(uuid())
+  blockerId String   @map("blocker_id")
+  blockedId String   @map("blocked_id")
+  reason    String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  blocker User @relation("BlockedByMe", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("BlockedMe", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@map("blocked_users")
+}
+
+model ReportedUser {
+  id         String   @id @default(uuid())
+  reporterId String   @map("reporter_id")
+  reportedId String   @map("reported_id")
+  reason     String
+  details    String?
+  status     String   @default("pending") // "pending", "reviewed", "resolved"
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  reporter User @relation("ReportsMade", fields: [reporterId], references: [id], onDelete: Cascade)
+  reported User @relation("ReportsReceived", fields: [reportedId], references: [id], onDelete: Cascade)
+
+  @@map("reported_users")
 }
 
 // ============================================

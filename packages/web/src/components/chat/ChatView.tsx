@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { format, isToday, isYesterday } from 'date-fns';
-import { ArrowDown, ChevronLeft, Phone, Video, Eye, SlidersHorizontal, MessageSquare, ClipboardList, Megaphone, ArrowUpDown, RefreshCw, CheckCircle2, XCircle, Sparkles, Bot, X } from 'lucide-react';
+import { ArrowDown, ChevronLeft, Phone, Video, Eye, SlidersHorizontal, MessageSquare, ClipboardList, Megaphone, ArrowUpDown, RefreshCw, CheckCircle2, XCircle, Sparkles, Bot, X, Settings2 } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { MessageResponse, ConversationResponse, api, UserStatusGroup, LindaActivity } from '@/services/api';
@@ -14,6 +14,7 @@ import Avatar from '@/components/common/Avatar';
 import StoryViewerModal from '@/components/common/StoryViewerModal';
 import PresenceIndicator from '@/components/common/PresenceIndicator';
 import { callService } from '@/services/callService';
+import ChatSettingsPanel from './ChatSettingsPanel';
 
 export default function ChatView() {
   const { conversationId } = useParams<{ conversationId: string }>();
@@ -46,12 +47,12 @@ export default function ChatView() {
   const [lindaResponseStyle, setLindaResponseStyle] = useState<'Professional' | 'Casual' | 'Concise'>(() =>
     (localStorage.getItem('linda_responseStyle') as any) || 'Professional'
   );
-  const [lindaAutoTranslate, setLindaAutoTranslate] = useState(() =>
-    localStorage.getItem('linda_autoTranslate') === 'true'
-  );
   const [lindaLanguage, setLindaLanguage] = useState(() =>
     localStorage.getItem('linda_languagePreference') || 'English'
   );
+
+  // Chat settings panel
+  const [showChatSettings, setShowChatSettings] = useState(false);
 
   // Contact stories for header story ring
   const [contactStories, setContactStories] = useState<UserStatusGroup[]>([]);
@@ -481,6 +482,13 @@ export default function ChatView() {
             >
               <Video size={18} className="text-slate-600" />
             </button>
+            <button
+              onClick={() => setShowChatSettings(!showChatSettings)}
+              className={`p-1.5 sm:p-2 rounded-lg transition ${showChatSettings ? 'bg-blue-100 dark:bg-blue-900/30' : 'hover:bg-slate-100 dark:hover:bg-surface-700'}`}
+              title="Chat settings"
+            >
+              <Settings2 size={18} className={showChatSettings ? 'text-blue-500' : 'text-slate-600 dark:text-slate-300'} />
+            </button>
           </div>
         </div>
       </div>
@@ -650,28 +658,6 @@ export default function ChatView() {
               </div>
             </div>
 
-            {/* Auto-Translate */}
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">Auto-Translate</label>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400">Translate responses to your language</p>
-              </div>
-              <button
-                onClick={() => {
-                  const newVal = !lindaAutoTranslate;
-                  setLindaAutoTranslate(newVal);
-                  saveLindaSetting('autoTranslate', String(newVal));
-                }}
-                className={`relative w-10 h-5 rounded-full transition-colors ${
-                  lindaAutoTranslate ? 'bg-violet-500' : 'bg-slate-300 dark:bg-slate-600'
-                }`}
-              >
-                <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
-                  lindaAutoTranslate ? 'translate-x-5' : 'translate-x-0'
-                }`} />
-              </button>
-            </div>
-
             {/* Language Preference */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">Preferred Language</label>
@@ -762,6 +748,18 @@ export default function ChatView() {
         />
       )}
       </div>
+
+      {/* Chat Settings Panel */}
+      {showChatSettings && conversationId && (
+        <ChatSettingsPanel
+          conversationId={conversationId}
+          onClose={() => setShowChatSettings(false)}
+          onNavigateToChat={(id) => {
+            setShowChatSettings(false);
+            navigate(`/chat/${id}`);
+          }}
+        />
+      )}
     </div>
   );
 }

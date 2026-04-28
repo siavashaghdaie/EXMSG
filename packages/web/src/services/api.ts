@@ -807,6 +807,84 @@ class APIClient {
     await this.client.post(`/messages/${messageId}/forward`, { targetConversationIds });
   }
 
+  // ============================================
+  // Chat Settings API
+  // ============================================
+
+  async getChatInfo(conversationId: string): Promise<any> {
+    const response = await this.client.get(`/conversations/${conversationId}/info`);
+    return response.data;
+  }
+
+  async getChatSettings(conversationId: string): Promise<any> {
+    const response = await this.client.get(`/conversations/${conversationId}/settings`);
+    return response.data;
+  }
+
+  async updateChatSettings(conversationId: string, settings: Record<string, any>): Promise<any> {
+    const response = await this.client.patch(`/conversations/${conversationId}/settings`, settings);
+    return response.data;
+  }
+
+  async setDisappearingMessages(conversationId: string, seconds: number | null): Promise<any> {
+    const response = await this.client.patch(`/conversations/${conversationId}/disappearing`, { seconds });
+    return response.data;
+  }
+
+  async starMessage(conversationId: string, messageId: string): Promise<any> {
+    const response = await this.client.post(`/conversations/${conversationId}/stars/${messageId}`);
+    return response.data;
+  }
+
+  async unstarMessage(conversationId: string, messageId: string): Promise<void> {
+    await this.client.delete(`/conversations/${conversationId}/stars/${messageId}`);
+  }
+
+  async getStarredMessages(conversationId: string): Promise<any[]> {
+    const response = await this.client.get(`/conversations/${conversationId}/stars`);
+    return response.data;
+  }
+
+  async getChatMedia(conversationId: string, type: 'media' | 'links' | 'docs'): Promise<any> {
+    const response = await this.client.get(`/conversations/${conversationId}/media`, { params: { type } });
+    return response.data;
+  }
+
+  async clearChat(conversationId: string): Promise<void> {
+    await this.client.post(`/conversations/${conversationId}/clear`);
+  }
+
+  async exportChat(conversationId: string): Promise<Blob> {
+    const response = await this.client.get(`/conversations/${conversationId}/export`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  }
+
+  async blockUser(targetUserId: string, reason?: string): Promise<any> {
+    const response = await this.client.post(`/users/${targetUserId}/block`, { reason });
+    return response.data;
+  }
+
+  async unblockUser(targetUserId: string): Promise<void> {
+    await this.client.delete(`/users/${targetUserId}/block`);
+  }
+
+  async getBlockedUsers(): Promise<any[]> {
+    const response = await this.client.get('/users/blocked');
+    return response.data;
+  }
+
+  async reportUser(targetUserId: string, reason: string, details?: string): Promise<any> {
+    const response = await this.client.post(`/users/${targetUserId}/report`, { reason, details });
+    return response.data;
+  }
+
+  async getCommonGroups(targetUserId: string): Promise<any[]> {
+    const response = await this.client.get(`/users/${targetUserId}/common-groups`);
+    return response.data;
+  }
+
   // Linda AI Secretary API
   async chatWithLinda(message: string, conversationId?: string): Promise<{
     response: string;

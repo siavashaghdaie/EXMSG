@@ -54,9 +54,6 @@ export default function LindaChat({ onClose }: LindaChatProps) {
   const [responseStyle, setResponseStyle] = useState(() => {
     return (localStorage.getItem('linda_responseStyle') as 'Professional' | 'Casual' | 'Concise') || 'Professional';
   });
-  const [autoTranslate, setAutoTranslate] = useState(() => {
-    return localStorage.getItem('linda_autoTranslate') === 'true';
-  });
   const [languagePreference, setLanguagePreference] = useState(() => {
     return localStorage.getItem('linda_languagePreference') || 'English';
   });
@@ -85,10 +82,6 @@ export default function LindaChat({ onClose }: LindaChatProps) {
   useEffect(() => {
     localStorage.setItem('linda_responseStyle', responseStyle);
   }, [responseStyle]);
-
-  useEffect(() => {
-    localStorage.setItem('linda_autoTranslate', autoTranslate.toString());
-  }, [autoTranslate]);
 
   useEffect(() => {
     localStorage.setItem('linda_languagePreference', languagePreference);
@@ -478,32 +471,6 @@ export default function LindaChat({ onClose }: LindaChatProps) {
             </div>
           </div>
 
-          {/* Auto-translate toggle */}
-          <div className="space-y-2 pt-4 border-t border-slate-200 dark:border-slate-700">
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="block text-sm font-semibold text-slate-900 dark:text-white">
-                  Auto-translate
-                </label>
-                <p className="text-xs text-slate-500 mt-0.5">Automatically translate Linda's responses</p>
-              </div>
-              <button
-                onClick={() => setAutoTranslate(!autoTranslate)}
-                className={`relative w-12 h-6 rounded-full transition ${
-                  autoTranslate
-                    ? 'bg-violet-500'
-                    : 'bg-slate-300 dark:bg-slate-600'
-                }`}
-              >
-                <div
-                  className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition ${
-                    autoTranslate ? 'right-0.5' : 'left-0.5'
-                  }`}
-                />
-              </button>
-            </div>
-          </div>
-
           {/* Language preference */}
           <div className="space-y-2 pt-4 border-t border-slate-200 dark:border-slate-700">
             <label className="block text-sm font-semibold text-slate-900 dark:text-white">
@@ -527,7 +494,6 @@ export default function LindaChat({ onClose }: LindaChatProps) {
             <p className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-2">Current Settings</p>
             <div className="space-y-1 text-xs text-slate-500 dark:text-slate-400">
               <p>Style: <span className="font-medium text-slate-700 dark:text-slate-300">{responseStyle}</span></p>
-              <p>Auto-translate: <span className="font-medium text-slate-700 dark:text-slate-300">{autoTranslate ? 'On' : 'Off'}</span></p>
               <p>Language: <span className="font-medium text-slate-700 dark:text-slate-300">{languagePreference || 'System default'}</span></p>
             </div>
           </div>
