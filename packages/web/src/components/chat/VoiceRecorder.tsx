@@ -164,22 +164,22 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
 
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-3 px-3 py-2 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800">
+      <div className="flex items-center gap-2 px-2 py-2 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800">
         {/* Cancel */}
         <button
           onClick={() => { stopRecording(); onCancel(); }}
-          className="p-2 text-slate-500 hover:text-red-500 hover:bg-red-100 rounded-full transition"
+          className="flex-shrink-0 p-2 text-slate-500 hover:text-red-500 hover:bg-red-100 rounded-full transition"
           title="Cancel"
         >
           <Trash2 size={18} />
         </button>
 
         {/* Recording indicator / Playback */}
-        <div className="flex-1 flex items-center gap-3">
+        <div className="flex-1 min-w-0 flex items-center gap-2">
           {isRecording ? (
             <>
-              <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
-              <div className="flex-1 flex items-center gap-1">
+              <div className="flex-shrink-0 w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+              <div className="flex-1 flex items-center gap-1 overflow-hidden">
                 {Array.from({ length: 20 }).map((_, i) => (
                   <div
                     key={i}
@@ -193,10 +193,10 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
               </div>
             </>
           ) : audioUrl ? (
-            <audio src={audioUrl} controls className="flex-1 h-8" />
+            <audio src={audioUrl} controls className="flex-1 min-w-0 h-8" style={{ maxWidth: 'calc(100% - 55px)' }} />
           ) : null}
 
-          <span className="text-sm font-mono text-red-600 dark:text-red-400 tabular-nums min-w-[45px]">
+          <span className="flex-shrink-0 text-sm font-mono text-red-600 dark:text-red-400 tabular-nums min-w-[45px]">
             {formatTime(duration)}
           </span>
         </div>
@@ -205,7 +205,7 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
         {isRecording ? (
           <button
             onClick={stopRecording}
-            className="p-2.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition"
+            className="flex-shrink-0 p-2.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition"
             title="Stop recording"
           >
             <Square size={16} fill="white" />
@@ -213,7 +213,7 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
         ) : (
           <button
             onClick={handleSend}
-            className="p-2.5 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition"
+            className="flex-shrink-0 p-2.5 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition"
             title="Send voice message"
           >
             <Send size={16} />
