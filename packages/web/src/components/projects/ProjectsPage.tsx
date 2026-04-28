@@ -165,7 +165,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
   };
 
   // Create or navigate to a project chat room
-  const handleStartProjectChat = async (project: ProjectData) => {
+  const handleStartProjectChat = async (project: Project) => {
     try {
       if (project.conversationId) {
         handleNavigateToChat(project.conversationId);
@@ -175,7 +175,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
       // Update local state so the button shows "Chat" next time
       setProjects(prev => prev.map(p => p.id === project.id ? { ...p, conversationId: res.conversationId } : p));
       if (selectedProject?.id === project.id) {
-        setSelectedProject({ ...selectedProject, conversationId: res.conversationId });
+        setSelectedProject({ ...selectedProject, conversationId: res.conversationId } as Project);
       }
       handleNavigateToChat(res.conversationId);
     } catch (err) {
