@@ -136,7 +136,7 @@ export default function TasksScreen() {
   // Filter state
   const [activeTab, setActiveTab] = useState<FilterTab>('assigned');
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
+  const [statusChecked, setStatusChecked] = useState<Set<StatusFilter>>(new Set(['active']));
 
   // Modal state
   const [modalVisible, setModalVisible] = useState(false);
@@ -169,11 +169,15 @@ export default function TasksScreen() {
     try {
       if (showLoader) setLoading(true);
       setError(null);
-      const params: any = {};
-      if (statusFilter === 'archived') params.archived = 'true';
-      else if (statusFilter === 'deleted') params.deleted = 'true';
+      const params: any = { showAll: 'true' };
       const data = await api.getTasks(params);
-      setTasks(data as Task[]);
+      // Client-side status filter
+      const filtered = (data as Task[]).filter((t: any) => {
+        if (t.deleted) return statusChecked.has('deleted');
+        if (t.archived) return statusChecked.has('archived');
+        return statusChecked.has('active');
+      });
+      setTasks(filtered);
     } catch (err: any) {
       const msg = err?.response?.data?.message || err?.message || 'Failed to load tasks';
       setError(msg);
@@ -181,7 +185,7 @@ export default function TasksScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [statusFilter]);
+  }, [statusChecked]);
 
   useEffect(() => {
     fetchTasks();
@@ -437,19 +441,52 @@ export default function TasksScreen() {
     </TouchableOpacity>
   );
 
+  // Check if current user has any role in a task
+  const userHasRole = (task: any): boolean => {
+    if (task.assignedToId === userId || task.assignedTo?.id === userId) return true;
+    if (task.createdById === userId || task.createdBy?.id === userId) return true;
+    if (task.orderedBy?.id === userId) return true;
+    if (Array.isArray(task.coAssigneeIds) && task.coAssigneeIds.includes(userId)) return true;
+    if (Array.isArray((task as any).checklists)) {
+      for (const cl of (task as any).checklists) {
+        if (Array.isArray(cl.items)) {
+          for (const item of cl.items) {
+            if (Array.isArray(item.assigneeIds) && item.assigneeIds.includes(userId)) return true;
+          }
+        }
+      }
+    }
+    return false;
+  };
+
   const renderTaskCard = (task: Task) => {
     const completed = task.status === 'COMPLETED';
     const overdue = !completed && isOverdue(task.deadline);
+    const hasMyRole = userHasRole(task);
 
     return (
-      <View key={task.id} style={[styles.card, completed && styles.cardCompleted, (task.deleted || task.archived) && { opacity: 0.75 }]}>
+      <View key={task.id} style={[
+        styles.card,
+        completed && styles.cardCompleted,
+        (task.deleted || task.archived) && { opacity: 0.75 },
+        { borderWidth: 2, borderColor: task.deleted ? '#F87171' : task.archived ? '#60A5FA' : '#4ADE80', overflow: 'hidden' as const },
+      ]}>
+        {/* Green triangle "my role" indicator */}
+        {hasMyRole && (
+          <View style={{
+            position: 'absolute', top: 0, right: 0, width: 0, height: 0,
+            borderTopWidth: 20, borderTopColor: '#22c55e',
+            borderLeftWidth: 20, borderLeftColor: 'transparent',
+            zIndex: 10,
+          }} />
+        )}
         {/* Deleted / Archived banner */}
         {(task.deleted || task.archived) && (
           <View style={[styles.statusBanner, { backgroundColor: task.deleted ? '#FEE2E2' : '#FEF3C7' }]}>
             <Text style={{ fontSize: 12, fontWeight: '600', color: task.deleted ? '#991B1B' : '#92400E' }}>
               {task.deleted ? 'Deleted' : 'Archived'}
             </Text>
-            {(statusFilter === 'archived' || statusFilter === 'deleted') && (
+            {(statusChecked.has('archived') || statusChecked.has('deleted')) && (
               <TouchableOpacity
                 onPress={() => handleRestore(task)}
                 style={[styles.restoreBtn, { backgroundColor: task.deleted ? '#DC2626' : '#D97706' }]}
@@ -633,24 +670,36 @@ export default function TasksScreen() {
         </View>
       </View>
 
-      {/* Status filter (Active / Archived / Deleted) */}
+      {/* Status filter checkboxes (Active / Archived / Deleted) */}
       <View style={styles.statusFilterRow}>
         {([
-          { key: 'active' as StatusFilter, label: 'Active', color: '#16A34A' },
-          { key: 'archived' as StatusFilter, label: 'Archived', color: '#D97706' },
-          { key: 'deleted' as StatusFilter, label: 'Deleted', color: '#DC2626' },
-        ]).map(({ key, label, color }) => (
-          <TouchableOpacity
-            key={key}
-            style={[styles.statusFilterBtn, statusFilter === key && { backgroundColor: color }]}
-            onPress={() => setStatusFilter(key)}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.statusFilterText, statusFilter === key && { color: '#FFF' }]}>
-              {label}
-            </Text>
-          </TouchableOpacity>
-        ))}
+          { key: 'active' as StatusFilter, label: 'Active', dotColor: '#16A34A' },
+          { key: 'archived' as StatusFilter, label: 'Archived', dotColor: '#D97706' },
+          { key: 'deleted' as StatusFilter, label: 'Deleted', dotColor: '#DC2626' },
+        ]).map(({ key, label, dotColor }) => {
+          const isChecked = statusChecked.has(key);
+          return (
+            <TouchableOpacity
+              key={key}
+              style={[styles.statusFilterBtn, isChecked && { backgroundColor: dotColor + '18', borderColor: dotColor, borderWidth: 1.5 }]}
+              onPress={() => {
+                setStatusChecked(prev => {
+                  const next = new Set(prev);
+                  if (next.has(key)) { next.delete(key); } else { next.add(key); }
+                  if (next.size === 0) next.add('active');
+                  return next;
+                });
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dotColor, marginRight: 4 }} />
+              <Text style={[styles.statusFilterText, isChecked && { color: dotColor, fontWeight: '700' }]}>
+                {label}
+              </Text>
+              {isChecked && <Text style={{ fontSize: 10, marginLeft: 2, color: dotColor }}>{'✓'}</Text>}
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
       {/* Error banner */}

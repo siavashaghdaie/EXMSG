@@ -115,7 +115,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     try {
       const tasks = await api.getTasks();
-      const incompleteTasks = tasks?.filter((task: any) => task.status !== 'COMPLETED' && task.assignedToId === user?.id) || [];
+      const uid = user?.id;
+      const incompleteTasks = tasks?.filter((task: any) => {
+        if (task.status === 'COMPLETED' || task.deleted || task.archived) return false;
+        // Primary assignee
+        if (task.assignedToId === uid) return true;
+        // Creator
+        if (task.createdById === uid) return true;
+        // Co-assignee
+        if (Array.isArray(task.coAssigneeIds) && task.coAssigneeIds.includes(uid)) return true;
+        // Checklist item assignee
+        if (Array.isArray(task.checklists)) {
+          for (const cl of task.checklists) {
+            if (Array.isArray(cl.items)) {
+              for (const item of cl.items) {
+                if (Array.isArray(item.assigneeIds) && item.assigneeIds.includes(uid)) return true;
+              }
+            }
+          }
+        }
+        return false;
+      }) || [];
       setTaskCount(incompleteTasks.length);
     } catch (_e) { /* ignore */ }
   };

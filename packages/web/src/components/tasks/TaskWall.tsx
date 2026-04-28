@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, X, Loader2, Search, Filter, Archive, Trash2 } from 'lucide-react';
+import { Plus, X, Loader2, Search, Filter } from 'lucide-react';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import TaskCard from '@/components/tasks/TaskCard';
@@ -45,7 +45,7 @@ interface Task {
 }
 
 type TaskFilter = 'my-tasks' | 'assigned-by-me' | 'department' | 'project' | 'all';
-type StatusFilter = 'active' | 'archived' | 'deleted';
+type StatusKey = 'active' | 'archived' | 'deleted';
 
 interface TaskWallProps {
   onClose?: () => void;
@@ -70,7 +70,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedDeptFilter, setSelectedDeptFilter] = useState<string>('');
   const [selectedProjectFilter, setSelectedProjectFilter] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
+  const [statusChecked, setStatusChecked] = useState<Set<StatusKey>>(new Set(['active']));
 
   // Handle resize for mobile detection
   useEffect(() => {
@@ -91,13 +91,16 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
         params.view = 'project';
         if (selectedProjectFilter) params.projectId = selectedProjectFilter;
       }
-      // Pass status filter to backend
-      if (statusFilter === 'archived') params.archived = 'true';
-      else if (statusFilter === 'deleted') params.deleted = 'true';
-      // active = default (no params needed, backend returns non-archived, non-deleted)
+      // Always fetch everything, filter client-side for checkbox combos
+      params.showAll = 'true';
       const allTasks = await api.getTasks(params);
 
-      let filtered = allTasks;
+      // Client-side status filter
+      let filtered = allTasks.filter((t: any) => {
+        if (t.deleted) return statusChecked.has('deleted');
+        if (t.archived) return statusChecked.has('archived');
+        return statusChecked.has('active');
+      });
       if (filter === 'my-tasks') {
         filtered = allTasks.filter((t: any) => t.assignedToId === user?.id);
       } else if (filter === 'assigned-by-me') {
@@ -121,7 +124,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
 
   useEffect(() => {
     fetchTasks();
-  }, [filter, searchQuery, selectedDeptFilter, selectedProjectFilter, statusFilter]);
+  }, [filter, searchQuery, selectedDeptFilter, selectedProjectFilter, statusChecked]);
 
   // Load departments and projects for selectors
   useEffect(() => {
@@ -357,28 +360,36 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
           </div>
         )}
 
-        {/* Status filter — Active / Archived / Deleted */}
-        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-200 dark:border-surface-700">
+        {/* Status filter — checkbox combos like Excel */}
+        <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-200 dark:border-surface-700">
           <Filter className="w-4 h-4 text-gray-400 flex-shrink-0" />
-          <span className="text-xs text-gray-500 dark:text-gray-400 mr-1">Status:</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">Show:</span>
           {([
-            { key: 'active' as StatusFilter, label: 'Active', icon: null, color: 'bg-green-600 dark:bg-green-500' },
-            { key: 'archived' as StatusFilter, label: 'Archived', icon: Archive, color: 'bg-amber-600 dark:bg-amber-500' },
-            { key: 'deleted' as StatusFilter, label: 'Deleted', icon: Trash2, color: 'bg-red-600 dark:bg-red-500' },
-          ]).map(({ key, label, icon: Icon, color }) => (
-            <button
-              key={key}
-              onClick={() => setStatusFilter(key)}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition ${
-                statusFilter === key
-                  ? `${color} text-white`
-                  : 'bg-gray-100 dark:bg-surface-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-surface-700'
-              }`}
-            >
-              {Icon && <Icon className="w-3 h-3" />}
-              {label}
-            </button>
-          ))}
+            { key: 'active' as StatusKey, label: 'Active', dotColor: 'bg-green-500' },
+            { key: 'archived' as StatusKey, label: 'Archived', dotColor: 'bg-amber-500' },
+            { key: 'deleted' as StatusKey, label: 'Deleted', dotColor: 'bg-red-500' },
+          ]).map(({ key, label, dotColor }) => {
+            const checked = statusChecked.has(key);
+            return (
+              <label key={key} className="flex items-center gap-1.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => {
+                    setStatusChecked(prev => {
+                      const next = new Set(prev);
+                      if (next.has(key)) { next.delete(key); } else { next.add(key); }
+                      if (next.size === 0) next.add('active'); // at least one must be checked
+                      return next;
+                    });
+                  }}
+                  className="w-3.5 h-3.5 rounded border-gray-300 dark:border-surface-600 text-primary-600 focus:ring-primary-500 cursor-pointer"
+                />
+                <span className={`w-2 h-2 rounded-full ${dotColor}`} />
+                <span className={`text-xs font-medium ${checked ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-gray-500'}`}>{label}</span>
+              </label>
+            );
+          })}
         </div>
       </div>
 
@@ -422,7 +433,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                   onAddAttachment={handleAddAttachment}
                   onDeleteAttachment={handleDeleteAttachment}
                   onArchive={handleArchiveTask}
-                  onRestore={(statusFilter === 'archived' || statusFilter === 'deleted') ? handleRestoreTask : undefined}
+                  onRestore={(statusChecked.has('archived') || statusChecked.has('deleted')) ? handleRestoreTask : undefined}
                 />
               ))}
             </div>
@@ -458,7 +469,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                           onAddAttachment={handleAddAttachment}
                           onDeleteAttachment={handleDeleteAttachment}
                           onArchive={handleArchiveTask}
-                          onRestore={(statusFilter === 'archived' || statusFilter === 'deleted') ? handleRestoreTask : undefined}
+                          onRestore={(statusChecked.has('archived') || statusChecked.has('deleted')) ? handleRestoreTask : undefined}
                         />
                       ))
                     )}
@@ -500,7 +511,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                   onAddAttachment={handleAddAttachment}
                   onDeleteAttachment={handleDeleteAttachment}
                   onArchive={handleArchiveTask}
-                  onRestore={(statusFilter === 'archived' || statusFilter === 'deleted') ? handleRestoreTask : undefined}
+                  onRestore={(statusChecked.has('archived') || statusChecked.has('deleted')) ? handleRestoreTask : undefined}
                 />
               ))}
             </div>

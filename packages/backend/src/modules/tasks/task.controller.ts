@@ -464,7 +464,18 @@ export class TaskController {
       const { title, description, status, priority, deadline, labels, lindaFollowing, lindaFollowInterval, archived, coAssigneeIds, assignedToId, projectId, projectName, departmentId } = req.body;
 
       const task = await prisma.task.findUnique({ where: { id: taskId } });
-      if (!task || (task.assignedToId !== userId && task.createdById !== userId)) {
+      if (!task) {
+        res.status(404).json({ error: 'Task not found' });
+        return;
+      }
+
+      // Allow update if user is: assignee, creator, orderer, co-assignee, or an org admin/owner
+      const isAssignee = task.assignedToId === userId;
+      const isCreator = task.createdById === userId;
+      const isOrderer = (task as any).orderedById === userId;
+      const isCoAssignee = Array.isArray(task.coAssigneeIds) && (task.coAssigneeIds as string[]).includes(userId);
+      const isOrgAdmin = req.orgRole === 'OWNER' || req.orgRole === 'ADMIN';
+      if (!isAssignee && !isCreator && !isOrderer && !isCoAssignee && !isOrgAdmin) {
         res.status(403).json({ error: 'Not authorized to update this task' });
         return;
       }
@@ -651,7 +662,15 @@ export class TaskController {
           createdBy: { select: { displayName: true, username: true } },
         },
       });
-      if (!task || (task.createdById !== userId && task.assignedToId !== userId)) {
+      if (!task) {
+        res.status(404).json({ error: 'Task not found' });
+        return;
+      }
+      const canDelete = task.createdById === userId
+        || task.assignedToId === userId
+        || (Array.isArray(task.coAssigneeIds) && (task.coAssigneeIds as string[]).includes(userId))
+        || req.orgRole === 'OWNER' || req.orgRole === 'ADMIN';
+      if (!canDelete) {
         res.status(403).json({ error: 'Not authorized to delete this task' });
         return;
       }

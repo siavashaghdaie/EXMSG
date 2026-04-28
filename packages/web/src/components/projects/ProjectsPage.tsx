@@ -134,8 +134,8 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
   const [showAddChecklist, setShowAddChecklist] = useState(false);
   const [newItemTitles, setNewItemTitles] = useState<Record<string, string>>({});
 
-  // Task status filter: active / archived / deleted
-  const [taskStatusFilter, setTaskStatusFilter] = useState<'active' | 'archived' | 'deleted'>('active');
+  // Task status filter: multi-select checkboxes
+  const [taskStatusChecked, setTaskStatusChecked] = useState<Set<string>>(new Set(['active']));
 
   // Edit project in list view
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
@@ -762,11 +762,11 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
   // ─── Project Board View ───────────────────────────────────────────────
   if (viewMode === 'board' && selectedProject) {
     const allTasks = selectedProject.tasks || [];
-    const tasks = taskStatusFilter === 'deleted'
-      ? allTasks.filter(t => t.deleted)
-      : taskStatusFilter === 'archived'
-        ? allTasks.filter(t => t.archived && !t.deleted)
-        : allTasks.filter(t => !t.archived && !t.deleted);
+    const tasks = allTasks.filter((t: TaskData) => {
+      if (t.deleted) return taskStatusChecked.has('deleted');
+      if (t.archived) return taskStatusChecked.has('archived');
+      return taskStatusChecked.has('active');
+    });
 
     return (
       <>
@@ -786,26 +786,33 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
                 <MessageSquare size={14} /> Chat
               </button>
             )}
-            {/* Task status filter buttons */}
+            {/* Task status filter checkboxes */}
             {([
-              { key: 'active' as const, label: 'Active', color: 'bg-green-600 text-white' },
-              { key: 'archived' as const, label: 'Archived', color: 'bg-amber-600 text-white' },
-              { key: 'deleted' as const, label: 'Deleted', color: 'bg-red-600 text-white' },
-            ]).map(({ key, label, color }) => (
-              <button
-                key={key}
-                onClick={() => setTaskStatusFilter(key)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1.5 transition ${
-                  taskStatusFilter === key
-                    ? color
-                    : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
-                }`}
-              >
-                {key === 'archived' && <Archive size={14} />}
-                {key === 'deleted' && <Trash2 size={14} />}
-                {label}
-              </button>
-            ))}
+              { key: 'active', label: 'Active', dotColor: 'bg-green-500' },
+              { key: 'archived', label: 'Archived', dotColor: 'bg-amber-500' },
+              { key: 'deleted', label: 'Deleted', dotColor: 'bg-red-500' },
+            ]).map(({ key, label, dotColor }) => {
+              const checked = taskStatusChecked.has(key);
+              return (
+                <label key={key} className="flex items-center gap-1.5 cursor-pointer select-none px-2 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => {
+                      setTaskStatusChecked(prev => {
+                        const next = new Set(prev);
+                        if (next.has(key)) { next.delete(key); } else { next.add(key); }
+                        if (next.size === 0) next.add('active');
+                        return next;
+                      });
+                    }}
+                    className="w-3.5 h-3.5 rounded border-slate-300 dark:border-slate-600 text-violet-600 focus:ring-violet-500 cursor-pointer"
+                  />
+                  <span className={`w-2 h-2 rounded-full ${dotColor}`} />
+                  <span className={`text-xs font-medium ${checked ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'}`}>{label}</span>
+                </label>
+              );
+            })}
           </div>
           <div className="flex-1 overflow-x-auto p-4">
             <div className="flex gap-4 min-w-max h-full">
@@ -857,14 +864,14 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
                             } catch (err) { console.error('Delete attachment error:', err); }
                           }}
                           onArchive={(taskId, archive) => handleArchiveTask(taskId, archive)}
-                          onRestore={(taskStatusFilter === 'archived' || taskStatusFilter === 'deleted') ? handleRestoreTask : undefined}
+                          onRestore={(taskStatusChecked.has('archived') || taskStatusChecked.has('deleted')) ? handleRestoreTask : undefined}
                         />
                       ))}
                       {columnTasks.length === 0 && <p className="text-xs text-slate-400 text-center py-4">No tasks</p>}
                     </div>
 
                     {/* Add task button */}
-                    {taskStatusFilter === 'active' && (
+                    {taskStatusChecked.has('active') && !taskStatusChecked.has('archived') && !taskStatusChecked.has('deleted') && (
                       <button
                         onClick={() => {
                           setTaskFormEditingTask(null);
@@ -1407,9 +1414,27 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {projects.map((p) => (
-              <div key={p.id} className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 hover:shadow-md transition-shadow overflow-hidden">
+            {projects.map((p) => {
+              const projectBorderClass = p.status === 'ARCHIVED'
+                ? 'border-2 border-blue-400 dark:border-blue-500'
+                : p.status === 'COMPLETED'
+                  ? 'border-2 border-blue-300 dark:border-blue-600'
+                  : p.status === 'PAUSED'
+                    ? 'border-2 border-amber-400 dark:border-amber-500'
+                    : 'border-2 border-green-400 dark:border-green-500';
+              return (
+              <div key={p.id} className={`bg-white dark:bg-slate-800 rounded-xl ${projectBorderClass} hover:shadow-md transition-shadow overflow-hidden relative`}>
                 <div className="p-5">
+                  {/* Status label for non-active projects */}
+                  {p.status === 'ARCHIVED' && (
+                    <div className="absolute top-0 right-0 bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-bl-lg">Archived</div>
+                  )}
+                  {p.status === 'PAUSED' && (
+                    <div className="absolute top-0 right-0 bg-amber-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-bl-lg">Paused</div>
+                  )}
+                  {p.status === 'COMPLETED' && (
+                    <div className="absolute top-0 right-0 bg-blue-400 text-white text-[10px] font-bold px-2 py-0.5 rounded-bl-lg">Completed</div>
+                  )}
                   {editingProjectId === p.id ? (
                     /* ── Inline Edit Form ── */
                     <div className="space-y-3">
@@ -1476,7 +1501,13 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
                         </div>
                         <div className="flex items-center gap-1 ml-2">
                           <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${statusColors[p.status] || statusColors.ACTIVE}`}>{p.status}</span>
-                          <button onClick={() => { setEditingProjectId(p.id); setEditProjectForm({ name: p.name, description: p.description || '', specsAndGoals: p.specsAndGoals || '', gitUrl: p.gitUrl || '', storageUrl: p.storageUrl || '', status: p.status }); }} className="p-1 text-slate-400 hover:text-violet-500 rounded"><Pencil size={14} /></button>
+                          <button onClick={() => {
+                            if (p.status === 'ARCHIVED') {
+                              alert('Please change this project\'s status to Active before editing.');
+                              return;
+                            }
+                            setEditingProjectId(p.id); setEditProjectForm({ name: p.name, description: p.description || '', specsAndGoals: p.specsAndGoals || '', gitUrl: p.gitUrl || '', storageUrl: p.storageUrl || '', status: p.status });
+                          }} className={`p-1 rounded ${p.status === 'ARCHIVED' ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'text-slate-400 hover:text-violet-500'}`}><Pencil size={14} /></button>
                           <button onClick={() => handleDelete(p.id, p.name)} className="p-1 text-slate-400 hover:text-red-500 rounded"><Trash2 size={14} /></button>
                         </div>
                       </div>
@@ -1524,7 +1555,8 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
                   )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

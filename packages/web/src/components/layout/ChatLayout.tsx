@@ -75,7 +75,23 @@ export const ChatLayout: React.FC = () => {
   const refreshTaskCount = async () => {
     try {
       const tasks = await api.getTasks();
-      const incomplete = tasks?.filter((t: any) => t.status !== 'COMPLETED' && t.assignedToId === user?.id) || [];
+      const uid = user?.id;
+      const incomplete = tasks?.filter((t: any) => {
+        if (t.status === 'COMPLETED' || t.deleted || t.archived) return false;
+        if (t.assignedToId === uid) return true;
+        if (t.createdById === uid) return true;
+        if (Array.isArray(t.coAssigneeIds) && t.coAssigneeIds.includes(uid)) return true;
+        if (Array.isArray(t.checklists)) {
+          for (const cl of t.checklists) {
+            if (Array.isArray(cl.items)) {
+              for (const item of cl.items) {
+                if (Array.isArray(item.assigneeIds) && item.assigneeIds.includes(uid)) return true;
+              }
+            }
+          }
+        }
+        return false;
+      }) || [];
       setTaskCount(incomplete.length);
     } catch {}
   };

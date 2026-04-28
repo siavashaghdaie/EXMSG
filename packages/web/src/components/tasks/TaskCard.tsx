@@ -103,6 +103,31 @@ const statusLabels: Record<string, string> = {
   BLOCKED: 'Blocked',
 };
 
+// Get border color based on task status (deleted/archived/active)
+const getStatusBorderClass = (task: any) => {
+  if (task.deleted) return 'border-2 border-red-400 dark:border-red-500';
+  if (task.archived) return 'border-2 border-blue-400 dark:border-blue-500';
+  return 'border-2 border-green-400 dark:border-green-500';
+};
+
+// Check if the current user has any role in the task
+const userHasRoleInTask = (task: any, userId: string): boolean => {
+  if (task.assignedToId === userId) return true;
+  if (task.createdById === userId) return true;
+  if ((task as any).orderedById === userId) return true;
+  if (Array.isArray(task.coAssigneeIds) && task.coAssigneeIds.includes(userId)) return true;
+  if (Array.isArray(task.checklists)) {
+    for (const cl of task.checklists) {
+      if (Array.isArray(cl.items)) {
+        for (const item of cl.items) {
+          if (Array.isArray(item.assigneeIds) && item.assigneeIds.includes(userId)) return true;
+        }
+      }
+    }
+  }
+  return false;
+};
+
 const TaskCard: React.FC<TaskCardProps> = ({
   task,
   isMobile,
@@ -120,6 +145,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
   onRestore,
 }) => {
   const { user } = useAuthStore();
+  const hasMyRole = userHasRoleInTask(task, currentUserId);
 
   // Dropdown menu state
   const [showMenu, setShowMenu] = useState(false);
@@ -219,8 +245,16 @@ const TaskCard: React.FC<TaskCardProps> = ({
     return (
       <div className="absolute right-0 top-full mt-1 z-50 bg-white dark:bg-surface-800 border border-gray-200 dark:border-surface-600 rounded-lg shadow-lg py-1 min-w-[140px]">
         <button
-          onClick={(e) => { e.stopPropagation(); setShowMenu(false); onEdit(task); }}
-          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-surface-700"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowMenu(false);
+            if (task.deleted || task.archived) {
+              alert('Please restore this task to active status before editing.');
+              return;
+            }
+            onEdit(task);
+          }}
+          className={`w-full flex items-center gap-2 px-3 py-2 text-xs ${task.deleted || task.archived ? 'text-gray-400 dark:text-gray-500 cursor-not-allowed' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-surface-700'}`}
         >
           <Pencil className="w-3.5 h-3.5" /> Edit
         </button>
@@ -426,7 +460,11 @@ const TaskCard: React.FC<TaskCardProps> = ({
 
   if (isMobile) {
     return (
-      <div className={`bg-white dark:bg-surface-800 rounded-lg p-4 mb-3 shadow-sm hover:shadow-md transition-shadow border border-gray-200 dark:border-surface-700 ${getPriorityBorderColor(task.priority)} ${task.deleted ? 'opacity-70' : task.archived ? 'opacity-80' : ''}`}>
+      <div className={`relative bg-white dark:bg-surface-800 rounded-lg p-4 mb-3 shadow-sm hover:shadow-md transition-shadow ${getStatusBorderClass(task)} ${getPriorityBorderColor(task.priority)} ${task.deleted ? 'opacity-70' : task.archived ? 'opacity-80' : ''}`}>
+        {/* Green "my role" triangle indicator */}
+        {hasMyRole && (
+          <div className="absolute top-0 right-0 w-0 h-0" style={{ borderTop: '20px solid #22c55e', borderLeft: '20px solid transparent' }} title="You have a role in this task" />
+        )}
         {/* Deleted / Archived banner */}
         {(task.deleted || task.archived) && (
           <div className={`flex items-center justify-between mb-2 px-2 py-1.5 rounded text-xs font-medium ${task.deleted ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'}`}>
@@ -548,7 +586,11 @@ const TaskCard: React.FC<TaskCardProps> = ({
 
   // Desktop kanban card
   return (
-    <div className={`bg-white dark:bg-surface-800 rounded-lg p-3 mb-2 shadow-sm hover:shadow-md transition-shadow border border-gray-200 dark:border-surface-700 ${task.deleted ? 'opacity-70' : task.archived ? 'opacity-80' : ''}`}>
+    <div className={`relative bg-white dark:bg-surface-800 rounded-lg p-3 mb-2 shadow-sm hover:shadow-md transition-shadow ${getStatusBorderClass(task)} ${task.deleted ? 'opacity-70' : task.archived ? 'opacity-80' : ''}`}>
+      {/* Green "my role" triangle indicator */}
+      {hasMyRole && (
+        <div className="absolute top-0 right-0 w-0 h-0" style={{ borderTop: '20px solid #22c55e', borderLeft: '20px solid transparent' }} title="You have a role in this task" />
+      )}
       {/* Deleted / Archived banner */}
       {(task.deleted || task.archived) && (
         <div className={`flex items-center justify-between mb-2 px-2 py-1 rounded text-xs font-medium ${task.deleted ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'}`}>
