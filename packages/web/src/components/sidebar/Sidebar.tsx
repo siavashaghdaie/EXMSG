@@ -601,8 +601,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Category Tabs */}
-        <div className="px-3 pt-1.5 pb-0.5 flex-shrink-0">
-          <div className="flex gap-1 overflow-x-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+        <div className="px-3 pt-2 pb-1 flex-shrink-0">
+          <div className="flex gap-1.5 overflow-x-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
             {([
               { key: 'all', label: 'All' },
               { key: 'dms', label: 'DMs' },
@@ -615,7 +615,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <button
                   key={key}
                   onClick={() => setActiveTab(key)}
-                  className={`flex-shrink-0 px-2 py-0.5 rounded-full text-[11px] font-medium transition-all whitespace-nowrap ${
+                  className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
                     isActive
                       ? 'bg-primary-600 dark:bg-primary-500 text-white shadow-sm'
                       : 'bg-gray-100 dark:bg-surface-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-surface-700'
@@ -623,7 +623,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 >
                   {label}
                   {count > 0 && !isActive && (
-                    <span className="ml-1 inline-flex items-center justify-center min-w-[14px] h-[14px] bg-red-500 text-white text-[8px] font-bold rounded-full px-0.5 leading-none">
+                    <span className="ml-1 inline-flex items-center justify-center min-w-[16px] h-[16px] bg-red-500 text-white text-[9px] font-bold rounded-full px-0.5 leading-none">
                       {count > 9 ? '9+' : count}
                     </span>
                   )}
