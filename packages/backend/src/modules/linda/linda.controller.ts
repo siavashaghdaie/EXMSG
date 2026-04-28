@@ -9,6 +9,26 @@ import { getLindaBotUserId as getSharedLindaBotUserId } from '../../services/lin
 // Type-safe accessors for new Prisma models (available after running `npx prisma generate`)
 const db = prisma as any;
 
+// Strip action blocks from response text before saving/displaying
+function stripActionBlocks(text: string): string {
+  return text
+    .replace(/\[SEND_MESSAGE\][\s\S]*?\[\/SEND_MESSAGE\]/gi, '')
+    .replace(/\[ASSIGN_TASK\][\s\S]*?\[\/ASSIGN_TASK\]/gi, '')
+    .replace(/\[UPDATE_TASK\][\s\S]*?\[\/UPDATE_TASK\]/gi, '')
+    .replace(/\[MODIFY_TASK\][\s\S]*?\[\/MODIFY_TASK\]/gi, '')
+    .replace(/\[ADD_CHECKLIST\][\s\S]*?\[\/ADD_CHECKLIST\]/gi, '')
+    .replace(/\[UPDATE_CHECKLIST_ITEM\][\s\S]*?\[\/UPDATE_CHECKLIST_ITEM\]/gi, '')
+    .replace(/\[MODIFY_PROJECT\][\s\S]*?\[\/MODIFY_PROJECT\]/gi, '')
+    .replace(/\[CREATE_PROJECT\][\s\S]*?\[\/CREATE_PROJECT\]/gi, '')
+    .replace(/\[MODIFY_ANNOUNCEMENT\][\s\S]*?\[\/MODIFY_ANNOUNCEMENT\]/gi, '')
+    .replace(/\[ADD_TASK_COMMENT\][\s\S]*?\[\/ADD_TASK_COMMENT\]/gi, '')
+    .replace(/\[CREATE_ANNOUNCEMENT\][\s\S]*?\[\/CREATE_ANNOUNCEMENT\]/gi, '')
+    .replace(/\[ANNOUNCE\][\s\S]*?\[\/ANNOUNCE\]/gi, '')
+    .replace(/\[CREATE_FILE\][\s\S]*?\[\/CREATE_FILE\]/gi, '')
+    .replace(/\[SEND_FILE\][\s\S]*?\[\/SEND_FILE\]/gi, '')
+    .trim();
+}
+
 // Initialize Anthropic client
 let anthropicClient: Anthropic | null = null;
 
@@ -296,7 +316,7 @@ export class LindaController {
       const actions = await this.executeActions(rawResponseText, userId);
 
       // Strip action blocks from the visible response
-      const cleanResponse = this.stripActionBlocks(rawResponseText);
+      const cleanResponse = stripActionBlocks(rawResponseText);
 
       // Save CLEAN response to history and DB (prevents poisoning)
       addToHistory(userId, 'assistant', cleanResponse);
@@ -449,7 +469,7 @@ export class LindaController {
       const actions = await this.executeActions(responseText, userId);
 
       // Strip action blocks from the visible response
-      const cleanResponse = this.stripActionBlocks(responseText);
+      const cleanResponse = stripActionBlocks(responseText);
 
       addToHistory(userId, 'assistant', cleanResponse);
       if (useDb && lindaConvId) {
@@ -1400,21 +1420,525 @@ export class LindaController {
       }
     }
 
+    // Parse [MODIFY_TASK] blocks — full task editing (title, description, deadline, labels, assignee, co-assignees, archive)
+    const modifyTaskRegex = /\[MODIFY_TASK\]\s*([\s\S]*?)\[\/MODIFY_TASK\]/gi;
+    let modifyTaskMatch;
+
+    while ((modifyTaskMatch = modifyTaskRegex.exec(responseText)) !== null) {
+      const block = modifyTaskMatch[1];
+      const taskIdMatch = block.match(/taskId:\s*(\S+)/i);
+      if (!taskIdMatch) {
+        actions.push({ type: 'modify_task', target: 'unknown', status: 'missing_task_id' });
+        continue;
+      }
+      try {
+        const taskId = taskIdMatch[1].trim();
+        const updateData: any = {};
+
+        const titleMatch = block.match(/title:\s*(.+)/i);
+        const descMatch = block.match(/description:\s*(.+)/i);
+        const statusMatch = block.match(/status:\s*(NOT_STARTED|IN_PROGRESS|PENDING_REVIEW|COMPLETED|BLOCKED)/i);
+        const priorityMatch = block.match(/priority:\s*(LOW|MEDIUM|HIGH|CRITICAL)/i);
+        const deadlineMatch = block.match(/deadline:\s*(\d{4}-\d{2}-\d{2})/i);
+        const labelsMatch = block.match(/labels:\s*(.+)/i);
+        const assigneeMatch = block.match(/assignee:\s*@?(\S+)/i);
+        const coAssigneesMatch = block.match(/coAssignees:\s*(.+)/i);
+        const archivedMatch = block.match(/archived:\s*(true|false)/i);
+
+        if (titleMatch) updateData.title = titleMatch[1].trim();
+        if (descMatch) updateData.description = descMatch[1].trim();
+        if (statusMatch) updateData.status = statusMatch[1].toUpperCase();
+        if (priorityMatch) updateData.priority = priorityMatch[1].toUpperCase();
+        if (deadlineMatch) updateData.deadline = new Date(deadlineMatch[1]);
+        if (labelsMatch) updateData.labels = labelsMatch[1].split(',').map((l: string) => l.trim()).filter(Boolean);
+        if (archivedMatch) updateData.archived = archivedMatch[1].toLowerCase() === 'true';
+
+        // Resolve new assignee
+        if (assigneeMatch) {
+          const newAssignee = await prisma.user.findFirst({
+            where: { OR: [{ username: { equals: assigneeMatch[1].trim(), mode: 'insensitive' } }, { displayName: { equals: assigneeMatch[1].trim(), mode: 'insensitive' } }] },
+            select: { id: true },
+          });
+          if (newAssignee) updateData.assignedToId = newAssignee.id;
+        }
+
+        // Resolve co-assignees
+        if (coAssigneesMatch) {
+          const coIds: string[] = [];
+          const coNames = coAssigneesMatch[1].split(',').map((n: string) => n.trim().replace(/^@/, '')).filter(Boolean);
+          for (const coName of coNames) {
+            const coUser = await prisma.user.findFirst({
+              where: { OR: [{ username: { equals: coName, mode: 'insensitive' } }, { displayName: { equals: coName, mode: 'insensitive' } }] },
+              select: { id: true },
+            });
+            if (coUser) coIds.push(coUser.id);
+          }
+          updateData.coAssigneeIds = coIds;
+        }
+
+        const updated = await prisma.task.update({
+          where: { id: taskId },
+          data: updateData,
+          include: { assignedTo: { select: { username: true, displayName: true } } },
+        });
+
+        // Notify in task chat room
+        const changes = Object.keys(updateData).filter(k => k !== 'coAssigneeIds').map(k => `${k}: ${(updateData as any)[k]}`).join(', ');
+        if (updated.conversationId && changes) {
+          const { sendLindaToConversation } = await import('../../services/lindaNotify');
+          sendLindaToConversation(updated.conversationId, `📝 **Task Updated**\n\n${changes}`).catch(() => {});
+        }
+
+        console.log(`[Linda] Modified task "${updated.title}" — ${changes}`);
+        actions.push({ type: 'modify_task', target: updated.title, status: 'updated' });
+        logLindaActivity({
+          orderedById: requestingUserId, actionType: 'modify_task', status: 'completed',
+          summary: `Modified task "${updated.title}" — ${changes}`,
+          details: { taskId, changes: updateData },
+        });
+      } catch (err) {
+        console.error('[Linda] Failed to modify task:', err);
+        actions.push({ type: 'modify_task', target: taskIdMatch[1], status: 'error' });
+      }
+    }
+
+    // Parse [ADD_CHECKLIST] blocks — create checklist with items on a task
+    const addChecklistRegex = /\[ADD_CHECKLIST\]\s*([\s\S]*?)\[\/ADD_CHECKLIST\]/gi;
+    let checklistMatch;
+
+    while ((checklistMatch = addChecklistRegex.exec(responseText)) !== null) {
+      const block = checklistMatch[1];
+      const taskIdMatch = block.match(/taskId:\s*(\S+)/i);
+      const clTitleMatch = block.match(/title:\s*(.+)/i);
+      // Items: each line starting with "- " e.g. "- Item title @assignee 2026-05-01"
+      const itemLines = block.match(/^-\s+.+$/gm);
+
+      if (!taskIdMatch) {
+        actions.push({ type: 'add_checklist', target: 'unknown', status: 'missing_task_id' });
+        continue;
+      }
+
+      try {
+        const taskId = taskIdMatch[1].trim();
+        const checklistTitle = clTitleMatch ? clTitleMatch[1].trim() : 'Checklist';
+
+        // Verify task exists
+        const task = await prisma.task.findUnique({ where: { id: taskId }, select: { id: true, title: true, conversationId: true } });
+        if (!task) {
+          actions.push({ type: 'add_checklist', target: taskId, status: 'task_not_found' });
+          continue;
+        }
+
+        // Create checklist
+        const checklist = await (prisma as any).checklist.create({
+          data: { taskId, title: checklistTitle, position: 0 },
+        });
+
+        const createdItems: string[] = [];
+        const notifyUsers: { userId: string; itemTitle: string }[] = [];
+
+        if (itemLines) {
+          for (let i = 0; i < itemLines.length; i++) {
+            const line = itemLines[i].replace(/^-\s+/, '').trim();
+            // Parse: "Item title @user1 @user2 2026-05-01"
+            const dateMatch = line.match(/(\d{4}-\d{2}-\d{2})/);
+            const userMatches = line.match(/@(\S+)/g);
+            let itemTitle = line
+              .replace(/\d{4}-\d{2}-\d{2}/, '')
+              .replace(/@\S+/g, '')
+              .trim();
+
+            const assigneeIds: string[] = [];
+            if (userMatches) {
+              for (const uMatch of userMatches) {
+                const uName = uMatch.replace('@', '');
+                const found = await prisma.user.findFirst({
+                  where: { OR: [{ username: { equals: uName, mode: 'insensitive' } }, { displayName: { equals: uName, mode: 'insensitive' } }] },
+                  select: { id: true },
+                });
+                if (found) {
+                  assigneeIds.push(found.id);
+                  notifyUsers.push({ userId: found.id, itemTitle });
+                }
+              }
+            }
+
+            await (prisma as any).checklistItem.create({
+              data: {
+                checklistId: checklist.id,
+                title: itemTitle || `Item ${i + 1}`,
+                position: i,
+                completed: false,
+                ...(assigneeIds.length > 0 && { assigneeIds }),
+                ...(dateMatch && { dueDate: new Date(dateMatch[1]) }),
+              },
+            });
+            createdItems.push(itemTitle || `Item ${i + 1}`);
+          }
+        }
+
+        // Notify in task chat room
+        if (task.conversationId) {
+          const { sendLindaToConversation } = await import('../../services/lindaNotify');
+          const itemList = createdItems.map(t => `  • ${t}`).join('\n');
+          sendLindaToConversation(task.conversationId, `📋 **New Checklist: ${checklistTitle}**\n\n${itemList}`).catch(() => {});
+        }
+
+        // DM each assigned user
+        const { sendLindaDM } = await import('../../services/lindaNotify');
+        const notifiedSet = new Set<string>();
+        for (const nu of notifyUsers) {
+          if (nu.userId !== requestingUserId && !notifiedSet.has(nu.userId)) {
+            notifiedSet.add(nu.userId);
+            const usr = await prisma.user.findUnique({ where: { id: nu.userId }, select: { displayName: true, username: true } });
+            const uName = usr?.displayName || usr?.username || 'there';
+            sendLindaDM(nu.userId, `📋 Hey ${uName}! You've been assigned to checklist items on task **"${task.title}"**.\n\nCheck the Task Wall for details!`).catch(() => {});
+          }
+        }
+
+        console.log(`[Linda] Created checklist "${checklistTitle}" with ${createdItems.length} items on task "${task.title}"`);
+        actions.push({ type: 'add_checklist', target: task.title, status: 'created' });
+        logLindaActivity({
+          orderedById: requestingUserId, actionType: 'add_checklist', status: 'completed',
+          summary: `Created checklist "${checklistTitle}" with ${createdItems.length} items on task "${task.title}"`,
+          details: { taskId, checklistTitle, items: createdItems },
+        });
+      } catch (err) {
+        console.error('[Linda] Failed to add checklist:', err);
+        actions.push({ type: 'add_checklist', target: taskIdMatch[1], status: 'error' });
+      }
+    }
+
+    // Parse [UPDATE_CHECKLIST_ITEM] blocks — toggle, reassign, rename checklist items
+    const updateClItemRegex = /\[UPDATE_CHECKLIST_ITEM\]\s*([\s\S]*?)\[\/UPDATE_CHECKLIST_ITEM\]/gi;
+    let clItemMatch;
+
+    while ((clItemMatch = updateClItemRegex.exec(responseText)) !== null) {
+      const block = clItemMatch[1];
+      const itemIdMatch = block.match(/itemId:\s*(\S+)/i);
+      if (!itemIdMatch) {
+        actions.push({ type: 'update_checklist_item', target: 'unknown', status: 'missing_item_id' });
+        continue;
+      }
+      try {
+        const itemId = itemIdMatch[1].trim();
+        const updateData: any = {};
+        const titleMatch = block.match(/title:\s*(.+)/i);
+        const completedMatch = block.match(/completed:\s*(true|false)/i);
+        const dueDateMatch = block.match(/dueDate:\s*(\d{4}-\d{2}-\d{2})/i);
+        const assigneesMatch = block.match(/assignees:\s*(.+)/i);
+
+        if (titleMatch) updateData.title = titleMatch[1].trim();
+        if (completedMatch) updateData.completed = completedMatch[1].toLowerCase() === 'true';
+        if (dueDateMatch) updateData.dueDate = new Date(dueDateMatch[1]);
+
+        if (assigneesMatch) {
+          const ids: string[] = [];
+          const names = assigneesMatch[1].split(',').map((n: string) => n.trim().replace(/^@/, '')).filter(Boolean);
+          for (const name of names) {
+            const u = await prisma.user.findFirst({
+              where: { OR: [{ username: { equals: name, mode: 'insensitive' } }, { displayName: { equals: name, mode: 'insensitive' } }] },
+              select: { id: true },
+            });
+            if (u) ids.push(u.id);
+          }
+          updateData.assigneeIds = ids;
+        }
+
+        const updated = await (prisma as any).checklistItem.update({
+          where: { id: itemId },
+          data: updateData,
+          include: { checklist: { include: { task: { select: { id: true, title: true, conversationId: true } } } } },
+        });
+
+        // Notify in task chat room
+        if (updated.checklist?.task?.conversationId) {
+          const { sendLindaToConversation } = await import('../../services/lindaNotify');
+          const what = completedMatch ? (updated.completed ? '✅ completed' : '↩️ reopened') : '📝 updated';
+          sendLindaToConversation(updated.checklist.task.conversationId, `${what}: "${updated.title}"`).catch(() => {});
+        }
+
+        console.log(`[Linda] Updated checklist item "${updated.title}"`);
+        actions.push({ type: 'update_checklist_item', target: updated.title, status: 'updated' });
+        logLindaActivity({
+          orderedById: requestingUserId, actionType: 'update_checklist_item', status: 'completed',
+          summary: `Updated checklist item "${updated.title}"`,
+          details: { itemId, changes: updateData },
+        });
+      } catch (err) {
+        console.error('[Linda] Failed to update checklist item:', err);
+        actions.push({ type: 'update_checklist_item', target: itemIdMatch[1], status: 'error' });
+      }
+    }
+
+    // Parse [MODIFY_PROJECT] blocks — update project details, add/remove members
+    const modifyProjectRegex = /\[MODIFY_PROJECT\]\s*([\s\S]*?)\[\/MODIFY_PROJECT\]/gi;
+    let modProjMatch;
+
+    while ((modProjMatch = modifyProjectRegex.exec(responseText)) !== null) {
+      const block = modProjMatch[1];
+      const projIdMatch = block.match(/projectId:\s*(\S+)/i);
+      if (!projIdMatch) {
+        actions.push({ type: 'modify_project', target: 'unknown', status: 'missing_project_id' });
+        continue;
+      }
+      try {
+        const projectId = projIdMatch[1].trim();
+        const updateData: any = {};
+        const nameMatch = block.match(/name:\s*(.+)/i);
+        const descMatch = block.match(/description:\s*(.+)/i);
+        const specsMatch = block.match(/specsAndGoals:\s*([\s\S]*?)(?=(?:status:|addMembers:|removeMembers:|teamLead:|$))/i);
+        const statusMatch = block.match(/status:\s*(ACTIVE|PAUSED|COMPLETED|ARCHIVED)/i);
+        const teamLeadMatch = block.match(/teamLead:\s*@?(\S+)/i);
+        const addMembersMatch = block.match(/addMembers:\s*(.+)/i);
+        const removeMembersMatch = block.match(/removeMembers:\s*(.+)/i);
+
+        if (nameMatch) updateData.name = nameMatch[1].trim();
+        if (descMatch) updateData.description = descMatch[1].trim();
+        if (specsMatch) updateData.specsAndGoals = specsMatch[1].trim();
+        if (statusMatch) updateData.status = statusMatch[1].toUpperCase();
+
+        if (teamLeadMatch) {
+          const lead = await prisma.user.findFirst({
+            where: { OR: [{ username: { equals: teamLeadMatch[1].trim(), mode: 'insensitive' } }, { displayName: { equals: teamLeadMatch[1].trim(), mode: 'insensitive' } }] },
+            select: { id: true },
+          });
+          if (lead) updateData.teamLeadId = lead.id;
+        }
+
+        const project = await (prisma as any).project.update({
+          where: { id: projectId },
+          data: updateData,
+        });
+
+        // Add members
+        if (addMembersMatch) {
+          const memberNames = addMembersMatch[1].split(',').map((n: string) => n.trim().replace(/^@/, '')).filter(Boolean);
+          for (const mName of memberNames) {
+            const mu = await prisma.user.findFirst({
+              where: { OR: [{ username: { equals: mName, mode: 'insensitive' } }, { displayName: { equals: mName, mode: 'insensitive' } }] },
+              select: { id: true, displayName: true, username: true },
+            });
+            if (mu) {
+              await (prisma as any).projectMember.upsert({
+                where: { projectId_userId: { projectId, userId: mu.id } },
+                create: { projectId, userId: mu.id },
+                update: {},
+              });
+              // Notify new member
+              const { sendLindaDM } = await import('../../services/lindaNotify');
+              sendLindaDM(mu.id, `👥 Hey ${mu.displayName || mu.username}! You've been added to the project **"${project.name}"**.`).catch(() => {});
+            }
+          }
+        }
+
+        // Remove members
+        if (removeMembersMatch) {
+          const remNames = removeMembersMatch[1].split(',').map((n: string) => n.trim().replace(/^@/, '')).filter(Boolean);
+          for (const rName of remNames) {
+            const ru = await prisma.user.findFirst({
+              where: { OR: [{ username: { equals: rName, mode: 'insensitive' } }, { displayName: { equals: rName, mode: 'insensitive' } }] },
+              select: { id: true },
+            });
+            if (ru) {
+              await (prisma as any).projectMember.deleteMany({ where: { projectId, userId: ru.id } });
+            }
+          }
+        }
+
+        // Notify in project chat room if exists
+        if (project.conversationId) {
+          const { sendLindaToConversation } = await import('../../services/lindaNotify');
+          const changes = Object.keys(updateData).map(k => `${k}: ${(updateData as any)[k]}`).join(', ');
+          if (changes) sendLindaToConversation(project.conversationId, `🏗️ **Project Updated**\n\n${changes}`).catch(() => {});
+        }
+
+        console.log(`[Linda] Modified project "${project.name}"`);
+        actions.push({ type: 'modify_project', target: project.name, status: 'updated' });
+        logLindaActivity({
+          orderedById: requestingUserId, actionType: 'modify_project', status: 'completed',
+          summary: `Modified project "${project.name}"`,
+          details: { projectId, changes: updateData },
+        });
+      } catch (err) {
+        console.error('[Linda] Failed to modify project:', err);
+        actions.push({ type: 'modify_project', target: projIdMatch[1], status: 'error' });
+      }
+    }
+
+    // Parse [MODIFY_ANNOUNCEMENT] blocks — edit existing announcements
+    const modifyAnnRegex = /\[MODIFY_ANNOUNCEMENT\]\s*([\s\S]*?)\[\/MODIFY_ANNOUNCEMENT\]/gi;
+    let modAnnMatch;
+
+    while ((modAnnMatch = modifyAnnRegex.exec(responseText)) !== null) {
+      const block = modAnnMatch[1];
+      const annIdMatch = block.match(/announcementId:\s*(\S+)/i);
+      if (!annIdMatch) {
+        actions.push({ type: 'modify_announcement', target: 'unknown', status: 'missing_id' });
+        continue;
+      }
+      try {
+        const annId = annIdMatch[1].trim();
+        const updateData: any = {};
+        const titleMatch = block.match(/title:\s*(.+)/i);
+        const contentMatch = block.match(/content:\s*([\s\S]*?)(?=(?:priority:|pinned:|$))/i);
+        const priorityMatch = block.match(/priority:\s*(LOW|NORMAL|HIGH|URGENT)/i);
+        const pinnedMatch = block.match(/pinned:\s*(true|false)/i);
+
+        if (titleMatch) updateData.title = titleMatch[1].trim();
+        if (contentMatch) updateData.content = contentMatch[1].trim();
+        if (priorityMatch) updateData.priority = priorityMatch[1].toUpperCase();
+        if (pinnedMatch) updateData.pinned = pinnedMatch[1].toLowerCase() === 'true';
+
+        const updated = await (prisma as any).announcement.update({
+          where: { id: annId },
+          data: updateData,
+        });
+
+        console.log(`[Linda] Modified announcement "${updated.title}"`);
+        actions.push({ type: 'modify_announcement', target: updated.title, status: 'updated' });
+        logLindaActivity({
+          orderedById: requestingUserId, actionType: 'modify_announcement', status: 'completed',
+          summary: `Modified announcement "${updated.title}"`,
+          details: { announcementId: annId, changes: updateData },
+        });
+      } catch (err) {
+        console.error('[Linda] Failed to modify announcement:', err);
+        actions.push({ type: 'modify_announcement', target: annIdMatch[1], status: 'error' });
+      }
+    }
+
+    // Parse [ADD_TASK_COMMENT] blocks — add a comment to a task
+    const taskCommentRegex = /\[ADD_TASK_COMMENT\]\s*([\s\S]*?)\[\/ADD_TASK_COMMENT\]/gi;
+    let taskCommentMatch;
+
+    while ((taskCommentMatch = taskCommentRegex.exec(responseText)) !== null) {
+      const block = taskCommentMatch[1];
+      const taskIdMatch = block.match(/taskId:\s*(\S+)/i);
+      const commentMatch = block.match(/comment:\s*([\s\S]*?)$/i);
+
+      if (!taskIdMatch || !commentMatch) {
+        actions.push({ type: 'add_task_comment', target: 'unknown', status: 'missing_fields' });
+        continue;
+      }
+      try {
+        const taskId = taskIdMatch[1].trim();
+        const content = commentMatch[1].trim();
+        const lindaId = await getLindaBotUserId();
+
+        const comment = await (prisma as any).taskComment.create({
+          data: { taskId, userId: lindaId, content },
+        });
+
+        // Also post in the task chat room
+        const task = await prisma.task.findUnique({ where: { id: taskId }, select: { title: true, conversationId: true } });
+        if (task?.conversationId) {
+          const { sendLindaToConversation } = await import('../../services/lindaNotify');
+          sendLindaToConversation(task.conversationId, `💬 **Linda commented on task:**\n\n${content}`).catch(() => {});
+        }
+
+        console.log(`[Linda] Added comment to task ${taskId}`);
+        actions.push({ type: 'add_task_comment', target: task?.title || taskId, status: 'created' });
+        logLindaActivity({
+          orderedById: requestingUserId, actionType: 'add_task_comment', status: 'completed',
+          summary: `Added comment to task "${task?.title || taskId}"`,
+          details: { taskId, commentId: comment.id },
+        });
+      } catch (err) {
+        console.error('[Linda] Failed to add task comment:', err);
+        actions.push({ type: 'add_task_comment', target: taskIdMatch[1], status: 'error' });
+      }
+    }
+
+    // Parse [CREATE_PROJECT] blocks — create a new project
+    const createProjectRegex = /\[CREATE_PROJECT\]\s*([\s\S]*?)\[\/CREATE_PROJECT\]/gi;
+    let createProjMatch;
+
+    while ((createProjMatch = createProjectRegex.exec(responseText)) !== null) {
+      const block = createProjMatch[1];
+      const nameMatch = block.match(/name:\s*(.+)/i);
+      if (!nameMatch) {
+        actions.push({ type: 'create_project', target: 'unknown', status: 'missing_name' });
+        continue;
+      }
+      try {
+        const lindaId = await getLindaBotUserId();
+        const projName = nameMatch[1].trim();
+        const descMatch = block.match(/description:\s*(.+)/i);
+        const specsMatch = block.match(/specsAndGoals:\s*([\s\S]*?)(?=(?:teamLead:|members:|$))/i);
+        const teamLeadMatch = block.match(/teamLead:\s*@?(\S+)/i);
+        const membersMatch = block.match(/members:\s*(.+)/i);
+
+        // Get the requester's org
+        const requesterMembership = await prisma.organizationMember.findFirst({
+          where: { userId: requestingUserId },
+          select: { organizationId: true },
+        });
+        const orgId = requesterMembership?.organizationId;
+
+        let teamLeadId: string | undefined;
+        if (teamLeadMatch) {
+          const lead = await prisma.user.findFirst({
+            where: { OR: [{ username: { equals: teamLeadMatch[1].trim(), mode: 'insensitive' } }, { displayName: { equals: teamLeadMatch[1].trim(), mode: 'insensitive' } }] },
+            select: { id: true },
+          });
+          if (lead) teamLeadId = lead.id;
+        }
+
+        const project = await (prisma as any).project.create({
+          data: {
+            name: projName,
+            description: descMatch ? descMatch[1].trim() : undefined,
+            specsAndGoals: specsMatch ? specsMatch[1].trim() : undefined,
+            createdById: lindaId,
+            ...(orgId && { organizationId: orgId }),
+            ...(teamLeadId && { teamLeadId }),
+          },
+        });
+
+        // Add requester as LEAD
+        await (prisma as any).projectMember.create({
+          data: { projectId: project.id, userId: requestingUserId, role: 'LEAD' },
+        });
+
+        // Add additional members
+        if (membersMatch) {
+          const memberNames = membersMatch[1].split(',').map((n: string) => n.trim().replace(/^@/, '')).filter(Boolean);
+          for (const mName of memberNames) {
+            const mu = await prisma.user.findFirst({
+              where: { OR: [{ username: { equals: mName, mode: 'insensitive' } }, { displayName: { equals: mName, mode: 'insensitive' } }] },
+              select: { id: true, displayName: true, username: true },
+            });
+            if (mu && mu.id !== requestingUserId) {
+              await (prisma as any).projectMember.upsert({
+                where: { projectId_userId: { projectId: project.id, userId: mu.id } },
+                create: { projectId: project.id, userId: mu.id },
+                update: {},
+              });
+              // Notify member
+              const { sendLindaDM } = await import('../../services/lindaNotify');
+              sendLindaDM(mu.id, `🏗️ Hey ${mu.displayName || mu.username}! You've been added to a new project: **"${projName}"**.`).catch(() => {});
+            }
+          }
+        }
+
+        console.log(`[Linda] Created project "${projName}"`);
+        actions.push({ type: 'create_project', target: projName, status: 'created' });
+        logLindaActivity({
+          orderedById: requestingUserId, actionType: 'create_project', status: 'completed',
+          summary: `Created project "${projName}"`,
+          details: { projectId: project.id, name: projName },
+        });
+      } catch (err) {
+        console.error('[Linda] Failed to create project:', err);
+        actions.push({ type: 'create_project', target: nameMatch[1], status: 'error' });
+      }
+    }
+
     return actions;
   }
 
-  // Strip action blocks from response text before saving/displaying
-  private stripActionBlocks(text: string): string {
-    return text
-      .replace(/\[SEND_MESSAGE\][\s\S]*?\[\/SEND_MESSAGE\]/gi, '')
-      .replace(/\[ASSIGN_TASK\][\s\S]*?\[\/ASSIGN_TASK\]/gi, '')
-      .replace(/\[UPDATE_TASK\][\s\S]*?\[\/UPDATE_TASK\]/gi, '')
-      .replace(/\[CREATE_ANNOUNCEMENT\][\s\S]*?\[\/CREATE_ANNOUNCEMENT\]/gi, '')
-      .replace(/\[ANNOUNCE\][\s\S]*?\[\/ANNOUNCE\]/gi, '')
-      .replace(/\[CREATE_FILE\][\s\S]*?\[\/CREATE_FILE\]/gi, '')
-      .replace(/\[SEND_FILE\][\s\S]*?\[\/SEND_FILE\]/gi, '')
-      .trim();
-  }
+  // Uses standalone stripActionBlocks function defined at module level
 
   // Build system prompt
   private buildSystemPrompt(userName: string, workspaceContext: string, memories: string = ''): string {
@@ -1488,12 +2012,71 @@ project: Project name (optional — auto-creates project if new, adds assignee t
 department: Department name (optional — tags task with department)
 [/ASSIGN_TASK]
 
-Format for updating a task:
+Format for quick task status/priority update:
 [UPDATE_TASK]
 taskId: the-task-uuid
 status: NOT_STARTED | IN_PROGRESS | PENDING_REVIEW | COMPLETED | BLOCKED
 priority: LOW | MEDIUM | HIGH | CRITICAL (optional)
 [/UPDATE_TASK]
+
+Format for full task modification (title, description, deadline, labels, reassign, archive, etc.):
+[MODIFY_TASK]
+taskId: the-task-uuid
+title: New title (optional)
+description: New description (optional)
+status: NOT_STARTED | IN_PROGRESS | PENDING_REVIEW | COMPLETED | BLOCKED (optional)
+priority: LOW | MEDIUM | HIGH | CRITICAL (optional)
+deadline: YYYY-MM-DD (optional)
+labels: label1, label2, label3 (optional — comma-separated)
+assignee: @username (optional — change the primary assignee)
+coAssignees: @user1, @user2 (optional — replace all co-assignees)
+archived: true | false (optional)
+[/MODIFY_TASK]
+
+Format for adding a checklist to a task (with items, assignees, and due dates):
+[ADD_CHECKLIST]
+taskId: the-task-uuid
+title: Checklist title
+- Item description @assignee1 @assignee2 2026-05-15
+- Another item @user 2026-06-01
+- Item with no assignee or date
+[/ADD_CHECKLIST]
+
+Format for updating a checklist item (toggle completion, reassign, rename):
+[UPDATE_CHECKLIST_ITEM]
+itemId: the-item-uuid
+title: New title (optional)
+completed: true | false (optional)
+assignees: @user1, @user2 (optional)
+dueDate: YYYY-MM-DD (optional)
+[/UPDATE_CHECKLIST_ITEM]
+
+Format for adding a comment to a task:
+[ADD_TASK_COMMENT]
+taskId: the-task-uuid
+comment: Your comment text here
+[/ADD_TASK_COMMENT]
+
+Format for creating a new project:
+[CREATE_PROJECT]
+name: Project name
+description: Project description (optional)
+specsAndGoals: Specifications and goals (optional)
+teamLead: @username (optional)
+members: @user1, @user2, @user3 (optional)
+[/CREATE_PROJECT]
+
+Format for modifying a project (update details, add/remove members):
+[MODIFY_PROJECT]
+projectId: the-project-uuid
+name: New name (optional)
+description: New description (optional)
+specsAndGoals: Updated specs (optional)
+status: ACTIVE | PAUSED | COMPLETED | ARCHIVED (optional)
+teamLead: @username (optional)
+addMembers: @user1, @user2 (optional — add people to project)
+removeMembers: @user1 (optional — remove people from project)
+[/MODIFY_PROJECT]
 
 Format for creating a public announcement:
 [CREATE_ANNOUNCEMENT]
@@ -1502,6 +2085,15 @@ content: The full announcement body text
 priority: LOW | NORMAL | HIGH | URGENT (optional, defaults to NORMAL)
 pinned: true | false (optional, defaults to false)
 [/CREATE_ANNOUNCEMENT]
+
+Format for modifying an existing announcement:
+[MODIFY_ANNOUNCEMENT]
+announcementId: the-announcement-uuid
+title: New title (optional)
+content: New content (optional)
+priority: LOW | NORMAL | HIGH | URGENT (optional)
+pinned: true | false (optional)
+[/MODIFY_ANNOUNCEMENT]
 
 Rules for actions:
 - Write messages as if YOU (Linda) are writing naturally to the recipient
@@ -1515,7 +2107,11 @@ Rules for actions:
 TASK MANAGEMENT:
 - You CAN create tasks and assign them to team members using [ASSIGN_TASK] blocks
 - You CAN add co-assignees using the "coAssignees: @user1, @user2" field in [ASSIGN_TASK] — use this when the user mentions multiple people for a task
-- You CAN update task status and priority using [UPDATE_TASK] blocks
+- You CAN do quick status/priority changes using [UPDATE_TASK] blocks
+- You CAN do FULL task modifications using [MODIFY_TASK] — change title, description, deadline, labels, reassign to different user, add/change co-assignees, archive/unarchive
+- You CAN add checklists to tasks using [ADD_CHECKLIST] — include items with assignees and due dates on each line starting with "- "
+- You CAN update individual checklist items using [UPDATE_CHECKLIST_ITEM] — toggle completion, reassign, rename, change due date
+- You CAN add comments to tasks using [ADD_TASK_COMMENT]
 - When asked to follow up on tasks, check the task context and report back
 - When asked to mark a task as done/complete, use [UPDATE_TASK] with status: COMPLETED
 - You CAN assign tasks to specific projects using the "project:" field — if the project doesn't exist it will be auto-created
@@ -1524,6 +2120,9 @@ TASK MANAGEMENT:
 - Users in the same project can see each other's tasks (project boards)
 - Users in the same department can see each other's tasks
 - When asked to change priority, use [UPDATE_TASK] with the new priority
+- When asked to add a checklist, use [ADD_CHECKLIST] with items. Each item line can include @username for assignment and YYYY-MM-DD for due date
+- When someone is assigned to a checklist item, they get a DM notification AND a message in the task's group chat
+- When asked to check off / complete / mark done a checklist item, use [UPDATE_CHECKLIST_ITEM] with completed: true
 
 FILE GENERATION (VERY IMPORTANT):
 You MUST use [CREATE_FILE] blocks whenever the user asks you to create, write, make, generate, draft, or prepare ANY document, file, report, letter, or code. NEVER type the document content as a regular chat message — ALWAYS put it inside a [CREATE_FILE] block so it becomes a downloadable file.
@@ -1568,17 +2167,22 @@ Rules for file forwarding:
 PROJECT MANAGEMENT:
 - You have full visibility into all projects the user belongs to (see workspace context below)
 - When asked about projects, report on: project status, team lead, members, task counts, recent tasks, deadlines
+- You CAN create new projects using [CREATE_PROJECT] — include name, description, team lead, and initial members
+- You CAN modify existing projects using [MODIFY_PROJECT] — change name, description, specs, status, team lead, add/remove members
 - You CAN assign tasks to specific projects using the "project:" field in [ASSIGN_TASK]
 - When asked "what's happening with Project X?" or "give me a project report", provide details from the context
 - You know about project members, their roles, and task assignments within each project
-- If asked to create or modify checklists, let the user know they can manage checklists directly in the project board or task detail view
+- When asked to add people to a project, use [MODIFY_PROJECT] with addMembers: @user1, @user2
+- When asked to remove people from a project, use [MODIFY_PROJECT] with removeMembers: @user1
 
 ANNOUNCEMENTS:
 - You CAN create public announcements using [CREATE_ANNOUNCEMENT] blocks
+- You CAN modify existing announcements using [MODIFY_ANNOUNCEMENT] — change title, content, priority, pinned status
 - Use this when the user asks you to announce something, make a public announcement, or notify everyone
 - Write the announcement content professionally and clearly
 - Choose appropriate priority: NORMAL for general info, HIGH for important updates, URGENT for critical notices
 - Set pinned: true only for announcements that should stay at the top
+- When asked to edit an announcement, use [MODIFY_ANNOUNCEMENT] with the announcement ID from the workspace context
 
 Current workspace context:
 ${workspaceContext}
@@ -2262,14 +2866,7 @@ export async function handleLindaAutoReply(
         const fileName = docTitle.replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_').slice(0, 40) + ext;
 
         // Use the response text as document content (strip action blocks first)
-        let docContent = rawResponse
-          .replace(/\[SEND_MESSAGE\][\s\S]*?\[\/SEND_MESSAGE\]/gi, '')
-          .replace(/\[ASSIGN_TASK\][\s\S]*?\[\/ASSIGN_TASK\]/gi, '')
-          .replace(/\[UPDATE_TASK\][\s\S]*?\[\/UPDATE_TASK\]/gi, '')
-          .replace(/\[CREATE_ANNOUNCEMENT\][\s\S]*?\[\/CREATE_ANNOUNCEMENT\]/gi, '')
-          .replace(/\[CREATE_FILE\][\s\S]*?\[\/CREATE_FILE\]/gi, '')
-          .replace(/\[SEND_FILE\][\s\S]*?\[\/SEND_FILE\]/gi, '')
-          .trim();
+        let docContent = stripActionBlocks(rawResponse);
 
         // If the response is too short (Linda just said "Here's your doc!"), do a dedicated generation call
         if (docContent.length < 200) {
@@ -2298,15 +2895,7 @@ export async function handleLindaAutoReply(
     }
 
     // Strip action blocks from visible response
-    const cleanResponse = rawResponse
-      .replace(/\[SEND_MESSAGE\][\s\S]*?\[\/SEND_MESSAGE\]/gi, '')
-      .replace(/\[ASSIGN_TASK\][\s\S]*?\[\/ASSIGN_TASK\]/gi, '')
-      .replace(/\[UPDATE_TASK\][\s\S]*?\[\/UPDATE_TASK\]/gi, '')
-      .replace(/\[CREATE_ANNOUNCEMENT\][\s\S]*?\[\/CREATE_ANNOUNCEMENT\]/gi, '')
-      .replace(/\[ANNOUNCE\][\s\S]*?\[\/ANNOUNCE\]/gi, '')
-      .replace(/\[CREATE_FILE\][\s\S]*?\[\/CREATE_FILE\]/gi, '')
-      .replace(/\[SEND_FILE\][\s\S]*?\[\/SEND_FILE\]/gi, '')
-      .trim();
+    const cleanResponse = stripActionBlocks(rawResponse);
 
     // Stop typing indicator before sending the final message
     emitToConversation(conversationId, 'typing:stop', { userId: lindaId, username: 'Linda', conversationId });
