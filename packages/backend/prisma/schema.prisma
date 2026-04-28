@@ -84,6 +84,7 @@ model User {
   tasksAssigned    Task[]               @relation("TasksAssigned")
   tasksCreated     Task[]               @relation("TasksCreated")
   tasksOrdered     Task[]               @relation("TasksOrdered")
+  tasksDeleted     Task[]               @relation("TasksDeleted")
   lindaConversations LindaConversation[]
   lindaRelated       LindaConversationRelatedUser[]
   userStatuses     UserStatus[]
@@ -349,6 +350,12 @@ model Task {
   project      Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
   archived     Boolean  @default(false)
+
+  // Soft-delete: task is never truly removed, just marked deleted
+  deleted      Boolean   @default(false)
+  deletedAt    DateTime? @map("deleted_at")
+  deletedById  String?   @map("deleted_by_id")
+  deletedBy    User?     @relation("TasksDeleted", fields: [deletedById], references: [id])
 
   lindaFollowing       Boolean  @default(false) @map("linda_following")
   lindaFollowInterval  String?  @map("linda_follow_interval")

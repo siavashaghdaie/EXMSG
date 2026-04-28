@@ -141,8 +141,22 @@ export class TaskController {
       });
       const userProjectIds = userProjectMemberships.map((m: any) => m.projectId);
 
+      // Filter modes: active (default), archived, deleted, all
       const showArchived = req.query.archived === 'true';
-      const where: any = { AND: [{ archived: showArchived }] };
+      const showDeleted = req.query.deleted === 'true';
+      const showAll = req.query.showAll === 'true';
+
+      const where: any = { AND: [] };
+      if (showAll) {
+        // Show everything — no archive/delete filters
+      } else if (showDeleted) {
+        where.AND.push({ deleted: true });
+      } else if (showArchived) {
+        where.AND.push({ archived: true, deleted: false });
+      } else {
+        // Default: active tasks only (not archived, not deleted)
+        where.AND.push({ archived: false, deleted: false });
+      }
 
       // View modes: 'my' (default), 'department', 'project', 'all'
       const viewMode = (view as string) || 'my';
@@ -624,22 +638,78 @@ export class TaskController {
     }
   }
 
-  // DELETE /api/tasks/:taskId
+  // DELETE /api/tasks/:taskId — soft-delete (marks as deleted, keeps all data)
   async deleteTask(req: Request, res: Response): Promise<void> {
     try {
       const { taskId } = req.params;
       const userId = req.user!.userId;
 
-      const task = await prisma.task.findUnique({ where: { id: taskId } });
+      const task = await prisma.task.findUnique({
+        where: { id: taskId },
+        include: {
+          assignedTo: { select: { displayName: true, username: true } },
+          createdBy: { select: { displayName: true, username: true } },
+        },
+      });
       if (!task || (task.createdById !== userId && task.assignedToId !== userId)) {
         res.status(403).json({ error: 'Not authorized to delete this task' });
         return;
       }
 
-      await prisma.task.delete({ where: { id: taskId } });
-      res.json({ message: 'Task deleted' });
+      // Soft-delete: mark as deleted, preserve all data
+      await prisma.task.update({
+        where: { id: taskId },
+        data: { deleted: true, deletedAt: new Date(), deletedById: userId },
+      });
+
+      // Get deleting user info
+      const deleter = await prisma.user.findUnique({ where: { id: userId }, select: { displayName: true, username: true } });
+      const deleterName = deleter?.displayName || deleter?.username || 'Someone';
+
+      // Linda posts red audit trail message in the task chat room
+      if (task.conversationId) {
+        const { sendLindaToConversation } = await import('../../services/lindaNotify');
+        const members = [task.assignedTo?.displayName || task.assignedTo?.username, task.createdBy?.displayName || task.createdBy?.username].filter(Boolean).join(', ');
+        const deadlineStr = task.deadline ? new Date(task.deadline).toLocaleDateString() : 'None';
+        const auditMsg = `🔴 **Task Deleted**\n\n**${deleterName}** deleted task **"${task.title}"**\n\n📋 Members: ${members}\n📝 Description: ${task.description || 'None'}\n📅 Deadline: ${deadlineStr}\n\n_This task can be restored from the archived/deleted tasks view._`;
+        sendLindaToConversation(task.conversationId, auditMsg).catch(() => {});
+      }
+
+      res.json({ message: 'Task deleted', taskId });
     } catch (error) {
       console.error('Delete task error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // POST /api/tasks/:taskId/restore — undo soft-delete
+  async restoreTask(req: Request, res: Response): Promise<void> {
+    try {
+      const { taskId } = req.params;
+      const userId = req.user!.userId;
+
+      const task = await prisma.task.findUnique({ where: { id: taskId } });
+      if (!task) {
+        res.status(404).json({ error: 'Task not found' });
+        return;
+      }
+
+      await prisma.task.update({
+        where: { id: taskId },
+        data: { deleted: false, deletedAt: null, deletedById: null, archived: false },
+      });
+
+      // Linda posts restoration message
+      if (task.conversationId) {
+        const restorer = await prisma.user.findUnique({ where: { id: userId }, select: { displayName: true, username: true } });
+        const restorerName = restorer?.displayName || restorer?.username || 'Someone';
+        const { sendLindaToConversation } = await import('../../services/lindaNotify');
+        sendLindaToConversation(task.conversationId, `🟢 **Task Restored**\n\n**${restorerName}** restored task **"${task.title}"** back to active.`).catch(() => {});
+      }
+
+      res.json({ message: 'Task restored', taskId });
+    } catch (error) {
+      console.error('Restore task error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }

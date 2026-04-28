@@ -889,7 +889,7 @@ class APIClient {
 
   // ─── Task Management API ───────────────────────────────────────────────
 
-  async getTasks(params?: { status?: string; view?: string; departmentId?: string; projectId?: string }): Promise<any[]> {
+  async getTasks(params?: { status?: string; view?: string; departmentId?: string; projectId?: string; archived?: string; deleted?: string; showAll?: string }): Promise<any[]> {
     const res = await this.client.get('/tasks', { params });
     return res.data.tasks || [];
   }
@@ -919,6 +919,11 @@ class APIClient {
 
   async deleteTask(taskId: string): Promise<void> {
     await this.client.delete(`/tasks/${taskId}`);
+  }
+
+  async restoreTask(taskId: string): Promise<any> {
+    const res = await this.client.post(`/tasks/${taskId}/restore`);
+    return res.data.task;
   }
 
   // ─── Admin API ──────────────────────────────────────────────────────────

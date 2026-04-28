@@ -134,7 +134,7 @@ interface ConversationResponse {
   }>;
   lastMessage?: MessageResponse;
   unreadCount: number;
-  linkedTask?: { id: string; title: string } | null;
+  linkedTask?: { id: string; title: string; archived?: boolean; deleted?: boolean } | null;
   linkedProject?: { id: string; name: string } | null;
   createdAt: string;
   updatedAt: string;
@@ -873,7 +873,7 @@ class APIClient {
   }
 
   // Task Management API
-  async getTasks(params?: { status?: string; view?: string; departmentId?: string; projectId?: string }): Promise<any[]> {
+  async getTasks(params?: { status?: string; view?: string; departmentId?: string; projectId?: string; archived?: string; deleted?: string; showAll?: string }): Promise<any[]> {
     const res = await this.client.get('/tasks', { params });
     return res.data.tasks || [];
   }
@@ -890,6 +890,11 @@ class APIClient {
 
   async deleteTask(taskId: string): Promise<void> {
     await this.client.delete(`/tasks/${taskId}`);
+  }
+
+  async restoreTask(taskId: string): Promise<any> {
+    const res = await this.client.post(`/tasks/${taskId}/restore`);
+    return res.data.task;
   }
 
   async createTaskConversation(taskId: string): Promise<{ conversationId: string }> {

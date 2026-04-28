@@ -53,7 +53,7 @@ export class MessagingController {
             },
           },
           linkedTask: {
-            select: { id: true, title: true },
+            select: { id: true, title: true, archived: true, deleted: true },
           },
           linkedProject: {
             select: { id: true, name: true },
@@ -62,9 +62,17 @@ export class MessagingController {
         orderBy: { updatedAt: 'desc' },
       });
 
+      // Filter out conversations linked to archived or deleted tasks (they're only accessible from the task card)
+      const visibleConversations = conversations.filter((conv: any) => {
+        if (conv.linkedTask && (conv.linkedTask.archived || conv.linkedTask.deleted)) {
+          return false;
+        }
+        return true;
+      });
+
       // Calculate unread counts for each conversation
       const conversationsWithUnread = await Promise.all(
-        conversations.map(async (conv: any) => {
+        visibleConversations.map(async (conv: any) => {
           const membership = conv.members.find((m: any) => m.userId === userId);
           const lastReadAt = membership?.lastReadAt || new Date(0);
           const unreadCount = await prisma.message.count({

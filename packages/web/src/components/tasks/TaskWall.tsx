@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, X, Loader2, Search } from 'lucide-react';
+import { Plus, X, Loader2, Search, Filter, Archive, Trash2 } from 'lucide-react';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import TaskCard from '@/components/tasks/TaskCard';
@@ -37,11 +37,15 @@ interface Task {
   conversationId?: string;
   reactions?: Array<{ id: string; userId: string; type: string }>;
   _count?: { comments: number };
+  archived?: boolean;
+  deleted?: boolean;
+  deletedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
 
 type TaskFilter = 'my-tasks' | 'assigned-by-me' | 'department' | 'project' | 'all';
+type StatusFilter = 'active' | 'archived' | 'deleted';
 
 interface TaskWallProps {
   onClose?: () => void;
@@ -66,6 +70,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedDeptFilter, setSelectedDeptFilter] = useState<string>('');
   const [selectedProjectFilter, setSelectedProjectFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
 
   // Handle resize for mobile detection
   useEffect(() => {
@@ -86,6 +91,10 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
         params.view = 'project';
         if (selectedProjectFilter) params.projectId = selectedProjectFilter;
       }
+      // Pass status filter to backend
+      if (statusFilter === 'archived') params.archived = 'true';
+      else if (statusFilter === 'deleted') params.deleted = 'true';
+      // active = default (no params needed, backend returns non-archived, non-deleted)
       const allTasks = await api.getTasks(params);
 
       let filtered = allTasks;
@@ -112,7 +121,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
 
   useEffect(() => {
     fetchTasks();
-  }, [filter, searchQuery, selectedDeptFilter, selectedProjectFilter]);
+  }, [filter, searchQuery, selectedDeptFilter, selectedProjectFilter, statusFilter]);
 
   // Load departments and projects for selectors
   useEffect(() => {
@@ -134,6 +143,31 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
     } catch (error) {
       console.error('Failed to delete task:', error);
       alert('Failed to delete task');
+    }
+  };
+
+  // Handle archive task
+  const handleArchiveTask = async (taskId: string, archive: boolean) => {
+    try {
+      await api.updateTask(taskId, { archived: archive });
+      await fetchTasks();
+      window.dispatchEvent(new Event('badges:refresh'));
+    } catch (error) {
+      console.error('Failed to archive task:', error);
+      alert('Failed to archive task');
+    }
+  };
+
+  // Handle restore task (undo delete or unarchive)
+  const handleRestoreTask = async (taskId: string) => {
+    try {
+      await api.restoreTask(taskId);
+      await fetchTasks();
+      window.dispatchEvent(new Event('badges:refresh'));
+      window.dispatchEvent(new Event('conversations:refresh'));
+    } catch (error) {
+      console.error('Failed to restore task:', error);
+      alert('Failed to restore task');
     }
   };
 
@@ -322,6 +356,30 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
             ))}
           </div>
         )}
+
+        {/* Status filter — Active / Archived / Deleted */}
+        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-200 dark:border-surface-700">
+          <Filter className="w-4 h-4 text-gray-400 flex-shrink-0" />
+          <span className="text-xs text-gray-500 dark:text-gray-400 mr-1">Status:</span>
+          {([
+            { key: 'active' as StatusFilter, label: 'Active', icon: null, color: 'bg-green-600 dark:bg-green-500' },
+            { key: 'archived' as StatusFilter, label: 'Archived', icon: Archive, color: 'bg-amber-600 dark:bg-amber-500' },
+            { key: 'deleted' as StatusFilter, label: 'Deleted', icon: Trash2, color: 'bg-red-600 dark:bg-red-500' },
+          ]).map(({ key, label, icon: Icon, color }) => (
+            <button
+              key={key}
+              onClick={() => setStatusFilter(key)}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition ${
+                statusFilter === key
+                  ? `${color} text-white`
+                  : 'bg-gray-100 dark:bg-surface-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-surface-700'
+              }`}
+            >
+              {Icon && <Icon className="w-3 h-3" />}
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Content */}
@@ -363,6 +421,8 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                   onStartChat={handleStartChat}
                   onAddAttachment={handleAddAttachment}
                   onDeleteAttachment={handleDeleteAttachment}
+                  onArchive={handleArchiveTask}
+                  onRestore={(statusFilter === 'archived' || statusFilter === 'deleted') ? handleRestoreTask : undefined}
                 />
               ))}
             </div>
@@ -437,6 +497,8 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
                   onStartChat={handleStartChat}
                   onAddAttachment={handleAddAttachment}
                   onDeleteAttachment={handleDeleteAttachment}
+                  onArchive={handleArchiveTask}
+                  onRestore={(statusFilter === 'archived' || statusFilter === 'deleted') ? handleRestoreTask : undefined}
                 />
               ))}
             </div>

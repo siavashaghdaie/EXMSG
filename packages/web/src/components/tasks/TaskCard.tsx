@@ -59,6 +59,7 @@ export interface TaskCardProps {
   onAddAttachment: (taskId: string, data: { type: string; name: string; url: string }) => void;
   onDeleteAttachment: (taskId: string, attachmentId: string) => void;
   onArchive?: (taskId: string, archive: boolean) => void;
+  onRestore?: (taskId: string) => void;
 }
 
 // Helper functions
@@ -116,6 +117,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
   onAddAttachment,
   onDeleteAttachment,
   onArchive,
+  onRestore,
 }) => {
   const { user } = useAuthStore();
 
@@ -384,7 +386,18 @@ const TaskCard: React.FC<TaskCardProps> = ({
 
   if (isMobile) {
     return (
-      <div className={`bg-white dark:bg-surface-800 rounded-lg p-4 mb-3 shadow-sm hover:shadow-md transition-shadow border border-gray-200 dark:border-surface-700 ${getPriorityBorderColor(task.priority)}`}>
+      <div className={`bg-white dark:bg-surface-800 rounded-lg p-4 mb-3 shadow-sm hover:shadow-md transition-shadow border border-gray-200 dark:border-surface-700 ${getPriorityBorderColor(task.priority)} ${task.deleted ? 'opacity-70' : task.archived ? 'opacity-80' : ''}`}>
+        {/* Deleted / Archived banner */}
+        {(task.deleted || task.archived) && (
+          <div className={`flex items-center justify-between mb-2 px-2 py-1.5 rounded text-xs font-medium ${task.deleted ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'}`}>
+            <span>{task.deleted ? 'Deleted' : 'Archived'}</span>
+            {onRestore && (
+              <button onClick={() => onRestore(task.id)} className="flex items-center gap-1 px-2 py-0.5 rounded bg-white/60 dark:bg-black/20 hover:bg-white dark:hover:bg-black/40 transition">
+                <RotateCcw className="w-3 h-3" /> Restore
+              </button>
+            )}
+          </div>
+        )}
         {/* Title */}
         <div className="flex items-start justify-between mb-2">
           <h4 className="font-semibold text-gray-900 dark:text-white flex-1">
@@ -495,7 +508,18 @@ const TaskCard: React.FC<TaskCardProps> = ({
 
   // Desktop kanban card
   return (
-    <div className="bg-white dark:bg-surface-800 rounded-lg p-3 mb-2 shadow-sm hover:shadow-md transition-shadow border border-gray-200 dark:border-surface-700">
+    <div className={`bg-white dark:bg-surface-800 rounded-lg p-3 mb-2 shadow-sm hover:shadow-md transition-shadow border border-gray-200 dark:border-surface-700 ${task.deleted ? 'opacity-70' : task.archived ? 'opacity-80' : ''}`}>
+      {/* Deleted / Archived banner */}
+      {(task.deleted || task.archived) && (
+        <div className={`flex items-center justify-between mb-2 px-2 py-1 rounded text-xs font-medium ${task.deleted ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'}`}>
+          <span>{task.deleted ? 'Deleted' : 'Archived'}</span>
+          {onRestore && (
+            <button onClick={() => onRestore(task.id)} className="flex items-center gap-1 px-2 py-0.5 rounded bg-white/60 dark:bg-black/20 hover:bg-white dark:hover:bg-black/40 transition text-xs">
+              <RotateCcw className="w-3 h-3" /> Restore
+            </button>
+          )}
+        </div>
+      )}
       <div className="flex items-start justify-between mb-2">
         <h4 className="font-medium text-gray-900 dark:text-white flex-1 text-sm line-clamp-2">
           {task.title}

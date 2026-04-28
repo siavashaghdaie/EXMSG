@@ -45,6 +45,7 @@ interface TaskData {
   deadline?: string;
   labels: string[];
   archived?: boolean;
+  deleted?: boolean;
   assignedTo?: { id: string; displayName: string; username: string; avatarUrl?: string };
   createdBy?: { id: string; displayName: string; username: string; avatarUrl?: string };
   department?: { id: string; name: string };
@@ -133,8 +134,8 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
   const [showAddChecklist, setShowAddChecklist] = useState(false);
   const [newItemTitles, setNewItemTitles] = useState<Record<string, string>>({});
 
-  // Show archived
-  const [showArchived, setShowArchived] = useState(false);
+  // Task status filter: active / archived / deleted
+  const [taskStatusFilter, setTaskStatusFilter] = useState<'active' | 'archived' | 'deleted'>('active');
 
   // Edit project in list view
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
@@ -373,6 +374,15 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
 
   const handleArchiveTask = async (taskId: string, archive: boolean) => {
     await handleUpdateTask(taskId, { archived: archive });
+  };
+
+  const handleRestoreTask = async (taskId: string) => {
+    try {
+      await api.restoreTask(taskId);
+      await loadProjects();
+    } catch (err: any) {
+      alert(err?.response?.data?.error || 'Failed to restore task');
+    }
   };
 
   // ─── Checklist CRUD ─────────────────────────────────────────────
@@ -752,7 +762,11 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
   // ─── Project Board View ───────────────────────────────────────────────
   if (viewMode === 'board' && selectedProject) {
     const allTasks = selectedProject.tasks || [];
-    const tasks = showArchived ? allTasks.filter(t => t.archived) : allTasks.filter(t => !t.archived);
+    const tasks = taskStatusFilter === 'deleted'
+      ? allTasks.filter(t => t.deleted)
+      : taskStatusFilter === 'archived'
+        ? allTasks.filter(t => t.archived && !t.deleted)
+        : allTasks.filter(t => !t.archived && !t.deleted);
 
     return (
       <>
@@ -772,15 +786,26 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
                 <MessageSquare size={14} /> Chat
               </button>
             )}
-            <button
-              onClick={() => setShowArchived(!showArchived)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1.5 transition ${showArchived
-                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
+            {/* Task status filter buttons */}
+            {([
+              { key: 'active' as const, label: 'Active', color: 'bg-green-600 text-white' },
+              { key: 'archived' as const, label: 'Archived', color: 'bg-amber-600 text-white' },
+              { key: 'deleted' as const, label: 'Deleted', color: 'bg-red-600 text-white' },
+            ]).map(({ key, label, color }) => (
+              <button
+                key={key}
+                onClick={() => setTaskStatusFilter(key)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1.5 transition ${
+                  taskStatusFilter === key
+                    ? color
+                    : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
                 }`}
-            >
-              <Archive size={14} /> {showArchived ? 'Showing Archived' : 'Archive'}
-            </button>
+              >
+                {key === 'archived' && <Archive size={14} />}
+                {key === 'deleted' && <Trash2 size={14} />}
+                {label}
+              </button>
+            ))}
           </div>
           <div className="flex-1 overflow-x-auto p-4">
             <div className="flex gap-4 min-w-max h-full">
@@ -832,13 +857,14 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
                             } catch (err) { console.error('Delete attachment error:', err); }
                           }}
                           onArchive={(taskId, archive) => handleArchiveTask(taskId, archive)}
+                          onRestore={(taskStatusFilter === 'archived' || taskStatusFilter === 'deleted') ? handleRestoreTask : undefined}
                         />
                       ))}
                       {columnTasks.length === 0 && <p className="text-xs text-slate-400 text-center py-4">No tasks</p>}
                     </div>
 
                     {/* Add task button */}
-                    {!showArchived && (
+                    {taskStatusFilter === 'active' && (
                       <button
                         onClick={() => {
                           setTaskFormEditingTask(null);
@@ -875,7 +901,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
   // ─── Project Roadmap / Gantt View (uses fragment so TaskFormModal renders outside view container) ──
   if (viewMode === 'roadmap' && selectedProject) {
     const allTasks = selectedProject.tasks || [];
-    const activeTasks = allTasks.filter(t => !t.archived);
+    const activeTasks = allTasks.filter(t => !t.archived && !t.deleted);
 
     // Calculate timeline bounds
     const now = new Date();

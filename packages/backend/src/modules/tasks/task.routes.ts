@@ -9,6 +9,7 @@ router.get('/tasks', authenticate, controller.getTasks.bind(controller));
 router.post('/tasks', authenticate, controller.createTask.bind(controller));
 router.patch('/tasks/:taskId', authenticate, controller.updateTask.bind(controller));
 router.delete('/tasks/:taskId', authenticate, controller.deleteTask.bind(controller));
+router.post('/tasks/:taskId/restore', authenticate, controller.restoreTask.bind(controller));
 
 // Task reactions
 router.post('/tasks/:taskId/react', authenticate, controller.reactToTask.bind(controller));

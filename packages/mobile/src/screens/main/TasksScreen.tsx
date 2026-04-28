@@ -41,11 +41,14 @@ interface Task {
   lindaFollowInterval?: string;
   assignedToId?: string;
   createdById?: string;
+  archived?: boolean;
+  deleted?: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
 type FilterTab = 'assigned' | 'planned' | 'all';
+type StatusFilter = 'active' | 'archived' | 'deleted';
 type TaskStatus = Task['status'];
 type TaskPriority = Task['priority'];
 
@@ -133,6 +136,7 @@ export default function TasksScreen() {
   // Filter state
   const [activeTab, setActiveTab] = useState<FilterTab>('assigned');
   const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
 
   // Modal state
   const [modalVisible, setModalVisible] = useState(false);
@@ -165,7 +169,10 @@ export default function TasksScreen() {
     try {
       if (showLoader) setLoading(true);
       setError(null);
-      const data = await api.getTasks();
+      const params: any = {};
+      if (statusFilter === 'archived') params.archived = 'true';
+      else if (statusFilter === 'deleted') params.deleted = 'true';
+      const data = await api.getTasks(params);
       setTasks(data as Task[]);
     } catch (err: any) {
       const msg = err?.response?.data?.message || err?.message || 'Failed to load tasks';
@@ -174,7 +181,7 @@ export default function TasksScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [statusFilter]);
 
   useEffect(() => {
     fetchTasks();
@@ -386,6 +393,16 @@ export default function TasksScreen() {
     );
   }, []);
 
+  const handleRestore = useCallback(async (task: Task) => {
+    try {
+      await api.restoreTask(task.id);
+      fetchTasks(false);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || 'Failed to restore task';
+      Alert.alert('Error', msg);
+    }
+  }, [fetchTasks]);
+
   const addLabel = useCallback(() => {
     const label = formLabelInput.trim();
     if (label && !formLabels.includes(label)) {
@@ -425,7 +442,23 @@ export default function TasksScreen() {
     const overdue = !completed && isOverdue(task.deadline);
 
     return (
-      <View key={task.id} style={[styles.card, completed && styles.cardCompleted]}>
+      <View key={task.id} style={[styles.card, completed && styles.cardCompleted, (task.deleted || task.archived) && { opacity: 0.75 }]}>
+        {/* Deleted / Archived banner */}
+        {(task.deleted || task.archived) && (
+          <View style={[styles.statusBanner, { backgroundColor: task.deleted ? '#FEE2E2' : '#FEF3C7' }]}>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: task.deleted ? '#991B1B' : '#92400E' }}>
+              {task.deleted ? 'Deleted' : 'Archived'}
+            </Text>
+            {(statusFilter === 'archived' || statusFilter === 'deleted') && (
+              <TouchableOpacity
+                onPress={() => handleRestore(task)}
+                style={[styles.restoreBtn, { backgroundColor: task.deleted ? '#DC2626' : '#D97706' }]}
+              >
+                <Text style={{ fontSize: 11, fontWeight: '600', color: '#FFF' }}>Restore</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
         {/* Top row: priority + actions */}
         <View style={styles.cardTopRow}>
           {renderPriorityBadge(task.priority)}
@@ -598,6 +631,26 @@ export default function TasksScreen() {
             </TouchableOpacity>
           )}
         </View>
+      </View>
+
+      {/* Status filter (Active / Archived / Deleted) */}
+      <View style={styles.statusFilterRow}>
+        {([
+          { key: 'active' as StatusFilter, label: 'Active', color: '#16A34A' },
+          { key: 'archived' as StatusFilter, label: 'Archived', color: '#D97706' },
+          { key: 'deleted' as StatusFilter, label: 'Deleted', color: '#DC2626' },
+        ]).map(({ key, label, color }) => (
+          <TouchableOpacity
+            key={key}
+            style={[styles.statusFilterBtn, statusFilter === key && { backgroundColor: color }]}
+            onPress={() => setStatusFilter(key)}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.statusFilterText, statusFilter === key && { color: '#FFF' }]}>
+              {label}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
       {/* Error banner */}
@@ -1515,5 +1568,43 @@ const styles = StyleSheet.create({
 
   bottomSpacer: {
     height: 40,
+  },
+
+  // Status filter row (Active / Archived / Deleted)
+  statusFilterRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER,
+    backgroundColor: CARD_BG,
+  },
+  statusFilterBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+  },
+  statusFilterText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: TEXT_SECONDARY,
+  },
+
+  // Status banner on task cards
+  statusBanner: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    marginBottom: 8,
+  },
+  restoreBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
 });
