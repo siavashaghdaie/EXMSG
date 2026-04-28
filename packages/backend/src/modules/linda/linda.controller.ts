@@ -2809,7 +2809,59 @@ export async function handleLindaAutoReply(
 
     // Build workspace context and system prompt
     const lindaController = new LindaController();
-    const workspaceContext = await (lindaController as any).getWorkspaceContext(senderUserId);
+    let workspaceContext = await (lindaController as any).getWorkspaceContext(senderUserId);
+
+    // If this conversation is linked to a task or project, inject that context
+    try {
+      const conv = await prisma.conversation.findUnique({
+        where: { id: conversationId },
+        include: {
+          linkedTask: {
+            include: {
+              assignedTo: { select: { id: true, username: true, displayName: true } },
+              createdBy: { select: { id: true, username: true, displayName: true } },
+              project: { select: { id: true, name: true } },
+              department: { select: { id: true, name: true } },
+              checklists: { include: { items: true }, orderBy: { position: 'asc' as const } },
+            },
+          },
+          linkedProject: {
+            include: {
+              members: { include: { user: { select: { username: true, displayName: true } } } },
+              _count: { select: { tasks: true } },
+            },
+          },
+        },
+      });
+      if (conv?.linkedTask) {
+        const t = conv.linkedTask;
+        const assignee = t.assignedTo?.displayName || t.assignedTo?.username || 'Unassigned';
+        const creator = t.createdBy?.displayName || t.createdBy?.username || 'Unknown';
+        const deadline = t.deadline ? ` | Deadline: ${(t.deadline as Date).toISOString().split('T')[0]}` : '';
+        const project = t.project ? ` | Project: ${t.project.name}` : '';
+        const dept = t.department ? ` | Department: ${t.department.name}` : '';
+        const checklistInfo = (t.checklists || []).map((cl: any) => {
+          const items = (cl.items || []).map((item: any) => `      - ${item.completed ? '[x]' : '[ ]'} ${item.title}`).join('\n');
+          return `    Checklist "${cl.title}":\n${items}`;
+        }).join('\n');
+        workspaceContext += `\n\n🔗 THIS CONVERSATION IS THE CHAT ROOM FOR TASK [${t.id}]:\n` +
+          `  Title: "${t.title}" | Status: ${t.status} | Priority: ${t.priority}\n` +
+          `  Assigned to: @${t.assignedTo?.username} (${assignee}) | Created by: ${creator}${deadline}${project}${dept}\n` +
+          `  Description: ${t.description || '(none)'}\n` +
+          (checklistInfo ? `  Checklists:\n${checklistInfo}\n` : '') +
+          `  IMPORTANT: When the user asks you to create checklists, update status, or modify this task, use taskId: ${t.id}`;
+      }
+      if (conv?.linkedProject) {
+        const p = conv.linkedProject;
+        const memberNames = p.members.map((m: any) => `@${m.user.username}`).join(', ');
+        workspaceContext += `\n\n🔗 THIS CONVERSATION IS THE CHAT ROOM FOR PROJECT "${p.name}":\n` +
+          `  Status: ${p.status} | Members: ${memberNames} | ${p._count.tasks} tasks\n` +
+          `  Description: ${p.description || '(none)'}`;
+      }
+    } catch (err) {
+      console.warn('[Linda] Error fetching linked task/project context:', (err as any)?.message);
+    }
+
     const systemPrompt = (lindaController as any).buildSystemPrompt(senderName, workspaceContext);
 
     // Determine max_tokens: always generous — file generation needs 4096+

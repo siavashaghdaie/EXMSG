@@ -134,7 +134,7 @@ export default function TasksScreen() {
   const [error, setError] = useState<string | null>(null);
 
   // Filter state
-  const [activeTab, setActiveTab] = useState<FilterTab>('assigned');
+  const [activeTab, setActiveTab] = useState<FilterTab>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusChecked, setStatusChecked] = useState<Set<StatusFilter>>(new Set(['active']));
 
@@ -169,14 +169,17 @@ export default function TasksScreen() {
     try {
       if (showLoader) setLoading(true);
       setError(null);
-      const params: any = { showAll: 'true' };
+      const needsAll = statusChecked.has('archived') || statusChecked.has('deleted');
+      const params: any = needsAll ? { showAll: 'true' } : {};
       const data = await api.getTasks(params);
-      // Client-side status filter
-      const filtered = (data as Task[]).filter((t: any) => {
-        if (t.deleted) return statusChecked.has('deleted');
-        if (t.archived) return statusChecked.has('archived');
-        return statusChecked.has('active');
-      });
+      // Client-side status filter (only needed when showAll fetches archived/deleted)
+      const filtered = needsAll
+        ? (data as Task[]).filter((t: any) => {
+            if (t.deleted) return statusChecked.has('deleted');
+            if (t.archived) return statusChecked.has('archived');
+            return statusChecked.has('active');
+          })
+        : (data as Task[]);
       setTasks(filtered);
     } catch (err: any) {
       const msg = err?.response?.data?.message || err?.message || 'Failed to load tasks';

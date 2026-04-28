@@ -40,7 +40,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navigate = useNavigate();
   const { conversationId } = useParams<{ conversationId?: string }>();
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'all' | 'dms' | 'tasks' | 'projects' | 'groups'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'dms' | 'tasks' | 'projects' | 'groups'>('dms');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
 

@@ -56,7 +56,7 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
   const navigate = useNavigate();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
-  const [filter, setFilter] = useState<TaskFilter>('my-tasks');
+  const [filter, setFilter] = useState<TaskFilter>('all');
   const [view] = useState<'list' | 'kanban'>('kanban');
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -90,21 +90,24 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
       } else if (filter === 'project') {
         params.view = 'project';
         if (selectedProjectFilter) params.projectId = selectedProjectFilter;
-      } else if (filter === 'all') {
-        params.view = 'all';
       }
-      // Always fetch everything, filter client-side for checkbox combos
-      params.showAll = 'true';
+      // Only fetch archived/deleted when those checkboxes are ticked
+      const needsAll = statusChecked.has('archived') || statusChecked.has('deleted');
+      if (needsAll) {
+        params.showAll = 'true';
+      }
       const allTasks = await api.getTasks(params);
 
-      // Step 1: Apply status checkboxes (active / archived / deleted)
-      let filtered = allTasks.filter((t: any) => {
-        if (t.deleted) return statusChecked.has('deleted');
-        if (t.archived) return statusChecked.has('archived');
-        return statusChecked.has('active');
-      });
+      // Client-side status filter (only needed when showAll is on)
+      let filtered = needsAll
+        ? allTasks.filter((t: any) => {
+            if (t.deleted) return statusChecked.has('deleted');
+            if (t.archived) return statusChecked.has('archived');
+            return statusChecked.has('active');
+          })
+        : allTasks;
 
-      // Step 2: Apply tab filter ON TOP of the status filter (not from scratch)
+      // Apply tab filter on top of the status filter
       if (filter === 'my-tasks') {
         filtered = filtered.filter((t: any) => t.assignedToId === user?.id);
       } else if (filter === 'assigned-by-me') {

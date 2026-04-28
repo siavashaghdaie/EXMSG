@@ -178,11 +178,8 @@ export class TaskController {
           res.json({ tasks: [] });
           return;
         }
-      } else if (viewMode === 'all') {
-        // 'all' view: show every task in the user's organization (no user-specific filter)
-        // Org scoping below (line ~218) already restricts to the user's org
       } else {
-        // Default 'my': tasks assigned to me, created by me, or visible via department/project
+        // Default 'my' / 'all': tasks assigned to me, created by me, or visible via department/project
         where.AND.push({
           OR: [
             { assignedToId: userId },
