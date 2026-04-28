@@ -164,6 +164,25 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
     navigate(`/chat/${convId}`);
   };
 
+  // Create or navigate to a project chat room
+  const handleStartProjectChat = async (project: ProjectData) => {
+    try {
+      if (project.conversationId) {
+        handleNavigateToChat(project.conversationId);
+        return;
+      }
+      const res = await api.createProjectConversation(project.id);
+      // Update local state so the button shows "Chat" next time
+      setProjects(prev => prev.map(p => p.id === project.id ? { ...p, conversationId: res.conversationId } : p));
+      if (selectedProject?.id === project.id) {
+        setSelectedProject({ ...selectedProject, conversationId: res.conversationId });
+      }
+      handleNavigateToChat(res.conversationId);
+    } catch (err) {
+      console.error('Failed to start project chat:', err);
+    }
+  };
+
   const handleReactTask = async (taskId: string, type: 'like' | 'dislike') => {
     try {
       await api.reactToTask(taskId, type);
@@ -781,11 +800,9 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
             <button onClick={() => setViewMode('roadmap')} className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium flex items-center gap-1.5 hover:bg-slate-200 dark:hover:bg-slate-600 transition">
               <BarChart3 size={14} /> Roadmap
             </button>
-            {selectedProject.conversationId && (
-              <button onClick={() => handleNavigateToChat(selectedProject.conversationId!)} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium flex items-center gap-1.5 hover:bg-green-700 transition">
-                <MessageSquare size={14} /> Chat
-              </button>
-            )}
+            <button onClick={() => handleStartProjectChat(selectedProject)} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium flex items-center gap-1.5 hover:bg-green-700 transition">
+              <MessageSquare size={14} /> {selectedProject.conversationId ? 'Chat' : 'Start Chat'}
+            </button>
             {/* Task status filter checkboxes */}
             {([
               { key: 'active', label: 'Active', dotColor: 'bg-green-500' },
@@ -1147,11 +1164,9 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose }) => {
               <button onClick={() => { setSelectedProject(p); setViewMode('roadmap'); }} className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium flex items-center gap-1.5 hover:bg-slate-200 dark:hover:bg-slate-600 transition">
                 <BarChart3 size={14} /> Roadmap
               </button>
-              {p.conversationId && (
-                <button onClick={() => handleNavigateToChat(p.conversationId!)} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium flex items-center gap-1.5 hover:bg-green-700 transition">
-                  <MessageSquare size={14} /> Chat
-                </button>
-              )}
+              <button onClick={() => handleStartProjectChat(p)} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium flex items-center gap-1.5 hover:bg-green-700 transition">
+                <MessageSquare size={14} /> {p.conversationId ? 'Chat' : 'Start Chat'}
+              </button>
             </>
           )}
         </div>

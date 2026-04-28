@@ -902,6 +902,11 @@ class APIClient {
     return res.data;
   }
 
+  async createProjectConversation(projectId: string): Promise<{ conversationId: string }> {
+    const res = await this.client.post(`/projects/${projectId}/conversation`);
+    return res.data;
+  }
+
   // Admin API
   async getAdminDashboard(): Promise<any> {
     const res = await this.client.get('/admin/dashboard');

@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../../config/database';
+import { getLindaBotUserId, sendLindaToConversation, ensureLindaInConversation } from '../../services/lindaNotify';
 
 const projectInclude = {
   teamLead: { select: { id: true, username: true, displayName: true, avatarUrl: true, email: true } },
@@ -510,6 +511,76 @@ export class ProjectController {
       res.json({ mates: Array.from(mateMap.values()) });
     } catch (error) {
       console.error('Get project mates error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // POST /api/projects/:projectId/conversation — create chat room on demand
+  async createConversation(req: Request, res: Response): Promise<void> {
+    try {
+      const { projectId } = req.params;
+      const userId = req.user!.userId;
+
+      const project = await prisma.project.findUnique({
+        where: { id: projectId },
+        include: {
+          members: { select: { userId: true } },
+          teamLead: { select: { id: true } },
+        },
+      });
+      if (!project) {
+        res.status(404).json({ error: 'Project not found' });
+        return;
+      }
+
+      // Already has a conversation — ensure Linda is in it and return
+      if (project.conversationId) {
+        ensureLindaInConversation(project.conversationId).catch(err => {
+          console.error('[Projects] ensureLindaInConversation error:', err);
+        });
+        res.json({ conversationId: project.conversationId });
+        return;
+      }
+
+      // Collect all project members
+      const memberIds = new Set<string>([project.createdById]);
+      if (project.teamLead) memberIds.add(project.teamLead.id);
+      if (userId !== project.createdById) memberIds.add(userId);
+      for (const m of project.members) {
+        memberIds.add(m.userId);
+      }
+      // Add Linda bot
+      const lindaBotId = await getLindaBotUserId();
+      memberIds.add(lindaBotId);
+
+      const conversation = await prisma.conversation.create({
+        data: {
+          type: 'GROUP',
+          name: `Project: ${project.name}`,
+          ...(project.organizationId && { organizationId: project.organizationId }),
+          members: {
+            create: Array.from(memberIds).map(uid => ({
+              userId: uid,
+              role: uid === project.createdById ? 'ADMIN' : 'MEMBER',
+            })),
+          },
+        },
+      });
+
+      await prisma.project.update({
+        where: { id: projectId },
+        data: { conversationId: conversation.id },
+      });
+
+      // Linda announcement
+      const roomMsg = `📂 **Project Chat Room Created**\n\n**${project.name}**\n\nI'll keep everyone updated on changes to this project.`;
+      sendLindaToConversation(conversation.id, roomMsg).catch(err => {
+        console.error('[Projects] Linda room announcement error:', err);
+      });
+
+      res.json({ conversationId: conversation.id });
+    } catch (error) {
+      console.error('Create project conversation error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }

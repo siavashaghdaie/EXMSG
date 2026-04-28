@@ -17,6 +17,9 @@ router.get('/projects/:projectId', (req, res) => controller.getProject(req, res)
 router.patch('/projects/:projectId', (req, res) => controller.updateProject(req, res));
 router.delete('/projects/:projectId', (req, res) => controller.deleteProject(req, res));
 
+// Project chat room (on-demand creation)
+router.post('/projects/:projectId/conversation', (req, res) => controller.createConversation(req, res));
+
 // Project member management
 router.post('/projects/:projectId/members', (req, res) => controller.addMember(req, res));
 router.delete('/projects/:projectId/members/:userId', (req, res) => controller.removeMember(req, res));
