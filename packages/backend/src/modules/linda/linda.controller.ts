@@ -2120,9 +2120,17 @@ TASK MANAGEMENT:
 - Users in the same project can see each other's tasks (project boards)
 - Users in the same department can see each other's tasks
 - When asked to change priority, use [UPDATE_TASK] with the new priority
-- When asked to add a checklist, use [ADD_CHECKLIST] with items. Each item line can include @username for assignment and YYYY-MM-DD for due date
+- When asked to add a checklist, you MUST include an [ADD_CHECKLIST]...[/ADD_CHECKLIST] block in your response. The system parses your raw output for this block — if you omit it, nothing happens! Each item line can include @username for assignment and YYYY-MM-DD for due date.
+  Example:
+  [ADD_CHECKLIST]
+  taskId: abc123
+  title: My Checklist
+  - First item @sasha 2026-05-01
+  - Second item @ahmed
+  [/ADD_CHECKLIST]
 - When someone is assigned to a checklist item, they get a DM notification AND a message in the task's group chat
 - When asked to check off / complete / mark done a checklist item, use [UPDATE_CHECKLIST_ITEM] with completed: true
+- CRITICAL: You MUST output the action block text. Do NOT just say "Done, I created the checklist" without the block — the backend needs to parse it from your response to actually execute the action.
 
 FILE GENERATION (VERY IMPORTANT):
 You MUST use [CREATE_FILE] blocks whenever the user asks you to create, write, make, generate, draft, or prepare ANY document, file, report, letter, or code. NEVER type the document content as a regular chat message — ALWAYS put it inside a [CREATE_FILE] block so it becomes a downloadable file.
@@ -2146,6 +2154,13 @@ CRITICAL RULES:
 - ALWAYS generate complete content — never truncate or use "..." placeholders
 - In your visible response OUTSIDE the block, just briefly say something like "Here's your document!" or "I've created the report for you."
 - If in doubt whether to make a file, MAKE THE FILE. Users always prefer a downloadable document.
+
+⚠️ FILE vs TASK ACTION — IMPORTANT DISTINCTION:
+- Checklists, tasks, status changes, assignments, comments, and project operations are NOT files. NEVER use [CREATE_FILE] for these.
+- When the user says "make a checklist" or "create a to-do list" on a task → use [ADD_CHECKLIST], NOT [CREATE_FILE].
+- When the user says "assign a task" → use [ASSIGN_TASK], NOT [CREATE_FILE].
+- Task/checklist operations MUST use the corresponding action blocks ([ADD_CHECKLIST], [ASSIGN_TASK], [UPDATE_TASK], etc.).
+- You MUST output the actual action block text in your response (it will be stripped before the user sees it). Do NOT just say "Done!" without including the action block — the system parses your raw output for these blocks to execute the action. If you don't include the block, NOTHING happens.
 
 FILE FORWARDING:
 You CAN forward files that have been shared in your conversation to other users. Use the attachment IDs from the "Recent files" section in the workspace context.
@@ -2872,7 +2887,9 @@ export async function handleLindaAutoReply(
       : Array.isArray(lastMsgContent)
         ? (lastMsgContent as any[]).filter((b: any) => b.type === 'text').map((b: any) => b.text).join(' ')
         : '';
-    const isFileGenerationRequest = /\b(create|make|generate|write|draft|build|prepare|produce|give me|send me)\b/i.test(lastUserMsg)
+    const isTaskOrChecklistRequest = /\b(checklist|check\s*list|task|to-?do|assign|status|priority|comment|project)\b/i.test(lastUserMsg);
+    const isFileGenerationRequest = !isTaskOrChecklistRequest
+      && /\b(create|make|generate|write|draft|build|prepare|produce|give me|send me)\b/i.test(lastUserMsg)
       && /\b(file|document|report|script|code|csv|json|list|template|spreadsheet|letter|memo|plan|proposal|docx|pdf|txt)\b/i.test(lastUserMsg);
     const isDownloadRequest = /\b(download|docx|pdf|\.doc|\.pdf)\b/i.test(lastUserMsg);
     const maxTokens = (fileInfo || isFileGenerationRequest || isDownloadRequest) ? 4096 : 2048;

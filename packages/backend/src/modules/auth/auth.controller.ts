@@ -158,7 +158,7 @@ export class AuthController {
         }
       }
 
-      // Check if user already exists (case-insensitive)
+      // Check if user already exists (case-insensitive) by email, username, OR displayName
       const existing = await prisma.user.findFirst({
         where: {
           OR: [
@@ -185,6 +185,24 @@ export class AuthController {
         } else {
           username = `${username.slice(0, 25)}_${Math.floor(Math.random() * 9999).toString().padStart(4, '0')}`;
         }
+      }
+
+      // ── Duplicate display-name guard ─────────────────────────────
+      // If another user already has this exact display name, reject with
+      // a helpful message. This prevents two "Sadegh"s in the UI.
+      const displayNameDupe = await prisma.user.findFirst({
+        where: {
+          displayName: { equals: displayName, mode: 'insensitive' },
+          NOT: { email: { equals: email, mode: 'insensitive' } },
+        },
+        select: { id: true, displayName: true },
+      });
+
+      if (displayNameDupe) {
+        res.status(409).json({
+          error: `The display name "${displayName}" is already taken. Please choose a different name or add a distinguishing detail (e.g. "${displayName} M." or "${displayName} (Dev)").`,
+        });
+        return;
       }
 
       // Hash password

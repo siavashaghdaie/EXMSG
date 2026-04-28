@@ -545,9 +545,36 @@ export class OrgAdminController {
       let createdNewUser = false;
 
       if (!user) {
+        // ── Duplicate-name guard ───────────────────────────────────
+        // Before creating a new user, check if someone with the same
+        // display name (case-insensitive) already exists in this org.
+        // This prevents "two Sadeghs" from appearing in the UI.
+        const candidateDisplayName = (displayName && String(displayName).trim()) || normalizedEmail.split('@')[0];
+        const existingByName = await prisma.user.findFirst({
+          where: {
+            displayName: { equals: candidateDisplayName, mode: 'insensitive' },
+            organizations: { some: { organizationId: orgId } },
+          },
+          select: { id: true, email: true, displayName: true, username: true },
+        });
+
+        if (existingByName) {
+          // A user with this display name is already in the org — warn admin
+          res.status(409).json({
+            error: `A member named "${existingByName.displayName}" already exists in this organization (${existingByName.email}). If this is the same person, use their existing email. If it's a different person, please provide a distinct display name.`,
+            existingMember: {
+              id: existingByName.id,
+              email: existingByName.email,
+              displayName: existingByName.displayName,
+              username: existingByName.username,
+            },
+          });
+          return;
+        }
+
         // Create a brand new user with a placeholder password hash. The
         // invitee will set their real password via the invite link.
-        const finalDisplayName = (displayName && String(displayName).trim()) || normalizedEmail.split('@')[0];
+        const finalDisplayName = candidateDisplayName;
         const baseUsername = (username && String(username).trim()) || normalizedEmail.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '');
         let finalUsername = baseUsername || `user${Date.now()}`;
 
