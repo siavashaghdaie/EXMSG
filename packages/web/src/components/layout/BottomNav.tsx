@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { MessageSquare, Users, Bot, Clipboard, Settings, FolderKanban } from 'lucide-react';
+import { MessageSquare, Phone, ClipboardList, Building2, Settings } from 'lucide-react';
 
 interface NavItem {
   id: string;
@@ -10,11 +10,10 @@ interface NavItem {
 }
 
 interface BottomNavProps {
-  onAgentsClick?: () => void;
-  onTasksClick?: () => void;
-  onProjectsClick?: () => void;
+  onCallsClick?: () => void;
+  onPlannerClick?: () => void;
+  onOfficeClick?: () => void;
   onSettingsClick?: () => void;
-  onContactsClick?: () => void;
   onChatsClick?: () => void;
   visible?: boolean;
   taskCount?: number;
@@ -22,11 +21,10 @@ interface BottomNavProps {
 }
 
 export const BottomNav: React.FC<BottomNavProps> = ({
-  onAgentsClick,
-  onTasksClick,
-  onProjectsClick,
+  onCallsClick,
+  onPlannerClick,
+  onOfficeClick,
   onSettingsClick,
-  onContactsClick,
   onChatsClick,
   visible,
   taskCount,
@@ -54,28 +52,22 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       path: '/chat',
     },
     {
-      id: 'contacts',
-      label: 'Contacts',
-      icon: <Users size={24} />,
-      path: '/contacts',
+      id: 'calls',
+      label: 'Calls',
+      icon: <Phone size={24} />,
+      path: '/calls',
     },
     {
-      id: 'agents',
-      label: 'Agents',
-      icon: <Bot size={24} />,
-      path: '/agents',
+      id: 'planner',
+      label: 'Planner',
+      icon: <ClipboardList size={24} />,
+      path: '/planner',
     },
     {
-      id: 'tasks',
-      label: 'Tasks',
-      icon: <Clipboard size={24} />,
-      path: '/tasks',
-    },
-    {
-      id: 'projects',
-      label: 'Projects',
-      icon: <FolderKanban size={24} />,
-      path: '/projects',
+      id: 'office',
+      label: 'Office',
+      icon: <Building2 size={24} />,
+      path: '/office',
     },
     {
       id: 'settings',
@@ -88,9 +80,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   const getActiveTab = (): string => {
     const path = location.pathname;
     if (path.includes('/chat')) return 'chats';
-    if (path.includes('/contacts')) return 'contacts';
-    if (path.includes('/agents')) return 'agents';
-    if (path.includes('/tasks')) return 'tasks';
+    if (path.includes('/calls')) return 'calls';
+    if (path.includes('/planner')) return 'planner';
+    if (path.includes('/office')) return 'office';
     if (path.includes('/settings')) return 'settings';
     return 'chats';
   };
@@ -112,16 +104,14 @@ export const BottomNav: React.FC<BottomNavProps> = ({
             <button
               key={item.id}
               onClick={() => {
-                if (item.id === 'agents') {
-                  onAgentsClick?.();
-                } else if (item.id === 'tasks') {
-                  onTasksClick?.();
-                } else if (item.id === 'projects') {
-                  onProjectsClick?.();
+                if (item.id === 'calls') {
+                  onCallsClick?.();
+                } else if (item.id === 'planner') {
+                  onPlannerClick?.();
+                } else if (item.id === 'office') {
+                  onOfficeClick?.();
                 } else if (item.id === 'settings') {
                   onSettingsClick ? onSettingsClick() : navigate(item.path);
-                } else if (item.id === 'contacts') {
-                  onContactsClick ? onContactsClick() : navigate(item.path);
                 } else if (item.id === 'chats') {
                   onChatsClick ? onChatsClick() : navigate(item.path);
                 } else {
@@ -137,7 +127,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
             >
               <span className="relative">
                 {item.icon}
-                {item.id === 'tasks' && typeof taskCount === 'number' && taskCount > 0 && (
+                {item.id === 'planner' && typeof taskCount === 'number' && taskCount > 0 && (
                   <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-[16px] flex items-center justify-center bg-red-500 text-white text-[9px] font-bold rounded-full px-1 leading-none shadow-sm border-2 border-white dark:border-surface-900">
                     {taskCount > 9 ? '9+' : taskCount}
                   </span>

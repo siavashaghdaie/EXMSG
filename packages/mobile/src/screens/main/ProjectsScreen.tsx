@@ -109,7 +109,7 @@ interface Project {
 
 type ViewMode = 'list' | 'detail' | 'board';
 
-export default function ProjectsScreen() {
+export default function ProjectsScreen({ embedded }: { embedded?: boolean } = {}) {
   const { user } = useAuthStore();
   const navigation = useNavigation<any>();
   const { createConversation } = useChatStore();

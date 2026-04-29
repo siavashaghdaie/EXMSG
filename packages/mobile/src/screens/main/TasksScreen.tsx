@@ -123,7 +123,7 @@ function truncate(text: string, max: number): string {
 
 // ─── Main Component ─────────────────────────────────────────────────────────
 
-export default function TasksScreen() {
+export default function TasksScreen({ embedded }: { embedded?: boolean } = {}) {
   const user = useAuthStore((s) => s.user);
   const userId = user?.id;
 

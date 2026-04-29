@@ -662,8 +662,8 @@ export default function ChatScreen() {
 
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
         {/* Messages */}
         <FlatList
@@ -673,6 +673,9 @@ export default function ChatScreen() {
           renderItem={renderItem}
           inverted
           contentContainerStyle={styles.messagesList}
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets={false}
           ListHeaderComponent={renderLindaThinking}
           ListEmptyComponent={
             isLoadingMessages ? (

@@ -16,6 +16,9 @@ import PanelOwnerWizard from '@/components/auth/PanelOwnerWizard';
 import OrgAdminDashboard from '@/components/org-admin/OrgAdminDashboard';
 import InterPanelPage from '@/components/inter-panel/InterPanelPage';
 import ProjectsPage from '@/components/projects/ProjectsPage';
+import CallsPage from '@/components/calls/CallsPage';
+import PlannerPage from '@/components/planner/PlannerPage';
+import OfficePage from '@/components/office/OfficePage';
 
 export const ChatLayout: React.FC = () => {
   const navigate = useNavigate();
@@ -34,6 +37,9 @@ export const ChatLayout: React.FC = () => {
   const [showOrgDashboard, setShowOrgDashboard] = useState(false);
   const [showInterPanel, setShowInterPanel] = useState(false);
   const [showProjects, setShowProjects] = useState(false);
+  const [showCalls, setShowCalls] = useState(false);
+  const [showPlanner, setShowPlanner] = useState(false);
+  const [showOffice, setShowOffice] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
   const [, setAnnouncementCount] = useState(0);
   const [taskCount, setTaskCount] = useState(0);
@@ -60,6 +66,9 @@ export const ChatLayout: React.FC = () => {
     setShowOrgDashboard(false);
     setShowInterPanel(false);
     setShowProjects(false);
+    setShowCalls(false);
+    setShowPlanner(false);
+    setShowOffice(false);
   };
 
   // Check whether to show the welcome wizard on first login (ALL users)
@@ -228,16 +237,16 @@ export const ChatLayout: React.FC = () => {
   const shouldShowContent = isMobile ? !showSidebar : true;
 
   // Determine if a sub-page (settings, agents, tasks, etc.) is open — these should keep BottomNav visible
-  const isSubPageOpen = showSettings || showAgents || showTaskWall || showAdminDashboard || showAnnouncements || showOrgDashboard || showInterPanel || showProjects;
+  const isSubPageOpen = showSettings || showAgents || showTaskWall || showAdminDashboard || showAnnouncements || showOrgDashboard || showInterPanel || showProjects || showCalls || showPlanner || showOffice;
   // On mobile, show BottomNav when: sidebar is visible OR a sub-page is open (not in a conversation)
   const showBottomNav = isMobile && (shouldShowSidebar || isSubPageOpen);
 
   // Determine the active BottomNav tab based on which sub-page is open
   const getActiveBottomTab = (): string | undefined => {
     if (showSettings) return 'settings';
-    if (showAgents) return 'agents';
-    if (showTaskWall) return 'tasks';
-    if (showProjects) return 'projects';
+    if (showCalls) return 'calls';
+    if (showPlanner || showTaskWall || showProjects) return 'planner';
+    if (showOffice || showAgents) return 'office';
     return undefined; // let BottomNav auto-detect from URL
   };
 
@@ -352,6 +361,28 @@ export const ChatLayout: React.FC = () => {
                   setShowSidebar(true);
                 }
               }} />
+            ) : showCalls ? (
+              <CallsPage onClose={() => {
+                setShowCalls(false);
+                if (isMobile) {
+                  setShowSidebar(true);
+                }
+              }} />
+            ) : showPlanner ? (
+              <PlannerPage onClose={() => {
+                setShowPlanner(false);
+                refreshTaskCount();
+                if (isMobile) {
+                  setShowSidebar(true);
+                }
+              }} />
+            ) : showOffice ? (
+              <OfficePage onClose={() => {
+                setShowOffice(false);
+                if (isMobile) {
+                  setShowSidebar(true);
+                }
+              }} />
             ) : (
               <Outlet />
             )}
@@ -365,14 +396,19 @@ export const ChatLayout: React.FC = () => {
           visible={true}
           taskCount={taskCount}
           activeTab={getActiveBottomTab()}
-          onAgentsClick={() => {
+          onCallsClick={() => {
             closeAllSubPages();
-            setShowAgents(true);
+            setShowCalls(true);
             setShowSidebar(false);
           }}
-          onTasksClick={() => {
+          onPlannerClick={() => {
             closeAllSubPages();
-            setShowTaskWall(true);
+            setShowPlanner(true);
+            setShowSidebar(false);
+          }}
+          onOfficeClick={() => {
+            closeAllSubPages();
+            setShowOffice(true);
             setShowSidebar(false);
           }}
           onSettingsClick={() => {
@@ -380,18 +416,9 @@ export const ChatLayout: React.FC = () => {
             setShowSettings(true);
             setShowSidebar(false);
           }}
-          onProjectsClick={() => {
-            closeAllSubPages();
-            setShowProjects(true);
-            setShowSidebar(false);
-          }}
           onChatsClick={() => {
             closeAllSubPages();
             setShowSidebar(true);
-          }}
-          onContactsClick={() => {
-            closeAllSubPages();
-            navigate('/contacts');
           }}
         />
       )}

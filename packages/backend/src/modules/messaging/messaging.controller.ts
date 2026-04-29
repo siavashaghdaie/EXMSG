@@ -733,10 +733,12 @@ export class MessagingController {
       let finalMimeType = file.mimetype;
       let finalSize = file.size;
       let finalOriginalName = file.originalname;
+      let finalFilePath = file.path; // Track the actual file path (may change after transcode)
 
       if (file.mimetype.startsWith('audio/') && /\.(webm|ogg)$/i.test(file.filename)) {
         const result = await transcodeToMp4(file.path, file.filename);
         finalFilename = result.filename;
+        finalFilePath = result.path; // Use transcoded path (original webm is deleted by transcode)
         if (finalFilename !== file.filename) {
           finalMimeType = 'audio/mp4';
           finalOriginalName = file.originalname.replace(/\.(webm|ogg)$/i, '.mp4');
@@ -794,7 +796,7 @@ export class MessagingController {
         fileName: finalOriginalName,
         mimeType: finalMimeType,
         fileSize: finalSize,
-        filePath: file.path,
+        filePath: finalFilePath,
       }).catch((err) => {
         console.error('[Linda] Auto-reply hook error (file):', err);
       });

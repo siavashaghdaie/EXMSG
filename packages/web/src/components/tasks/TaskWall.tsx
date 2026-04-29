@@ -49,9 +49,10 @@ type StatusKey = 'active' | 'archived' | 'deleted';
 
 interface TaskWallProps {
   onClose?: () => void;
+  embedded?: boolean;
 }
 
-const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
+const TaskWall: React.FC<TaskWallProps> = ({ onClose, embedded }) => {
   const { user } = useAuthStore();
   const navigate = useNavigate();
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -277,16 +278,19 @@ const TaskWall: React.FC<TaskWallProps> = ({ onClose }) => {
       {/* Header */}
       <div className="bg-white dark:bg-surface-900 border-b border-gray-200 dark:border-surface-700 px-4 py-3 md:py-4">
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            {isMobile && onClose && (
-              <button onClick={onClose} className="p-1 hover:bg-gray-100 dark:hover:bg-surface-800 rounded">
-                <X className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-              </button>
-            )}
-            <h1 className={`font-bold text-gray-900 dark:text-white ${isMobile ? 'text-lg' : 'text-2xl'}`}>
-              Task Wall
-            </h1>
-          </div>
+          {!embedded && (
+            <div className="flex items-center gap-2">
+              {isMobile && onClose && (
+                <button onClick={onClose} className="p-1 hover:bg-gray-100 dark:hover:bg-surface-800 rounded">
+                  <X className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                </button>
+              )}
+              <h1 className={`font-bold text-gray-900 dark:text-white ${isMobile ? 'text-lg' : 'text-2xl'}`}>
+                Task Wall
+              </h1>
+            </div>
+          )}
+          {embedded && <div />}
           <button
             onClick={() => { setEditingTask(null); setShowFormModal(true); }}
             className="flex items-center gap-2 bg-primary-600 dark:bg-primary-500 hover:bg-primary-700 dark:hover:bg-primary-600 text-white px-3 md:px-4 py-2 rounded-lg font-medium transition-colors text-sm md:text-base"

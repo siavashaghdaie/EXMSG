@@ -8,7 +8,7 @@ import {
 import { api } from '@/services/api';
 import Avatar from '@/components/common/Avatar';
 import PresenceIndicator from '@/components/common/PresenceIndicator';
-import { useChatStore } from '@/stores/chatStore';
+import { useChatStore } from '@/store/chatStore';
 
 interface ChatSettingsPanelProps {
   conversationId: string;

@@ -312,10 +312,10 @@ export default function ChatView() {
   });
 
   return (
-    <div className={`flex h-full bg-white dark:bg-surface-900 overflow-hidden w-full max-w-full ${activeBuzz ? 'animate-buzz-shake' : ''}`}>
+    <div className={`flex h-[100dvh] md:h-full bg-white dark:bg-surface-900 overflow-hidden w-full max-w-full ${activeBuzz ? 'animate-buzz-shake' : ''}`} style={{ overscrollBehavior: 'none' }}>
       <div className="flex flex-col h-full flex-1 min-w-0 overflow-hidden relative">
-      {/* Header */}
-      <div className="border-b border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 sticky top-0 z-10">
+      {/* Header — flex-shrink-0 keeps it pinned when keyboard opens */}
+      <div className="border-b border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex-shrink-0 z-10">
         <div className="px-2 sm:px-4 py-3 flex items-center justify-between gap-1 overflow-hidden">
           <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0 overflow-hidden">
             {isMobile && (

@@ -2,20 +2,16 @@ import React from 'react';
 import { Text, StyleSheet } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import ChatNavigator from '@/navigation/ChatNavigator';
-import ContactsScreen from '@/screens/main/ContactsScreen';
 import CallsScreen from '@/screens/main/CallsScreen';
-import AgentsScreen from '@/screens/main/AgentsScreen';
-import TasksScreen from '@/screens/main/TasksScreen';
-import ProjectsScreen from '@/screens/main/ProjectsScreen';
+import PlannerScreen from '@/screens/main/PlannerScreen';
+import OfficeScreen from '@/screens/main/OfficeScreen';
 import SettingsScreen from '@/screens/main/SettingsScreen';
 
 export type MainTabParamList = {
   Chats: undefined;
   Calls: undefined;
-  Contacts: undefined;
-  Agents: undefined;
-  Tasks: undefined;
-  Projects: undefined;
+  Planner: undefined;
+  Office: undefined;
   Settings: undefined;
 };
 
@@ -63,26 +59,8 @@ export default function MainNavigator() {
         }}
       />
       <Tab.Screen
-        name="Contacts"
-        component={ContactsScreen}
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon label="👥" focused={focused} />
-          ),
-        }}
-      />
-      <Tab.Screen
-        name="Agents"
-        component={AgentsScreen}
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon label="🤖" focused={focused} />
-          ),
-        }}
-      />
-      <Tab.Screen
-        name="Tasks"
-        component={TasksScreen}
+        name="Planner"
+        component={PlannerScreen}
         options={{
           tabBarIcon: ({ focused }) => (
             <TabIcon label="📋" focused={focused} />
@@ -90,11 +68,11 @@ export default function MainNavigator() {
         }}
       />
       <Tab.Screen
-        name="Projects"
-        component={ProjectsScreen}
+        name="Office"
+        component={OfficeScreen}
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon label="📂" focused={focused} />
+            <TabIcon label="🏢" focused={focused} />
           ),
         }}
       />
