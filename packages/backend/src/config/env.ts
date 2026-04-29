@@ -47,6 +47,9 @@ export const env = {
     return '';
   })(),
 
+  // OpenAI API (for Whisper STT + TTS voice features)
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
+
   // Resend Email
   RESEND_API_KEY: process.env.RESEND_API_KEY || '',
   EMAIL_FROM: process.env.EMAIL_FROM || 'linda@theomnilink.io',

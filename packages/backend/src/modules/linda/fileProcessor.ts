@@ -92,8 +92,25 @@ export async function processFile(
       return processLegacyDoc(filePath, fileDesc);
     }
 
-    // 7. Audio files — voice notes, recordings, etc.
-    if (mimeType.startsWith('audio/') || ['.webm', '.ogg', '.mp3', '.wav', '.m4a', '.aac', '.flac'].includes(ext)) {
+    // 7. Audio files — voice notes, recordings, etc. → Transcribe with Whisper
+    if (mimeType.startsWith('audio/') || ['.webm', '.ogg', '.mp3', '.wav', '.m4a', '.aac', '.flac', '.mp4'].includes(ext)) {
+      try {
+        const { transcribeAudio, isVoiceServiceAvailable } = await import('./voiceService');
+        if (isVoiceServiceAvailable()) {
+          const transcript = await transcribeAudio(filePath, fileName);
+          if (transcript) {
+            return {
+              type: 'text',
+              fileDescription: fileDesc,
+              textContent: `${fileDesc}\n\n--- Voice Message Transcript ---\n\n${transcript}\n\n(This was automatically transcribed from the user's voice note. Respond naturally to what they said.)`,
+              success: true,
+            };
+          }
+        }
+      } catch (err: any) {
+        console.warn('[FileProcessor] Voice transcription failed, falling back to metadata:', err?.message);
+      }
+      // Fallback if transcription not available or failed
       return {
         type: 'metadata-only',
         fileDescription: fileDesc,

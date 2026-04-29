@@ -304,6 +304,18 @@ export default function MessageBubble({
               </p>
             )}
 
+            {/* Voice message attachments rendered INSIDE the bubble */}
+            {message.attachments && message.attachments.some(a => a.mimeType.startsWith('audio/')) && (
+              <div className="mt-1 mb-1">
+                {message.attachments.filter(a => a.mimeType.startsWith('audio/')).map((attachment) => (
+                  <VoiceMessagePlayer
+                    key={attachment.id}
+                    url={attachment.url}
+                  />
+                ))}
+              </div>
+            )}
+
             {isEditing ? (
               <div className="flex flex-col gap-2">
                 <textarea
@@ -343,7 +355,7 @@ export default function MessageBubble({
               </div>
             ) : (
               <>
-                {message.content && (
+                {message.content && !(message.attachments && message.attachments.length > 0) && (
                   <>
                     <div className="flex items-end gap-1">
                       <div className="flex-1">
@@ -419,28 +431,18 @@ export default function MessageBubble({
         </div>
       </div>
 
-      {/* File attachments */}
-      {message.attachments && message.attachments.length > 0 && (
+      {/* File attachments (non-audio only — voice messages are rendered inside the bubble) */}
+      {message.attachments && message.attachments.filter(a => !a.mimeType.startsWith('audio/')).length > 0 && (
         <div className={`mt-1 flex flex-col gap-2 ${isOwnMessage ? 'items-end' : 'items-start'}`}>
-          {message.attachments.map((attachment) => {
-            if (attachment.mimeType.startsWith('audio/')) {
-              return (
-                <VoiceMessagePlayer
-                  key={attachment.id}
-                  url={attachment.url}
-                />
-              );
-            }
-            return (
-              <FileCard
-                key={attachment.id}
-                fileName={attachment.fileName}
-                fileSize={attachment.fileSize}
-                mimeType={attachment.mimeType}
-                url={attachment.url}
-              />
-            );
-          })}
+          {message.attachments.filter(a => !a.mimeType.startsWith('audio/')).map((attachment) => (
+            <FileCard
+              key={attachment.id}
+              fileName={attachment.fileName}
+              fileSize={attachment.fileSize}
+              mimeType={attachment.mimeType}
+              url={attachment.url}
+            />
+          ))}
         </div>
       )}
 

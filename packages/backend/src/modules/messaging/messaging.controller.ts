@@ -1,8 +1,49 @@
 import { Request, Response } from 'express';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import path from 'path';
+import fs from 'fs';
 import { prisma } from '../../config/database';
 import { emitToConversation } from '../../services/socket';
 import { handleLindaAutoReply } from '../linda/linda.controller';
 import { getOrgMemberIds } from '../../middleware/orgScope';
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Transcode a voice file to mp4/aac for universal playback (iOS Safari can't play webm).
+ * Returns the new filename if transcoded, or the original if transcoding fails/not needed.
+ */
+async function transcodeToMp4(filePath: string, filename: string): Promise<{ filename: string; path: string }> {
+  const ext = path.extname(filename).toLowerCase();
+  // Only transcode webm/ogg voice files
+  if (ext !== '.webm' && ext !== '.ogg') {
+    return { filename, path: filePath };
+  }
+
+  const newFilename = filename.replace(/\.(webm|ogg)$/i, '.mp4');
+  const newPath = filePath.replace(/\.(webm|ogg)$/i, '.mp4');
+
+  try {
+    await execFileAsync('ffmpeg', [
+      '-i', filePath,
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      '-movflags', '+faststart',
+      '-y',
+      newPath,
+    ], { timeout: 30000 });
+
+    // Remove original webm file
+    try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+
+    console.log(`[Transcode] ${filename} → ${newFilename}`);
+    return { filename: newFilename, path: newPath };
+  } catch (err) {
+    console.error('[Transcode] ffmpeg failed, keeping original:', err);
+    return { filename, path: filePath };
+  }
+}
 
 export class MessagingController {
   // GET /api/conversations
@@ -687,19 +728,35 @@ export class MessagingController {
 
       const file = req.file;
 
+      // Transcode voice messages (webm/ogg → mp4) for iOS Safari compatibility
+      let finalFilename = file.filename;
+      let finalMimeType = file.mimetype;
+      let finalSize = file.size;
+      let finalOriginalName = file.originalname;
+
+      if (file.mimetype.startsWith('audio/') && /\.(webm|ogg)$/i.test(file.filename)) {
+        const result = await transcodeToMp4(file.path, file.filename);
+        finalFilename = result.filename;
+        if (finalFilename !== file.filename) {
+          finalMimeType = 'audio/mp4';
+          finalOriginalName = file.originalname.replace(/\.(webm|ogg)$/i, '.mp4');
+          try { finalSize = fs.statSync(result.path).size; } catch { /* keep original size */ }
+        }
+      }
+
       // Create message with file attachment
       const message = await prisma.message.create({
         data: {
           conversationId,
           senderId: userId,
-          content: `Sent a file: ${file.originalname}`,
+          content: '',
           type: 'FILE',
           attachments: {
             create: {
-              fileName: file.originalname,
-              fileSize: file.size,
-              mimeType: file.mimetype,
-              url: `/uploads/${file.filename}`,
+              fileName: finalOriginalName,
+              fileSize: finalSize,
+              mimeType: finalMimeType,
+              url: `/uploads/${finalFilename}`,
             },
           },
         },
@@ -734,9 +791,9 @@ export class MessagingController {
 
       // Trigger Linda auto-reply with file context
       handleLindaAutoReply(conversationId, userId, message.content || '', {
-        fileName: file.originalname,
-        mimeType: file.mimetype,
-        fileSize: file.size,
+        fileName: finalOriginalName,
+        mimeType: finalMimeType,
+        fileSize: finalSize,
         filePath: file.path,
       }).catch((err) => {
         console.error('[Linda] Auto-reply hook error (file):', err);

@@ -2966,9 +2966,40 @@ export async function handleLindaAutoReply(
     // Strip action blocks from visible response
     const cleanResponse = stripActionBlocks(rawResponse);
 
+    // ─── Voice Reply: If the user requested a voice response, generate TTS ───
+    let voiceReplySent = false;
+    if (cleanResponse) {
+      try {
+        const { isVoiceReplyRequested, generateVoiceReply, isVoiceServiceAvailable } = await import('./voiceService');
+        // Check the original user message (not the enriched/file-processed version)
+        const originalUserMsg = messageContent || '';
+        if (isVoiceServiceAvailable() && isVoiceReplyRequested(originalUserMsg)) {
+          console.log(`[Linda] Voice reply requested — generating TTS audio...`);
+          const pathModule = await import('path');
+          const uploadsDir = pathModule.join(process.cwd(), 'uploads');
+          const voiceResult = await generateVoiceReply(cleanResponse, uploadsDir);
+          if (voiceResult) {
+            const voiceUrl = `/uploads/${voiceResult.fileName}`;
+            // Send voice note as a file message (empty content so filename isn't shown)
+            await sendLindaFileToConversation(lindaId, conversationId, '', {
+              fileName: voiceResult.fileName,
+              fileSize: voiceResult.fileSize,
+              mimeType: voiceResult.mimeType,
+              url: voiceUrl,
+            });
+            voiceReplySent = true;
+            console.log(`[Linda] Voice reply sent: ${voiceResult.fileName} (${(voiceResult.fileSize / 1024).toFixed(1)} KB)`);
+          }
+        }
+      } catch (voiceErr: any) {
+        console.warn('[Linda] Voice reply generation failed:', voiceErr?.message);
+      }
+    }
+
     // Stop typing indicator before sending the final message
     emitToConversation(conversationId, 'typing:stop', { userId: lindaId, username: 'Linda', conversationId });
 
+    // Always send the text response (even if voice was also sent, for accessibility)
     if (cleanResponse) {
       await sendLindaMessageToConversation(lindaId, conversationId, cleanResponse);
     }

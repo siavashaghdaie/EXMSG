@@ -37,8 +37,8 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Install OpenSSL (Debian slim already has it, but ensure it's there)
-RUN apt-get update && apt-get install -y openssl wget && rm -rf /var/lib/apt/lists/*
+# Install OpenSSL, wget, and ffmpeg (for voice message transcoding to mp4)
+RUN apt-get update && apt-get install -y openssl wget ffmpeg && rm -rf /var/lib/apt/lists/*
 
 # Create app user for security
 RUN groupadd -g 1001 nodejs && \
