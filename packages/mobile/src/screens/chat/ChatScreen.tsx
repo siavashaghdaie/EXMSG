@@ -489,9 +489,6 @@ export default function ChatScreen() {
                       <Text style={styles.attachmentIcon}>
                         {att.mimeType?.startsWith('image/') ? '\uD83D\uDDBC' : att.mimeType?.startsWith('audio/') ? '\uD83C\uDFA4' : '\uD83D\uDCCE'}
                       </Text>
-                      <Text style={[styles.attachmentName, isOwn && { color: '#E0D5FF' }]} numberOfLines={1}>
-                        {att.fileName}
-                      </Text>
                     </View>
                   ))}
                 </View>

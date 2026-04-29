@@ -43,8 +43,7 @@ export default function FileCard({ fileName, fileSize, mimeType, url }: FileCard
             }}
           />
         </a>
-        <div className="flex items-center gap-2 mt-1 px-1">
-          <span className="text-xs text-slate-500 dark:text-slate-400 truncate flex-1">{fileName}</span>
+        <div className="flex items-center justify-end mt-1 px-1">
           <a
             href={url}
             download={fileName}
@@ -79,9 +78,7 @@ export default function FileCard({ fileName, fileSize, mimeType, url }: FileCard
             </div>
           </a>
         </div>
-        <div className="flex items-center gap-2 mt-1 px-1">
-          <Film size={14} className="text-purple-500 flex-shrink-0" />
-          <span className="text-xs text-slate-500 dark:text-slate-400 truncate flex-1">{fileName}</span>
+        <div className="flex items-center justify-end gap-2 mt-1 px-1">
           <span className="text-xs text-slate-400">{formatSize(fileSize)}</span>
           <a
             href={url}
@@ -103,7 +100,6 @@ export default function FileCard({ fileName, fileSize, mimeType, url }: FileCard
         {getIcon()}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{fileName}</p>
         <p className="text-xs text-slate-500">{formatSize(fileSize)}</p>
       </div>
       <a
