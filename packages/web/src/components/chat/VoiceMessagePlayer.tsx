@@ -33,14 +33,21 @@ export default function VoiceMessagePlayer({ url, duration: initialDuration }: V
     };
   }, []);
 
-  const togglePlay = () => {
+  const togglePlay = async () => {
     if (!audioRef.current) return;
     if (isPlaying) {
       audioRef.current.pause();
+      setIsPlaying(false);
     } else {
-      audioRef.current.play();
+      try {
+        await audioRef.current.play();
+        setIsPlaying(true);
+      } catch (err) {
+        console.error('[VoicePlayer] Playback failed:', err);
+        // On iOS, play() can fail if not triggered by user gesture or if codec unsupported
+        setIsPlaying(false);
+      }
     }
-    setIsPlaying(!isPlaying);
   };
 
   const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -60,7 +67,7 @@ export default function VoiceMessagePlayer({ url, duration: initialDuration }: V
 
   return (
     <div className="flex items-center gap-2 min-w-[200px]">
-      <audio ref={audioRef} src={url} preload="metadata" />
+      <audio ref={audioRef} src={url} preload="metadata" playsInline />
 
       <button
         onClick={togglePlay}

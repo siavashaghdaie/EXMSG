@@ -8,6 +8,7 @@ import {
 import { api } from '@/services/api';
 import Avatar from '@/components/common/Avatar';
 import PresenceIndicator from '@/components/common/PresenceIndicator';
+import { useChatStore } from '@/stores/chatStore';
 
 interface ChatSettingsPanelProps {
   conversationId: string;
@@ -73,6 +74,7 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
   const [customColor, setCustomColor] = useState('#e3f2fd');
   const [reportReason, setReportReason] = useState('');
   const [reportDetails, setReportDetails] = useState('');
+  const { fetchConversations } = useChatStore();
 
   useEffect(() => {
     loadChatInfo();
@@ -115,6 +117,10 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
         ...prev,
         settings: { ...prev.settings, [key]: value },
       }));
+      // Refresh sidebar conversations when favorite/mute/pin changes
+      if (key === 'isFavorite' || key === 'isMuted' || key === 'isPinned') {
+        fetchConversations();
+      }
     } catch (err) {
       console.error('Failed to update setting:', err);
     }

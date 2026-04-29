@@ -262,8 +262,11 @@ export default function MessageComposer({
     setIsUploading(true);
 
     try {
-      // Create a File from the Blob
-      const file = new File([blob], `voice-${Date.now()}.webm`, { type: 'audio/webm' });
+      // Use the blob's actual MIME type and matching extension (iOS Safari records as mp4, others as webm)
+      const isMp4 = blob.type.includes('mp4');
+      const ext = isMp4 ? 'mp4' : 'webm';
+      const mimeType = isMp4 ? 'audio/mp4' : 'audio/webm';
+      const file = new File([blob], `voice-${Date.now()}.${ext}`, { type: mimeType });
       // Upload as a file message (reuse file upload)
       await api.uploadFile(conversationId, file, (progress) => {
         setUploadProgress(progress);
