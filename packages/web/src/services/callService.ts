@@ -132,35 +132,62 @@ class CallService {
 
     // Caller receives acceptance
     socket.on<any>('call:accepted', (data) => {
-      console.log('[Call] call:accepted received');
+      console.log('[Call] call:accepted received, data callId:', data?.callId, 'our callId:', this.state.callId, 'status:', this.state.status);
+      // Ignore stale acceptance from a previous call
+      if (data?.callId && this.state.callId && data.callId !== this.state.callId) {
+        console.log('[Call] Ignoring call:accepted — callId mismatch');
+        return;
+      }
       this.handleCallAccepted(data);
     });
 
-    socket.on<any>('call:rejected', () => {
-      console.log('[Call] call:rejected received, current status:', this.state.status);
-      // Only act on rejection if we're still in 'calling' state.
-      // If we're already 'connected', ignore stale/duplicate rejections.
+    socket.on<any>('call:rejected', (data) => {
+      console.log('[Call] call:rejected received, current status:', this.state.status, 'data callId:', data?.callId, 'our callId:', this.state.callId);
+      // Only act on rejection if we're still in 'calling' state AND the callId matches
       if (this.state.status !== 'calling') {
         console.log('[Call] Ignoring call:rejected — not in calling state');
+        return;
+      }
+      if (data?.callId && this.state.callId && data.callId !== this.state.callId) {
+        console.log('[Call] Ignoring call:rejected — callId mismatch (stale event from previous call)');
         return;
       }
       stopRingtone();
       this.cleanup();
     });
 
-    socket.on<any>('call:ended', () => {
-      console.log('[Call] call:ended received from remote');
+    socket.on<any>('call:ended', (data) => {
+      console.log('[Call] call:ended received from remote, data callId:', data?.callId, 'our callId:', this.state.callId, 'status:', this.state.status);
+      // Ignore stale call:ended events from previous calls
+      if (data?.callId && this.state.callId && data.callId !== this.state.callId) {
+        console.log('[Call] Ignoring call:ended — callId mismatch (stale event)');
+        return;
+      }
+      if (this.state.status === 'idle') {
+        console.log('[Call] Ignoring call:ended — already idle');
+        return;
+      }
       this.cleanup();
     });
 
-    socket.on<any>('call:expired', () => {
-      console.log('[Call] call:expired received');
+    socket.on<any>('call:expired', (data) => {
+      console.log('[Call] call:expired received, data callId:', data?.callId, 'our callId:', this.state.callId);
+      if (data?.callId && this.state.callId && data.callId !== this.state.callId) {
+        console.log('[Call] Ignoring call:expired — callId mismatch');
+        return;
+      }
+      if (this.state.status === 'idle') return;
       stopRingtone();
       this.cleanup();
     });
 
-    socket.on<any>('call:missed', () => {
-      console.log('[Call] call:missed received');
+    socket.on<any>('call:missed', (data) => {
+      console.log('[Call] call:missed received, data callId:', data?.callId, 'our callId:', this.state.callId);
+      if (data?.callId && this.state.callId && data.callId !== this.state.callId) {
+        console.log('[Call] Ignoring call:missed — callId mismatch');
+        return;
+      }
+      if (this.state.status === 'idle') return;
       stopRingtone();
       this.cleanup();
     });
@@ -286,9 +313,15 @@ class CallService {
 
   // Caller initiates
   async initiateCall(conversationId: string, targetUserId: string, targetUserName: string, callType: CallType, targetUserAvatar?: string | null) {
-    if (this.state.status !== 'idle') {
-      console.warn('[Call] Cannot initiate — already in state:', this.state.status);
+    if (this.state.status === 'connected') {
+      console.warn('[Call] Cannot initiate — already in active call');
       return;
+    }
+    // If stuck in a non-idle state from a previous call, force cleanup first
+    if (this.state.status !== 'idle') {
+      console.warn('[Call] Was in state:', this.state.status, '— force cleaning up before new call');
+      this.isCleaningUp = false;
+      this.cleanup();
     }
 
     try {
@@ -505,29 +538,43 @@ class CallService {
 
     this.peerConnection.onconnectionstatechange = () => {
       const state = this.peerConnection?.connectionState;
-      console.log('[Call] Connection state:', state);
+      console.log('[Call] Connection state:', state, '(call status:', this.state.status, ')');
       if (state === 'connected') {
         console.log('[Call] WebRTC connection established successfully!');
       }
       if (state === 'failed') {
-        console.error('[Call] Connection FAILED — TURN server may be unreachable or misconfigured');
-        this.endCall();
+        // ONLY auto-end if we were actually connected (media was flowing).
+        // During 'calling' phase, connection can temporarily fail while ICE gathers
+        // and the callee hasn't even accepted yet — don't kill the call prematurely.
+        if (this.state.status === 'connected') {
+          console.error('[Call] Connection FAILED during active call — ending');
+          this.endCall();
+        } else {
+          console.warn('[Call] Connection state "failed" during', this.state.status, '— NOT auto-ending (callee may not have accepted yet)');
+        }
       }
-      // NOTE: Only auto-end on 'failed'. Do NOT auto-end on 'disconnected' (temporary)
+      // NOTE: Do NOT auto-end on 'disconnected' (temporary ICE reconnect)
       // or 'closed' (triggered by our own cleanup — would cause infinite loop).
     };
   }
 
   private handleIncomingCall(data: any) {
-    // If already in a call, auto-reject as busy
-    if (this.state.status !== 'idle') {
-      console.log('[Call] Already in state', this.state.status, '— auto-rejecting as busy');
+    // If already in a CONNECTED call, auto-reject as busy
+    if (this.state.status === 'connected') {
+      console.log('[Call] Already in active call — auto-rejecting as busy');
       socket.getSocket()?.emit('call:reject', {
         callId: data.callId,
         targetUserId: data.callerId,
         reason: 'busy',
       });
       return;
+    }
+
+    // If in any other non-idle state (e.g. stuck from a previous call), force cleanup first
+    if (this.state.status !== 'idle') {
+      console.log('[Call] Was in state', this.state.status, '— force cleaning up before accepting incoming call');
+      this.isCleaningUp = false;
+      this.cleanup();
     }
 
     playRingtone('incoming');
