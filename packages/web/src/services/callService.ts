@@ -368,18 +368,31 @@ class CallService {
   }
 
   private createPeerConnection() {
+    console.log('[Call] Creating PeerConnection with ICE servers:', JSON.stringify(this.iceServers.map(s => typeof s === 'string' ? s : s.urls)));
     this.peerConnection = new RTCPeerConnection({ iceServers: this.iceServers });
 
     this.peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
+        console.log('[Call] ICE candidate:', event.candidate.type, event.candidate.protocol, event.candidate.address);
         socket.getSocket()?.emit('call:ice-candidate', {
           targetUserId: this.state.remoteUserId,
           candidate: event.candidate,
         });
+      } else {
+        console.log('[Call] ICE gathering complete');
       }
     };
 
+    this.peerConnection.oniceconnectionstatechange = () => {
+      console.log('[Call] ICE connection state:', this.peerConnection?.iceConnectionState);
+    };
+
+    this.peerConnection.onicegatheringstatechange = () => {
+      console.log('[Call] ICE gathering state:', this.peerConnection?.iceGatheringState);
+    };
+
     this.peerConnection.ontrack = (event) => {
+      console.log('[Call] Remote track received:', event.track.kind, event.track.readyState);
       this.remoteStream = event.streams[0];
       // Force re-render
       this.listeners.forEach(l => l(this.state));
@@ -392,6 +405,7 @@ class CallService {
       try {
         const offer = await this.peerConnection!.createOffer();
         await this.peerConnection!.setLocalDescription(offer);
+        console.log('[Call] Sending offer to', this.state.remoteUserId);
         socket.getSocket()?.emit('call:offer', {
           targetUserId: this.state.remoteUserId,
           offer: this.peerConnection!.localDescription,
@@ -403,6 +417,10 @@ class CallService {
 
     this.peerConnection.onconnectionstatechange = () => {
       const state = this.peerConnection?.connectionState;
+      console.log('[Call] Connection state:', state);
+      if (state === 'failed') {
+        console.error('[Call] Connection FAILED — TURN server may be unreachable or misconfigured');
+      }
       if (state === 'disconnected' || state === 'failed' || state === 'closed') {
         this.endCall();
       }

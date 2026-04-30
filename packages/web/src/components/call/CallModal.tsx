@@ -7,21 +7,31 @@ export default function CallModal() {
   const [callState, setCallState] = useState(callService.getState());
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
     return callService.subscribe(setCallState);
   }, []);
 
-  // Attach streams to video elements
+  // Attach streams to video/audio elements
   useEffect(() => {
-    if (localVideoRef.current) {
-      const stream = callService.getLocalStream();
-      if (stream) localVideoRef.current.srcObject = stream;
+    const localStream = callService.getLocalStream();
+    const remoteStream = callService.getRemoteStream();
+
+    if (localVideoRef.current && localStream) {
+      localVideoRef.current.srcObject = localStream;
     }
-    if (remoteVideoRef.current) {
-      const stream = callService.getRemoteStream();
-      if (stream) remoteVideoRef.current.srcObject = stream;
+
+    // For video calls, attach to video element
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream;
+    }
+
+    // For audio calls, attach to audio element
+    if (remoteAudioRef.current && remoteStream) {
+      remoteAudioRef.current.srcObject = remoteStream;
+      remoteAudioRef.current.play().catch(e => console.warn('[Call] Audio autoplay blocked:', e));
     }
   }, [callState]);
 
@@ -112,10 +122,8 @@ export default function CallModal() {
         )}
       </div>
 
-      {/* Audio-only: hidden audio element for remote stream */}
-      {!isVideo && isConnected && (
-        <audio ref={remoteVideoRef as any} autoPlay />
-      )}
+      {/* Hidden audio element for remote stream (always present for audio playback) */}
+      <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
 
       {/* Controls bar */}
       <div className="absolute bottom-0 left-0 right-0 pb-10 pt-6 bg-gradient-to-t from-black/60 to-transparent">
