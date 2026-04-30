@@ -25,7 +25,6 @@ let ringtoneAudio: HTMLAudioElement | null = null;
 function playRingtone(type: 'incoming' | 'outgoing') {
   stopRingtone();
   try {
-    // Use OscillatorNode for reliable ringtone (no external files needed)
     const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
@@ -36,12 +35,10 @@ function playRingtone(type: 'incoming' | 'outgoing') {
     osc.type = 'sine';
     osc.start();
 
-    // Pulse pattern
     const pulseInterval = setInterval(() => {
       gain.gain.value = gain.gain.value > 0 ? 0 : 0.15;
     }, type === 'incoming' ? 500 : 1500);
 
-    // Store cleanup
     (ringtoneAudio as any) = { stop: () => { osc.stop(); audioCtx.close(); clearInterval(pulseInterval); } };
   } catch {}
 }
@@ -59,8 +56,10 @@ class CallService {
   private remoteStream: MediaStream | null = null;
   private listeners: Set<CallStateListener> = new Set();
   private pendingOffer: RTCSessionDescriptionInit | null = null;
+  private pendingCandidates: RTCIceCandidateInit[] = []; // Buffer ICE candidates until peer connection + remote desc ready
   private isCaller: boolean = false;
-  private _remoteUserId: string = ''; // Direct class property for reliable access in WebRTC handlers
+  private isCleaningUp: boolean = false; // Prevent re-entrant cleanup from connection state events
+  private _remoteUserId: string = '';
 
   private state: CallState = {
     status: 'idle',
@@ -96,6 +95,7 @@ class CallService {
       if (response?.iceServers) {
         this.iceServers = response.iceServers;
         this.iceServersFetchedAt = Date.now();
+        console.log('[Call] TURN credentials fetched:', this.iceServers.length, 'servers');
       }
     } catch (e) {
       console.warn('[Call] Failed to fetch TURN credentials, using STUN only:', e);
@@ -105,45 +105,53 @@ class CallService {
   private setupSocketListeners() {
     // Caller receives confirmation with callId
     socket.on<any>('call:initiated', (data) => {
+      console.log('[Call] call:initiated received, callId:', data.callId);
       this.updateState({ callId: data.callId });
     });
 
     // Callee receives incoming call
     socket.on<any>('call:incoming', (data) => {
+      console.log('[Call] call:incoming received from', data.callerName, '(', data.callerId, ')');
       this.handleIncomingCall(data);
     });
 
     // Caller receives acceptance
     socket.on<any>('call:accepted', (data) => {
+      console.log('[Call] call:accepted received');
       this.handleCallAccepted(data);
     });
 
     socket.on<any>('call:rejected', () => {
+      console.log('[Call] call:rejected received');
       stopRingtone();
       this.cleanup();
     });
 
     socket.on<any>('call:ended', () => {
+      console.log('[Call] call:ended received from remote');
       this.cleanup();
     });
 
     socket.on<any>('call:expired', () => {
+      console.log('[Call] call:expired received');
       stopRingtone();
       this.cleanup();
     });
 
     socket.on<any>('call:missed', () => {
+      console.log('[Call] call:missed received');
       stopRingtone();
       this.cleanup();
     });
 
-    // WebRTC SDP offer from caller
+    // WebRTC SDP offer from caller (fallback path — usually offer comes with call:incoming)
     socket.on<any>('call:offer', async (data) => {
-      console.log('[Call] Received offer from', data.senderId, 'peerConnection:', !!this.peerConnection);
+      console.log('[Call] Received separate offer from', data.senderId, 'peerConnection:', !!this.peerConnection);
       if (this.peerConnection && data.offer) {
         try {
           await this.peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-          console.log('[Call] Remote description set (offer), creating answer...');
+          console.log('[Call] Remote description set (offer), processing buffered candidates...');
+          await this.processPendingCandidates();
           const answer = await this.peerConnection.createAnswer();
           await this.peerConnection.setLocalDescription(answer);
           console.log('[Call] Sending answer to', data.senderId);
@@ -166,21 +174,29 @@ class CallService {
       if (this.peerConnection && data.answer) {
         try {
           await this.peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-          console.log('[Call] Remote description set (answer)');
+          console.log('[Call] Remote description set (answer), processing buffered candidates...');
+          await this.processPendingCandidates();
         } catch (e) {
           console.error('[Call] Failed to handle answer:', e);
         }
       }
     });
 
-    // ICE candidates
+    // ICE candidates — BUFFER if peer connection or remote description not ready yet
     socket.on<any>('call:ice-candidate', async (data) => {
-      if (data.candidate && this.peerConnection) {
+      if (!data.candidate) return;
+
+      // Can only add ICE candidates after remote description is set
+      if (this.peerConnection && this.peerConnection.remoteDescription) {
         try {
           await this.peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
         } catch (e) {
           console.error('[Call] Failed to add ICE candidate:', e);
         }
+      } else {
+        // Buffer — will be processed after setRemoteDescription
+        console.log('[Call] Buffering ICE candidate (pc:', !!this.peerConnection, 'remoteDesc:', !!this.peerConnection?.remoteDescription, ')');
+        this.pendingCandidates.push(data.candidate);
       }
     });
 
@@ -203,6 +219,25 @@ class CallService {
         console.error('[Call] Signal error:', e);
       }
     });
+  }
+
+  // Process buffered ICE candidates after remote description is set
+  private async processPendingCandidates() {
+    if (!this.peerConnection || !this.peerConnection.remoteDescription) return;
+
+    const candidates = [...this.pendingCandidates];
+    this.pendingCandidates = [];
+
+    if (candidates.length > 0) {
+      console.log(`[Call] Processing ${candidates.length} buffered ICE candidates`);
+    }
+    for (const candidate of candidates) {
+      try {
+        await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (e) {
+        console.error('[Call] Failed to add buffered ICE candidate:', e);
+      }
+    }
   }
 
   subscribe(listener: CallStateListener): () => void {
@@ -230,11 +265,16 @@ class CallService {
 
   // Caller initiates
   async initiateCall(conversationId: string, targetUserId: string, targetUserName: string, callType: CallType, targetUserAvatar?: string | null) {
-    if (this.state.status !== 'idle') return; // Already in a call
+    if (this.state.status !== 'idle') {
+      console.warn('[Call] Cannot initiate — already in state:', this.state.status);
+      return;
+    }
 
     try {
       this.isCaller = true;
       this._remoteUserId = targetUserId;
+      this.isCleaningUp = false;
+      this.pendingCandidates = [];
 
       this.updateState({
         status: 'calling',
@@ -255,6 +295,7 @@ class CallService {
         audio: true,
         video: callType === 'video',
       });
+      console.log('[Call] Local media acquired:', this.localStream.getTracks().map(t => `${t.kind}:${t.readyState}`).join(', '));
 
       // Create peer connection
       this.createPeerConnection();
@@ -289,6 +330,7 @@ class CallService {
 
     try {
       const { remoteUserId, callType, callId } = this.state;
+      this.isCleaningUp = false;
 
       stopRingtone();
 
@@ -300,6 +342,7 @@ class CallService {
         audio: true,
         video: callType === 'video',
       });
+      console.log('[Call] Local media acquired:', this.localStream.getTracks().map(t => `${t.kind}:${t.readyState}`).join(', '));
 
       // Create peer connection
       this.createPeerConnection();
@@ -319,6 +362,11 @@ class CallService {
       if (this.pendingOffer) {
         console.log('[Call] Processing pending SDP offer from caller');
         await this.peerConnection!.setRemoteDescription(new RTCSessionDescription(this.pendingOffer));
+        this.pendingOffer = null;
+
+        // CRITICAL: Process buffered ICE candidates NOW that remote description is set
+        await this.processPendingCandidates();
+
         const answer = await this.peerConnection!.createAnswer();
         await this.peerConnection!.setLocalDescription(answer);
         console.log('[Call] Sending SDP answer to', remoteUserId);
@@ -326,7 +374,6 @@ class CallService {
           targetUserId: remoteUserId,
           answer: this.peerConnection!.localDescription,
         });
-        this.pendingOffer = null;
       } else {
         console.log('[Call] No pending offer yet, waiting for call:offer event');
       }
@@ -352,6 +399,7 @@ class CallService {
 
   // Either party ends
   endCall() {
+    if (this.isCleaningUp) return; // Prevent double endCall from connection state events
     const { remoteUserId, callId } = this.state;
     stopRingtone();
     if (remoteUserId) {
@@ -389,7 +437,7 @@ class CallService {
 
     this.peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
-        console.log('[Call] ICE candidate:', event.candidate.type, event.candidate.protocol, event.candidate.address);
+        console.log('[Call] Sending ICE candidate:', event.candidate.type, event.candidate.protocol);
         socket.getSocket()?.emit('call:ice-candidate', {
           targetUserId: this._remoteUserId,
           candidate: event.candidate,
@@ -400,7 +448,11 @@ class CallService {
     };
 
     this.peerConnection.oniceconnectionstatechange = () => {
-      console.log('[Call] ICE connection state:', this.peerConnection?.iceConnectionState);
+      const state = this.peerConnection?.iceConnectionState;
+      console.log('[Call] ICE connection state:', state);
+      if (state === 'connected' || state === 'completed') {
+        console.log('[Call] ICE connected! Audio/video should be flowing.');
+      }
     };
 
     this.peerConnection.onicegatheringstatechange = () => {
@@ -413,7 +465,6 @@ class CallService {
         this.remoteStream = event.streams[0];
         console.log('[Call] Remote stream set, tracks:', this.remoteStream.getTracks().map(t => `${t.kind}:${t.readyState}`).join(', '));
       } else {
-        // Some browsers deliver tracks without streams — create one
         if (!this.remoteStream) {
           this.remoteStream = new MediaStream();
         }
@@ -426,26 +477,28 @@ class CallService {
     };
 
     this.peerConnection.onnegotiationneeded = async () => {
-      // Offer is now created explicitly in initiateCall() — no automatic offer here
-      // This prevents duplicate offers and race conditions
       console.log('[Call] negotiationneeded fired (isCaller:', this.isCaller, ')');
     };
 
     this.peerConnection.onconnectionstatechange = () => {
       const state = this.peerConnection?.connectionState;
       console.log('[Call] Connection state:', state);
+      if (state === 'connected') {
+        console.log('[Call] WebRTC connection established successfully!');
+      }
       if (state === 'failed') {
         console.error('[Call] Connection FAILED — TURN server may be unreachable or misconfigured');
-      }
-      if (state === 'disconnected' || state === 'failed' || state === 'closed') {
         this.endCall();
       }
+      // NOTE: Only auto-end on 'failed'. Do NOT auto-end on 'disconnected' (temporary)
+      // or 'closed' (triggered by our own cleanup — would cause infinite loop).
     };
   }
 
   private handleIncomingCall(data: any) {
     // If already in a call, auto-reject as busy
     if (this.state.status !== 'idle') {
+      console.log('[Call] Already in state', this.state.status, '— auto-rejecting as busy');
       socket.getSocket()?.emit('call:reject', {
         callId: data.callId,
         targetUserId: data.callerId,
@@ -455,7 +508,10 @@ class CallService {
     }
 
     playRingtone('incoming');
+    this.isCaller = false;
     this._remoteUserId = data.callerId;
+    this.isCleaningUp = false;
+    this.pendingCandidates = []; // Clear stale candidates from previous calls
 
     // Store the offer if it came with the incoming call (new flow)
     if (data.offer) {
@@ -482,15 +538,41 @@ class CallService {
   }
 
   private cleanup() {
+    if (this.isCleaningUp) {
+      console.log('[Call] cleanup() already in progress, skipping');
+      return;
+    }
+    this.isCleaningUp = true;
+    console.log('[Call] Cleaning up call state');
+
     stopRingtone();
     this.isCaller = false;
     this._remoteUserId = '';
     this.pendingOffer = null;
-    this.localStream?.getTracks().forEach(t => t.stop());
-    this.localStream = null;
+    this.pendingCandidates = [];
+
+    if (this.localStream) {
+      this.localStream.getTracks().forEach(t => t.stop());
+      this.localStream = null;
+    }
     this.remoteStream = null;
-    this.peerConnection?.close();
-    this.peerConnection = null;
+
+    if (this.peerConnection) {
+      // Remove all event handlers BEFORE closing to prevent re-entrant calls
+      this.peerConnection.onicecandidate = null;
+      this.peerConnection.ontrack = null;
+      this.peerConnection.onconnectionstatechange = null;
+      this.peerConnection.oniceconnectionstatechange = null;
+      this.peerConnection.onicegatheringstatechange = null;
+      this.peerConnection.onnegotiationneeded = null;
+      try {
+        this.peerConnection.close();
+      } catch (e) {
+        // Ignore close errors
+      }
+      this.peerConnection = null;
+    }
+
     this.updateState({
       status: 'idle',
       callId: '',
