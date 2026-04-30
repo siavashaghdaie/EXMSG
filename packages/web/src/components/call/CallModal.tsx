@@ -19,19 +19,26 @@ export default function CallModal() {
     const localStream = callService.getLocalStream();
     const remoteStream = callService.getRemoteStream();
 
+    console.log('[CallModal] Stream attach effect — local:', !!localStream, 'remote:', !!remoteStream,
+      'remoteAudioRef:', !!remoteAudioRef.current, 'remoteVideoRef:', !!remoteVideoRef.current);
+
     if (localVideoRef.current && localStream) {
       localVideoRef.current.srcObject = localStream;
     }
 
-    // For video calls, attach to video element
-    if (remoteVideoRef.current && remoteStream) {
-      remoteVideoRef.current.srcObject = remoteStream;
-    }
+    if (remoteStream) {
+      console.log('[CallModal] Remote stream tracks:', remoteStream.getTracks().map(t => `${t.kind}:${t.readyState}:enabled=${t.enabled}`).join(', '));
 
-    // For audio calls, attach to audio element
-    if (remoteAudioRef.current && remoteStream) {
-      remoteAudioRef.current.srcObject = remoteStream;
-      remoteAudioRef.current.play().catch(e => console.warn('[Call] Audio autoplay blocked:', e));
+      // Always attach to audio element for playback
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.srcObject = remoteStream;
+        remoteAudioRef.current.play().catch(e => console.warn('[Call] Audio autoplay blocked:', e));
+      }
+
+      // For video calls, also attach to video element
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = remoteStream;
+      }
     }
   }, [callState]);
 

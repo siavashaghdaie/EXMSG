@@ -61,6 +61,7 @@ class CallService {
   private pendingOffer: RTCSessionDescriptionInit | null = null;
   private isCaller: boolean = false;
   private callerReadyToOffer: boolean = false;
+  private _remoteUserId: string = ''; // Direct class property for reliable access in WebRTC handlers
 
   private state: CallState = {
     status: 'idle',
@@ -139,11 +140,14 @@ class CallService {
 
     // WebRTC SDP offer from caller
     socket.on<any>('call:offer', async (data) => {
+      console.log('[Call] Received offer from', data.senderId, 'peerConnection:', !!this.peerConnection);
       if (this.peerConnection && data.offer) {
         try {
           await this.peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
+          console.log('[Call] Remote description set (offer), creating answer...');
           const answer = await this.peerConnection.createAnswer();
           await this.peerConnection.setLocalDescription(answer);
+          console.log('[Call] Sending answer to', data.senderId);
           socket.getSocket()?.emit('call:answer', {
             targetUserId: data.senderId,
             answer: this.peerConnection.localDescription,
@@ -152,16 +156,18 @@ class CallService {
           console.error('[Call] Failed to handle offer:', e);
         }
       } else {
-        // Store offer for when we accept
+        console.log('[Call] No peer connection yet, storing pending offer');
         this.pendingOffer = data.offer;
       }
     });
 
     // WebRTC SDP answer from callee
     socket.on<any>('call:answer', async (data) => {
+      console.log('[Call] Received answer from', data.senderId, 'peerConnection:', !!this.peerConnection);
       if (this.peerConnection && data.answer) {
         try {
           await this.peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+          console.log('[Call] Remote description set (answer)');
         } catch (e) {
           console.error('[Call] Failed to handle answer:', e);
         }
@@ -229,6 +235,7 @@ class CallService {
 
     try {
       this.isCaller = true;
+      this._remoteUserId = targetUserId;
 
       this.updateState({
         status: 'calling',
@@ -375,7 +382,7 @@ class CallService {
       if (event.candidate) {
         console.log('[Call] ICE candidate:', event.candidate.type, event.candidate.protocol, event.candidate.address);
         socket.getSocket()?.emit('call:ice-candidate', {
-          targetUserId: this.state.remoteUserId,
+          targetUserId: this._remoteUserId,
           candidate: event.candidate,
         });
       } else {
@@ -393,9 +400,20 @@ class CallService {
 
     this.peerConnection.ontrack = (event) => {
       console.log('[Call] Remote track received:', event.track.kind, event.track.readyState);
-      this.remoteStream = event.streams[0];
-      // Force re-render
-      this.listeners.forEach(l => l(this.state));
+      if (event.streams && event.streams[0]) {
+        this.remoteStream = event.streams[0];
+        console.log('[Call] Remote stream set, tracks:', this.remoteStream.getTracks().map(t => `${t.kind}:${t.readyState}`).join(', '));
+      } else {
+        // Some browsers deliver tracks without streams — create one
+        if (!this.remoteStream) {
+          this.remoteStream = new MediaStream();
+        }
+        this.remoteStream.addTrack(event.track);
+        console.log('[Call] Added track to manual remote stream:', event.track.kind);
+      }
+      // CRITICAL: must call updateState to create a NEW state object reference
+      // so React's useState triggers a re-render and the stream attachment useEffect runs
+      this.updateState({});
     };
 
     this.peerConnection.onnegotiationneeded = async () => {
@@ -405,9 +423,9 @@ class CallService {
       try {
         const offer = await this.peerConnection!.createOffer();
         await this.peerConnection!.setLocalDescription(offer);
-        console.log('[Call] Sending offer to', this.state.remoteUserId);
+        console.log('[Call] Sending offer to', this._remoteUserId);
         socket.getSocket()?.emit('call:offer', {
-          targetUserId: this.state.remoteUserId,
+          targetUserId: this._remoteUserId,
           offer: this.peerConnection!.localDescription,
         });
       } catch (e) {
@@ -439,6 +457,7 @@ class CallService {
     }
 
     playRingtone('incoming');
+    this._remoteUserId = data.callerId;
 
     this.updateState({
       status: 'ringing',
@@ -452,24 +471,26 @@ class CallService {
   }
 
   private async handleCallAccepted(_data: any) {
+    console.log('[Call] Call accepted by remote user, creating offer...');
     stopRingtone();
     this.updateState({ status: 'connected', startTime: Date.now() });
 
     // The callee accepted — NOW we can send the SDP offer
-    // onnegotiationneeded already fired (when we added tracks) but was suppressed.
-    // Manually create and send the offer now.
     this.callerReadyToOffer = true;
     if (this.peerConnection) {
       try {
         const offer = await this.peerConnection.createOffer();
         await this.peerConnection.setLocalDescription(offer);
+        console.log('[Call] Offer created, sending to', this._remoteUserId);
         socket.getSocket()?.emit('call:offer', {
-          targetUserId: this.state.remoteUserId,
+          targetUserId: this._remoteUserId,
           offer: this.peerConnection.localDescription,
         });
       } catch (e) {
         console.error('[Call] Failed to create offer after acceptance:', e);
       }
+    } else {
+      console.error('[Call] No peer connection when call accepted!');
     }
   }
 
@@ -477,6 +498,7 @@ class CallService {
     stopRingtone();
     this.isCaller = false;
     this.callerReadyToOffer = false;
+    this._remoteUserId = '';
     this.pendingOffer = null;
     this.localStream?.getTracks().forEach(t => t.stop());
     this.localStream = null;
