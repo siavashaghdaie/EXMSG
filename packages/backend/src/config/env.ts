@@ -60,6 +60,10 @@ export const env = {
   S3_SECRET_KEY: process.env.S3_SECRET_KEY || '',
   S3_BUCKET: process.env.S3_BUCKET || 'em-uploads',
   S3_REGION: process.env.S3_REGION || 'us-east-1',
+
+  // TURN Server (Coturn) — for WebRTC call relay
+  TURN_SERVER: process.env.TURN_SERVER || '',       // e.g. turn.yourdomain.com
+  TURN_SECRET: process.env.TURN_SECRET || '',       // shared secret for HMAC credentials
 } as const;
 
 // Validate required vars in production

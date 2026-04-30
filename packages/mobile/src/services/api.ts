@@ -1496,6 +1496,11 @@ class APIClient {
 
   // ─── Calls ──────────────────────────────────────────────────────────────────
 
+  async getTurnCredentials(): Promise<any> {
+    const res = await this.client.get('/calls/turn-credentials');
+    return res.data;
+  }
+
   async getCallHistory(page = 1, limit = 30): Promise<any> {
     const res = await this.client.get('/calls', { params: { page, limit } });
     return res.data;

@@ -117,27 +117,52 @@ export default function ChatView() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Mobile keyboard: scroll to bottom when virtual keyboard opens/closes
-  // The visualViewport API fires a resize event when the software keyboard appears.
+  // iOS Safari fix: use position:fixed + visualViewport to prevent the browser
+  // from scrolling the page when the keyboard opens (which pushes the header off-screen).
+  // We track the visual viewport height and offset, then apply them as inline styles
+  // on the outer container so it always matches exactly the visible screen area.
+  const [viewportStyle, setViewportStyle] = useState<React.CSSProperties>({});
+
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
 
-    let prevHeight = vv.height;
+    // Only apply the fixed-position hack on mobile
+    const isMobileDevice = window.innerWidth < 768;
+    if (!isMobileDevice) return;
+
     const onViewportResize = () => {
-      const currentHeight = vv.height;
-      // Keyboard opened (viewport shrank) or closed (viewport grew)
-      if (currentHeight !== prevHeight) {
-        prevHeight = currentHeight;
-        // Small delay to let the browser finish layout
-        requestAnimationFrame(() => {
-          scrollToBottom();
-        });
-      }
+      setViewportStyle({
+        position: 'fixed',
+        top: vv.offsetTop,
+        left: 0,
+        right: 0,
+        height: vv.height,
+        // Prevent any overflow that iOS could scroll
+        overflow: 'hidden',
+      });
+
+      requestAnimationFrame(() => {
+        scrollToBottom();
+      });
     };
 
+    // Set initial fixed style
+    setViewportStyle({
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      height: vv.height,
+      overflow: 'hidden',
+    });
+
     vv.addEventListener('resize', onViewportResize);
-    return () => vv.removeEventListener('resize', onViewportResize);
+    vv.addEventListener('scroll', onViewportResize);
+    return () => {
+      vv.removeEventListener('resize', onViewportResize);
+      vv.removeEventListener('scroll', onViewportResize);
+    };
   }, [scrollToBottom]);
 
   // Set active conversation and fetch messages when conversation changes
@@ -312,7 +337,7 @@ export default function ChatView() {
   });
 
   return (
-    <div className={`flex h-[100dvh] md:h-full bg-white dark:bg-surface-900 overflow-hidden w-full max-w-full ${activeBuzz ? 'animate-buzz-shake' : ''}`} style={{ overscrollBehavior: 'none' }}>
+    <div className={`flex ${!viewportStyle.position ? 'h-[100dvh]' : ''} md:h-full bg-white dark:bg-surface-900 overflow-hidden w-full max-w-full ${activeBuzz ? 'animate-buzz-shake' : ''}`} style={{ overscrollBehavior: 'none', ...viewportStyle }}>
       <div className="flex flex-col h-full flex-1 min-w-0 overflow-hidden relative">
       {/* Header — flex-shrink-0 keeps it pinned when keyboard opens */}
       <div className="border-b border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex-shrink-0 z-10">

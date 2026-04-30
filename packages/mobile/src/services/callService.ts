@@ -6,6 +6,7 @@ import {
   MediaStream,
 } from 'react-native-webrtc';
 import { socket } from './socket';
+import { api } from './api';
 
 export type CallType = 'audio' | 'video';
 export type CallStatus = 'idle' | 'calling' | 'ringing' | 'connected' | 'ended';
@@ -51,28 +52,31 @@ class CallService {
 
   private callerReadyToOffer: boolean = false;
 
+  // ICE servers fetched from backend (short-lived TURN credentials)
   private iceServers: RTCIceServer[] = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    // Free TURN relay for NAT traversal in production
-    {
-      urls: [
-        'turn:openrelay.metered.ca:80',
-        'turn:openrelay.metered.ca:443',
-        'turn:openrelay.metered.ca:443?transport=tcp',
-      ],
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turn:relay1.expressturn.com:3478',
-      username: 'efQ3OIYQZ0DLJIPMAW',
-      credential: 'c0Q0NhJENDSoTcJN',
-    },
   ];
+  private iceServersFetchedAt: number = 0;
 
   constructor() {
     this.setupSocketListeners();
+  }
+
+  // Fetch fresh TURN credentials from backend (cached for 1 hour)
+  private async fetchIceServers(): Promise<void> {
+    const ONE_HOUR = 3600000;
+    if (Date.now() - this.iceServersFetchedAt < ONE_HOUR) return;
+
+    try {
+      const response = await (api as any).client.get('/calls/turn-credentials');
+      if (response.data?.iceServers) {
+        this.iceServers = response.data.iceServers;
+        this.iceServersFetchedAt = Date.now();
+      }
+    } catch (e) {
+      console.warn('[Call] Failed to fetch TURN credentials, using STUN only:', e);
+    }
   }
 
   private setupSocketListeners() {
@@ -225,6 +229,9 @@ class CallService {
         remoteUserAvatar: targetUserAvatar || null,
       });
 
+      // Fetch fresh TURN credentials before starting the call
+      await this.fetchIceServers();
+
       // Get local media
       this.localStream = await mediaDevices.getUserMedia({
         audio: true,
@@ -259,6 +266,9 @@ class CallService {
 
     try {
       const { remoteUserId, callType, callId } = this.state;
+
+      // Fetch fresh TURN credentials
+      await this.fetchIceServers();
 
       // Get local media
       this.localStream = await mediaDevices.getUserMedia({

@@ -239,6 +239,18 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
     // Initiate a call — creates a Call record and rings the target
     socket.on('call:initiate', async (data: { conversationId: string; targetUserId: string; callType: 'audio' | 'video' }) => {
       try {
+        // Org-scoping: verify caller and target are in the same organization
+        if (orgId) {
+          const targetMembership = await prisma.organizationMember.findFirst({
+            where: { userId: data.targetUserId, organizationId: orgId },
+            select: { id: true },
+          });
+          if (!targetMembership) {
+            socket.emit('call:error', { message: 'Cannot call users outside your organization' });
+            return;
+          }
+        }
+
         // Check if target user is online
         const targetUser = await prisma.user.findUnique({
           where: { id: data.targetUserId },
