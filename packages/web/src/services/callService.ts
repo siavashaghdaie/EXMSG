@@ -103,6 +103,21 @@ class CallService {
   }
 
   private setupSocketListeners() {
+    const s = socket;
+
+    // Remove any previous listeners to prevent duplicate events on reconnect
+    s.off('call:initiated');
+    s.off('call:incoming');
+    s.off('call:accepted');
+    s.off('call:rejected');
+    s.off('call:ended');
+    s.off('call:expired');
+    s.off('call:missed');
+    s.off('call:offer');
+    s.off('call:answer');
+    s.off('call:ice-candidate');
+    s.off('call:signal');
+
     // Caller receives confirmation with callId
     socket.on<any>('call:initiated', (data) => {
       console.log('[Call] call:initiated received, callId:', data.callId);
@@ -122,7 +137,13 @@ class CallService {
     });
 
     socket.on<any>('call:rejected', () => {
-      console.log('[Call] call:rejected received');
+      console.log('[Call] call:rejected received, current status:', this.state.status);
+      // Only act on rejection if we're still in 'calling' state.
+      // If we're already 'connected', ignore stale/duplicate rejections.
+      if (this.state.status !== 'calling') {
+        console.log('[Call] Ignoring call:rejected — not in calling state');
+        return;
+      }
       stopRingtone();
       this.cleanup();
     });
@@ -399,7 +420,9 @@ class CallService {
 
   // Either party ends
   endCall() {
-    if (this.isCleaningUp) return; // Prevent double endCall from connection state events
+    console.log('[Call] endCall() called, status:', this.state.status, 'isCleaningUp:', this.isCleaningUp);
+    // Reset isCleaningUp so cleanup() can run — user explicitly wants to end the call
+    this.isCleaningUp = false;
     const { remoteUserId, callId } = this.state;
     stopRingtone();
     if (remoteUserId) {
@@ -531,9 +554,22 @@ class CallService {
   }
 
   private async handleCallAccepted(_data: any) {
-    console.log('[Call] Call accepted by remote user');
+    console.log('[Call] Call accepted by remote user, peerConnection:', !!this.peerConnection, 'status:', this.state.status);
     stopRingtone();
-    this.updateState({ status: 'connected', startTime: Date.now() });
+
+    // If peerConnection was destroyed (e.g. by a stale rejection), we can't proceed
+    if (!this.peerConnection) {
+      console.error('[Call] call:accepted received but peerConnection is null — cannot establish call');
+      this.cleanup();
+      return;
+    }
+
+    // Only transition to connected if we're still in a valid pre-connected state
+    if (this.state.status === 'calling' || this.state.status === 'ringing') {
+      this.updateState({ status: 'connected', startTime: Date.now() });
+    } else {
+      console.log('[Call] Ignoring call:accepted — already in state:', this.state.status);
+    }
     // Offer was already sent with call:initiate — callee will respond with answer directly
   }
 
@@ -584,6 +620,9 @@ class CallService {
       isVideoOff: false,
       startTime: null,
     });
+
+    // CRITICAL: Reset isCleaningUp AFTER everything is done so future calls/endCall work
+    this.isCleaningUp = false;
   }
 }
 
