@@ -300,6 +300,9 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
         };
 
         // Send to the target user's personal room
+        const callerRoom = io.sockets.adapter.rooms.get(`user:${userId}`);
+        const targetRoom = io.sockets.adapter.rooms.get(`user:${data.targetUserId}`);
+        console.log(`[Call] Initiate: caller=${userId} (room size: ${callerRoom?.size ?? 0}), target=${data.targetUserId} (room size: ${targetRoom?.size ?? 0}), callType=${data.callType}`);
         io.to(`user:${data.targetUserId}`).emit('call:incoming', callData);
 
         // Also confirm to the caller with the callId
@@ -341,23 +344,28 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
 
     // Accept a call
     socket.on('call:accept', async (data: { callId: string; targetUserId: string }) => {
+      console.log(`[Call] call:accept received from ${userId} (${socket.username}), callId=${data.callId}, targetUserId=${data.targetUserId}`);
       try {
         await (prisma as any).call.update({
           where: { id: data.callId },
           data: { status: 'ACTIVE', startedAt: new Date() },
         });
+        console.log(`[Call] DB updated to ACTIVE for callId=${data.callId}`);
 
         const accepter = await prisma.user.findUnique({
           where: { id: userId },
           select: { displayName: true, username: true, avatarUrl: true },
         });
 
+        const targetRoom = io.sockets.adapter.rooms.get(`user:${data.targetUserId}`);
+        console.log(`[Call] Emitting call:accepted to user:${data.targetUserId} (room size: ${targetRoom?.size ?? 0}, sockets: ${targetRoom ? [...targetRoom].join(',') : 'none'})`);
         io.to(`user:${data.targetUserId}`).emit('call:accepted', {
           callId: data.callId,
           accepterId: userId,
           accepterName: accepter?.displayName || accepter?.username || socket.username,
           accepterAvatar: accepter?.avatarUrl || null,
         });
+        console.log(`[Call] call:accepted emitted successfully`);
       } catch (err) {
         console.error('[Call] Accept error:', err);
       }
@@ -424,6 +432,7 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
 
     // ICE candidate exchange
     socket.on('call:ice-candidate', (data: { targetUserId: string; candidate: any }) => {
+      console.log(`[Call] Relaying ICE candidate from ${userId} to user:${data.targetUserId}`);
       io.to(`user:${data.targetUserId}`).emit('call:ice-candidate', {
         senderId: userId,
         candidate: data.candidate,
@@ -432,6 +441,7 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
 
     // WebRTC offer (SDP)
     socket.on('call:offer', (data: { targetUserId: string; offer: any }) => {
+      console.log(`[Call] Relaying offer from ${userId} to user:${data.targetUserId}, offer type: ${data.offer?.type}`);
       io.to(`user:${data.targetUserId}`).emit('call:offer', {
         senderId: userId,
         offer: data.offer,
@@ -440,6 +450,7 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
 
     // WebRTC answer (SDP)
     socket.on('call:answer', (data: { targetUserId: string; answer: any }) => {
+      console.log(`[Call] Relaying answer from ${userId} to user:${data.targetUserId}, answer type: ${data.answer?.type}`);
       io.to(`user:${data.targetUserId}`).emit('call:answer', {
         senderId: userId,
         answer: data.answer,
