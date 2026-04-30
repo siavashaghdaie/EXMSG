@@ -20,24 +20,35 @@ export default function CallModal() {
     const remoteStream = callService.getRemoteStream();
 
     console.log('[CallModal] Stream attach effect — local:', !!localStream, 'remote:', !!remoteStream,
-      'remoteAudioRef:', !!remoteAudioRef.current, 'remoteVideoRef:', !!remoteVideoRef.current);
+      'status:', callState.status, 'remoteAudioRef:', !!remoteAudioRef.current, 'remoteVideoRef:', !!remoteVideoRef.current);
 
     if (localVideoRef.current && localStream) {
       localVideoRef.current.srcObject = localStream;
     }
 
     if (remoteStream) {
-      console.log('[CallModal] Remote stream tracks:', remoteStream.getTracks().map(t => `${t.kind}:${t.readyState}:enabled=${t.enabled}`).join(', '));
+      const tracks = remoteStream.getTracks();
+      console.log('[CallModal] Remote stream tracks:', tracks.map(t => `${t.kind}:${t.readyState}:enabled=${t.enabled}`).join(', '));
 
       // Always attach to audio element for playback
       if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = remoteStream;
-        remoteAudioRef.current.play().catch(e => console.warn('[Call] Audio autoplay blocked:', e));
+        if (remoteAudioRef.current.srcObject !== remoteStream) {
+          remoteAudioRef.current.srcObject = remoteStream;
+        }
+        // Force play — retry on failure
+        const playPromise = remoteAudioRef.current.play();
+        if (playPromise) {
+          playPromise.catch(e => {
+            console.warn('[CallModal] Audio autoplay blocked:', e, '— will retry on user interaction');
+          });
+        }
       }
 
       // For video calls, also attach to video element
       if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = remoteStream;
+        if (remoteVideoRef.current.srcObject !== remoteStream) {
+          remoteVideoRef.current.srcObject = remoteStream;
+        }
       }
     }
   }, [callState]);

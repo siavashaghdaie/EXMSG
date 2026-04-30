@@ -120,8 +120,11 @@ class CallService {
 
     // Caller receives confirmation with callId
     socket.on<any>('call:initiated', (data) => {
-      console.log('[Call] call:initiated received, callId:', data.callId);
-      this.updateState({ callId: data.callId });
+      console.log('[Call] call:initiated received, callId:', data.callId, 'status:', this.state.status);
+      // Only accept if we're actually in a calling state
+      if (this.state.status === 'calling') {
+        this.updateState({ callId: data.callId });
+      }
     });
 
     // Callee receives incoming call
@@ -133,9 +136,24 @@ class CallService {
     // Caller receives acceptance
     socket.on<any>('call:accepted', (data) => {
       console.log('[Call] call:accepted received, data callId:', data?.callId, 'our callId:', this.state.callId, 'status:', this.state.status);
-      // Ignore stale acceptance from a previous call
+      // If we're in 'calling' state, this is almost certainly for our current call
+      // even if callId doesn't match yet (call:initiated may not have arrived yet)
+      if (this.state.status === 'calling') {
+        // Accept it — update our callId if we didn't have one yet
+        if (data?.callId && !this.state.callId) {
+          console.log('[Call] Setting callId from call:accepted (call:initiated not yet received):', data.callId);
+          this.updateState({ callId: data.callId });
+        }
+        this.handleCallAccepted(data);
+        return;
+      }
+      // For any other state, use strict callId matching
       if (data?.callId && this.state.callId && data.callId !== this.state.callId) {
-        console.log('[Call] Ignoring call:accepted — callId mismatch');
+        console.log('[Call] Ignoring call:accepted — callId mismatch (ours:', this.state.callId, 'theirs:', data.callId, ')');
+        return;
+      }
+      if (this.state.status === 'idle') {
+        console.log('[Call] Ignoring call:accepted — already idle');
         return;
       }
       this.handleCallAccepted(data);
@@ -148,8 +166,8 @@ class CallService {
         console.log('[Call] Ignoring call:rejected — not in calling state');
         return;
       }
-      if (data?.callId && this.state.callId && data.callId !== this.state.callId) {
-        console.log('[Call] Ignoring call:rejected — callId mismatch (stale event from previous call)');
+      if (data?.callId && data.callId !== this.state.callId) {
+        console.log('[Call] Ignoring call:rejected — callId mismatch (ours:', this.state.callId, 'theirs:', data.callId, ')');
         return;
       }
       stopRingtone();
@@ -159,8 +177,8 @@ class CallService {
     socket.on<any>('call:ended', (data) => {
       console.log('[Call] call:ended received from remote, data callId:', data?.callId, 'our callId:', this.state.callId, 'status:', this.state.status);
       // Ignore stale call:ended events from previous calls
-      if (data?.callId && this.state.callId && data.callId !== this.state.callId) {
-        console.log('[Call] Ignoring call:ended — callId mismatch (stale event)');
+      if (data?.callId && data.callId !== this.state.callId) {
+        console.log('[Call] Ignoring call:ended — callId mismatch (ours:', this.state.callId, 'theirs:', data.callId, ')');
         return;
       }
       if (this.state.status === 'idle') {
@@ -172,8 +190,8 @@ class CallService {
 
     socket.on<any>('call:expired', (data) => {
       console.log('[Call] call:expired received, data callId:', data?.callId, 'our callId:', this.state.callId);
-      if (data?.callId && this.state.callId && data.callId !== this.state.callId) {
-        console.log('[Call] Ignoring call:expired — callId mismatch');
+      if (data?.callId && data.callId !== this.state.callId) {
+        console.log('[Call] Ignoring call:expired — callId mismatch (ours:', this.state.callId, 'theirs:', data.callId, ')');
         return;
       }
       if (this.state.status === 'idle') return;
@@ -183,8 +201,8 @@ class CallService {
 
     socket.on<any>('call:missed', (data) => {
       console.log('[Call] call:missed received, data callId:', data?.callId, 'our callId:', this.state.callId);
-      if (data?.callId && this.state.callId && data.callId !== this.state.callId) {
-        console.log('[Call] Ignoring call:missed — callId mismatch');
+      if (data?.callId && data.callId !== this.state.callId) {
+        console.log('[Call] Ignoring call:missed — callId mismatch (ours:', this.state.callId, 'theirs:', data.callId, ')');
         return;
       }
       if (this.state.status === 'idle') return;
@@ -218,12 +236,20 @@ class CallService {
 
     // WebRTC SDP answer from callee
     socket.on<any>('call:answer', async (data) => {
-      console.log('[Call] Received answer from', data.senderId, 'peerConnection:', !!this.peerConnection);
+      console.log('[Call] Received answer from', data.senderId, 'peerConnection:', !!this.peerConnection, 'status:', this.state.status);
       if (this.peerConnection && data.answer) {
         try {
           await this.peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
           console.log('[Call] Remote description set (answer), processing buffered candidates...');
           await this.processPendingCandidates();
+
+          // If we're still in 'calling' state (call:accepted was missed or came out of order),
+          // transition to 'connected' now since we have the SDP answer — the call IS accepted
+          if (this.state.status === 'calling') {
+            console.log('[Call] Transitioning to connected from call:answer (call:accepted may have been missed)');
+            stopRingtone();
+            this.updateState({ status: 'connected', startTime: Date.now() });
+          }
         } catch (e) {
           console.error('[Call] Failed to handle answer:', e);
         }
@@ -344,11 +370,26 @@ class CallService {
       // Fetch fresh TURN credentials before starting the call
       await this.fetchIceServers();
 
+      // SAFETY: If cleanup happened during the await (e.g. stale socket event), bail out
+      if (this.state.status !== 'calling') {
+        console.warn('[Call] State changed to', this.state.status, 'during fetchIceServers — aborting initiateCall');
+        return;
+      }
+
       // Get local media
       this.localStream = await navigator.mediaDevices.getUserMedia({
         audio: true,
         video: callType === 'video',
       });
+
+      // SAFETY: If cleanup happened during getUserMedia prompt, bail out
+      if (this.state.status !== 'calling') {
+        console.warn('[Call] State changed to', this.state.status, 'during getUserMedia — aborting initiateCall');
+        this.localStream?.getTracks().forEach(t => t.stop());
+        this.localStream = null;
+        return;
+      }
+
       console.log('[Call] Local media acquired:', this.localStream.getTracks().map(t => `${t.kind}:${t.readyState}`).join(', '));
 
       // Create peer connection
@@ -505,9 +546,15 @@ class CallService {
 
     this.peerConnection.oniceconnectionstatechange = () => {
       const state = this.peerConnection?.iceConnectionState;
-      console.log('[Call] ICE connection state:', state);
+      console.log('[Call] ICE connection state:', state, '(call status:', this.state.status, ')');
       if (state === 'connected' || state === 'completed') {
         console.log('[Call] ICE connected! Audio/video should be flowing.');
+        // If we're still in 'calling' state when ICE connects, the call definitely succeeded
+        if (this.state.status === 'calling') {
+          console.log('[Call] ICE connected while still in calling state — transitioning to connected');
+          stopRingtone();
+          this.updateState({ status: 'connected', startTime: Date.now() });
+        }
       }
     };
 
@@ -604,11 +651,12 @@ class CallService {
     console.log('[Call] Call accepted by remote user, peerConnection:', !!this.peerConnection, 'status:', this.state.status);
     stopRingtone();
 
-    // If peerConnection was destroyed (e.g. by a stale rejection), we can't proceed
+    // If peerConnection was destroyed (e.g. by a stale rejection), DON'T cleanup —
+    // the call:answer event might still come and we need to stay visible
     if (!this.peerConnection) {
-      console.error('[Call] call:accepted received but peerConnection is null — cannot establish call');
-      this.cleanup();
-      return;
+      console.warn('[Call] call:accepted received but peerConnection is null — waiting for WebRTC setup');
+      // Don't cleanup here. Stay in current state. The call:answer handler will work
+      // once peerConnection is available, or the 45s timeout will clean up naturally.
     }
 
     // Only transition to connected if we're still in a valid pre-connected state
