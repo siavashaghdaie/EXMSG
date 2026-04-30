@@ -345,7 +345,7 @@ class SocketService {
 
   // ─── Call signaling emitters ──────────────────────────────────────
 
-  emitCallInitiate(data: { conversationId: string; targetUserId: string; callType: 'audio' | 'video' }): void {
+  emitCallInitiate(data: { conversationId: string; targetUserId: string; callType: 'audio' | 'video'; offer?: any }): void {
     this.socket?.emit('call:initiate', data);
   }
 

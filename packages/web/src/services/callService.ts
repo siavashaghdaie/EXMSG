@@ -60,7 +60,6 @@ class CallService {
   private listeners: Set<CallStateListener> = new Set();
   private pendingOffer: RTCSessionDescriptionInit | null = null;
   private isCaller: boolean = false;
-  private callerReadyToOffer: boolean = false;
   private _remoteUserId: string = ''; // Direct class property for reliable access in WebRTC handlers
 
   private state: CallState = {
@@ -265,11 +264,17 @@ class CallService {
         this.peerConnection!.addTrack(track, this.localStream!);
       });
 
-      // Tell the server to ring the callee (no offer yet — we'll send it after they accept)
+      // Create SDP offer IMMEDIATELY (don't wait for callee to accept)
+      const offer = await this.peerConnection!.createOffer();
+      await this.peerConnection!.setLocalDescription(offer);
+      console.log('[Call] Offer created upfront, sending with call:initiate');
+
+      // Tell the server to ring the callee — include the offer so it's relayed immediately
       socket.getSocket()?.emit('call:initiate', {
         conversationId,
         targetUserId,
         callType,
+        offer: this.peerConnection!.localDescription,
       });
     } catch (error) {
       console.error('Failed to initiate call:', error);
@@ -304,25 +309,29 @@ class CallService {
         this.peerConnection!.addTrack(track, this.localStream!);
       });
 
-      // If we already have a pending offer, process it
+      // Tell the server we accepted FIRST (so DB gets updated)
+      socket.getSocket()?.emit('call:accept', {
+        callId,
+        targetUserId: remoteUserId,
+      });
+
+      // If we have a pending offer (new flow: offer came with call:incoming), process it
       if (this.pendingOffer) {
+        console.log('[Call] Processing pending SDP offer from caller');
         await this.peerConnection!.setRemoteDescription(new RTCSessionDescription(this.pendingOffer));
         const answer = await this.peerConnection!.createAnswer();
         await this.peerConnection!.setLocalDescription(answer);
+        console.log('[Call] Sending SDP answer to', remoteUserId);
         socket.getSocket()?.emit('call:answer', {
           targetUserId: remoteUserId,
           answer: this.peerConnection!.localDescription,
         });
         this.pendingOffer = null;
+      } else {
+        console.log('[Call] No pending offer yet, waiting for call:offer event');
       }
 
       this.updateState({ status: 'connected', startTime: Date.now() });
-
-      // Tell the server we accepted
-      socket.getSocket()?.emit('call:accept', {
-        callId,
-        targetUserId: remoteUserId,
-      });
     } catch (error) {
       console.error('Failed to accept call:', error);
       this.rejectCall('media_error');
@@ -417,20 +426,9 @@ class CallService {
     };
 
     this.peerConnection.onnegotiationneeded = async () => {
-      // Only the CALLER creates offers, and only AFTER the callee has accepted
-      // (onnegotiationneeded fires on addTrack, but we must wait for acceptance first)
-      if (!this.isCaller || !this.callerReadyToOffer) return;
-      try {
-        const offer = await this.peerConnection!.createOffer();
-        await this.peerConnection!.setLocalDescription(offer);
-        console.log('[Call] Sending offer to', this._remoteUserId);
-        socket.getSocket()?.emit('call:offer', {
-          targetUserId: this._remoteUserId,
-          offer: this.peerConnection!.localDescription,
-        });
-      } catch (e) {
-        console.error('[Call] Negotiation error:', e);
-      }
+      // Offer is now created explicitly in initiateCall() — no automatic offer here
+      // This prevents duplicate offers and race conditions
+      console.log('[Call] negotiationneeded fired (isCaller:', this.isCaller, ')');
     };
 
     this.peerConnection.onconnectionstatechange = () => {
@@ -459,6 +457,12 @@ class CallService {
     playRingtone('incoming');
     this._remoteUserId = data.callerId;
 
+    // Store the offer if it came with the incoming call (new flow)
+    if (data.offer) {
+      console.log('[Call] Incoming call has SDP offer attached');
+      this.pendingOffer = data.offer;
+    }
+
     this.updateState({
       status: 'ringing',
       callId: data.callId,
@@ -471,33 +475,15 @@ class CallService {
   }
 
   private async handleCallAccepted(_data: any) {
-    console.log('[Call] Call accepted by remote user, creating offer...');
+    console.log('[Call] Call accepted by remote user');
     stopRingtone();
     this.updateState({ status: 'connected', startTime: Date.now() });
-
-    // The callee accepted — NOW we can send the SDP offer
-    this.callerReadyToOffer = true;
-    if (this.peerConnection) {
-      try {
-        const offer = await this.peerConnection.createOffer();
-        await this.peerConnection.setLocalDescription(offer);
-        console.log('[Call] Offer created, sending to', this._remoteUserId);
-        socket.getSocket()?.emit('call:offer', {
-          targetUserId: this._remoteUserId,
-          offer: this.peerConnection.localDescription,
-        });
-      } catch (e) {
-        console.error('[Call] Failed to create offer after acceptance:', e);
-      }
-    } else {
-      console.error('[Call] No peer connection when call accepted!');
-    }
+    // Offer was already sent with call:initiate — callee will respond with answer directly
   }
 
   private cleanup() {
     stopRingtone();
     this.isCaller = false;
-    this.callerReadyToOffer = false;
     this._remoteUserId = '';
     this.pendingOffer = null;
     this.localStream?.getTracks().forEach(t => t.stop());

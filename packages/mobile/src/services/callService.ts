@@ -248,11 +248,17 @@ class CallService {
         this.peerConnection!.addTrack(track, this.localStream!);
       });
 
-      // Tell server to ring the callee
+      // Create SDP offer IMMEDIATELY (don't wait for callee to accept)
+      const offer = await this.peerConnection!.createOffer({});
+      await this.peerConnection!.setLocalDescription(offer);
+      console.log('[Call] Offer created upfront, sending with call:initiate');
+
+      // Tell server to ring the callee — include the offer
       socket.emitCallInitiate({
         conversationId,
         targetUserId,
         callType,
+        offer: this.peerConnection!.localDescription,
       });
     } catch (error) {
       console.error('Failed to initiate call:', error);
@@ -286,27 +292,31 @@ class CallService {
         this.peerConnection!.addTrack(track, this.localStream!);
       });
 
-      // If we already have a pending offer, process it
+      // Tell server we accepted FIRST (so DB gets updated)
+      socket.emitCallAccept({
+        callId,
+        targetUserId: remoteUserId,
+      });
+
+      // If we have a pending offer (new flow: offer came with call:incoming), process it
       if (this.pendingOffer) {
+        console.log('[Call] Processing pending SDP offer from caller');
         await this.peerConnection!.setRemoteDescription(
           new RTCSessionDescription(this.pendingOffer)
         );
         const answer = await this.peerConnection!.createAnswer();
         await this.peerConnection!.setLocalDescription(answer);
+        console.log('[Call] Sending SDP answer to', remoteUserId);
         socket.emitCallAnswer({
           targetUserId: remoteUserId,
           answer: this.peerConnection!.localDescription,
         });
         this.pendingOffer = null;
+      } else {
+        console.log('[Call] No pending offer yet, waiting for call:offer event');
       }
 
       this.updateState({ status: 'connected', startTime: Date.now() });
-
-      // Tell server we accepted
-      socket.emitCallAccept({
-        callId,
-        targetUserId: remoteUserId,
-      });
     } catch (error) {
       console.error('Failed to accept call:', error);
       this.rejectCall('media_error');
@@ -395,18 +405,8 @@ class CallService {
     });
 
     this.peerConnection.addEventListener('negotiationneeded' as any, async () => {
-      // Only the CALLER creates offers, and only AFTER the callee has accepted
-      if (!this.isCaller || !this.callerReadyToOffer) return;
-      try {
-        const offer = await this.peerConnection!.createOffer({});
-        await this.peerConnection!.setLocalDescription(offer);
-        socket.emitCallOffer({
-          targetUserId: this.state.remoteUserId,
-          offer: this.peerConnection!.localDescription,
-        });
-      } catch (e) {
-        console.error('[Call] Negotiation error:', e);
-      }
+      // Offer is now created explicitly in initiateCall() — no automatic offer here
+      console.log('[Call] negotiationneeded fired (isCaller:', this.isCaller, ')');
     });
 
     this.peerConnection.addEventListener('connectionstatechange' as any, () => {
@@ -428,6 +428,12 @@ class CallService {
       return;
     }
 
+    // Store the offer if it came with the incoming call (new flow)
+    if (data.offer) {
+      console.log('[Call] Incoming call has SDP offer attached');
+      this.pendingOffer = data.offer;
+    }
+
     this.updateState({
       status: 'ringing',
       callId: data.callId,
@@ -440,22 +446,9 @@ class CallService {
   }
 
   private async handleCallAccepted() {
+    console.log('[Call] Call accepted by remote user');
     this.updateState({ status: 'connected', startTime: Date.now() });
-
-    // The callee accepted — NOW we can send the SDP offer
-    this.callerReadyToOffer = true;
-    if (this.peerConnection) {
-      try {
-        const offer = await this.peerConnection.createOffer({});
-        await this.peerConnection.setLocalDescription(offer);
-        socket.emitCallOffer({
-          targetUserId: this.state.remoteUserId,
-          offer: this.peerConnection.localDescription,
-        });
-      } catch (e) {
-        console.error('[Call] Failed to create offer after acceptance:', e);
-      }
-    }
+    // Offer was already sent with call:initiate — callee will respond with answer directly
   }
 
   private cleanup() {

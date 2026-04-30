@@ -252,7 +252,7 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
     // --- WEBRTC CALL SIGNALING (with DB tracking) ---
 
     // Initiate a call — creates a Call record and rings the target
-    socket.on('call:initiate', async (data: { conversationId: string; targetUserId: string; callType: 'audio' | 'video' }) => {
+    socket.on('call:initiate', async (data: { conversationId: string; targetUserId: string; callType: 'audio' | 'video'; offer?: any }) => {
       try {
         // Org-scoping: verify caller and target are in the same organization
         if (orgId) {
@@ -289,7 +289,7 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
           },
         });
 
-        const callData = {
+        const callData: any = {
           callId: call.id,
           callerId: userId,
           callerName: caller?.displayName || caller?.username || socket.username,
@@ -298,6 +298,12 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
           callType: data.callType,
           timestamp: new Date().toISOString(),
         };
+
+        // Include SDP offer if caller sent it with initiation (new flow)
+        if (data.offer) {
+          callData.offer = data.offer;
+          console.log('[Call] Relaying SDP offer with call:incoming');
+        }
 
         // Send to the target user's personal room
         const callerRoom = io.sockets.adapter.rooms.get(`user:${userId}`);
