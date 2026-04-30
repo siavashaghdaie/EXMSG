@@ -85,6 +85,21 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
     // Join user's personal room for direct notifications
     socket.join(`user:${userId}`);
 
+    // Auto-join ALL conversation rooms so the user receives real-time events
+    // This is more robust than relying on the client to join rooms
+    try {
+      const userConversations = await prisma.conversationParticipant.findMany({
+        where: { userId },
+        select: { conversationId: true },
+      });
+      for (const cp of userConversations) {
+        socket.join(`conversation:${cp.conversationId}`);
+      }
+      console.log(`[Socket] Auto-joined ${userConversations.length} conversation rooms for ${socket.username}`);
+    } catch (error) {
+      console.error('Failed to auto-join conversation rooms:', error);
+    }
+
     // Broadcast online status to org members only (or all if no org)
     if (orgId) {
       socket.to(`org:${orgId}`).emit('user:online', { userId });

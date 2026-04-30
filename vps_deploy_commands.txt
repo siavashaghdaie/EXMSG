@@ -1,0 +1,38 @@
+## PASTE THESE COMMANDS INTO THE VPS TERMINAL ONE AT A TIME ##
+
+## Command 1: Apply backend socket auto-join fix
+cd /root/exmsg && python3 -c "
+f='packages/backend/src/services/socket.ts'
+with open(f) as fh: c=fh.read()
+old='    // Join user\\'s personal room for direct notifications\n    socket.join(\`user:\${userId}\`);\\n\\n    // Broadcast online status'
+new='''    // Join user\\'s personal room for direct notifications
+    socket.join(\`user:\${userId}\`);
+
+    // Auto-join ALL conversation rooms so the user receives real-time events
+    try {
+      const userConversations = await prisma.conversationParticipant.findMany({
+        where: { userId },
+        select: { conversationId: true },
+      });
+      for (const cp of userConversations) {
+        socket.join(\`conversation:\${cp.conversationId}\`);
+      }
+      console.log(\`[Socket] Auto-joined \${userConversations.length} conversation rooms for \${socket.username}\`);
+    } catch (error) {
+      console.error(\"Failed to auto-join conversation rooms:\", error);
+    }
+
+    // Broadcast online status'''
+c=c.replace(old,new)
+with open(f,'w') as fh: fh.write(c)
+print('OK')
+"
+
+## Command 2: Verify the fix was applied
+grep -A2 "Auto-join ALL" packages/backend/src/services/socket.ts
+
+## Command 3: Rebuild and deploy
+cd docker && docker compose -f docker-compose.prod.yml build backend web && docker compose -f docker-compose.prod.yml up -d backend web
+
+## Command 4: Verify (after ~30 seconds)
+docker logs em-backend-prod --tail 30 2>&1 | grep -i "auto-joined\|socket\|connected"

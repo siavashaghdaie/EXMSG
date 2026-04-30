@@ -169,10 +169,20 @@ export const ChatLayout: React.FC = () => {
         // Fetch conversations (this also joins all conversation rooms)
         await fetchConversations();
 
+        // Listen for socket reconnect — re-join all conversation rooms
+        const unsubscribeReconnect = socket.on('socket:reconnect', () => {
+          console.log('[ChatLayout] Socket reconnected, re-joining conversation rooms...');
+          const conversations = useChatStore.getState().conversations;
+          conversations.forEach((conv) => {
+            socket.joinConversation(conv.id);
+          });
+        });
+
         // Store cleanup function
         const cleanup = () => {
           unsubscribeChatListeners();
           unsubscribePresenceListeners();
+          unsubscribeReconnect();
           socket.disconnect();
         };
 
