@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { ArrowLeft, ClipboardList, FolderKanban } from 'lucide-react';
 import TaskWall from '@/components/tasks/TaskWall';
 import ProjectsPage from '@/components/projects/ProjectsPage';

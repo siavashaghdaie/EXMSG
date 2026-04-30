@@ -84,7 +84,7 @@ const priorityColors: Record<string, string> = {
   CRITICAL: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
 };
 
-const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose, embedded }) => {
+const ProjectsPage: React.FC<ProjectsPageProps> = ({ onClose, embedded: _embedded }) => {
   const { user } = useAuthStore();
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
