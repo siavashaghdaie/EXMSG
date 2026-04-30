@@ -1486,6 +1486,11 @@ class APIClient {
     const res = await this.client.get(`/calls/${callId}`);
     return res.data;
   }
+
+  async getTurnCredentials(): Promise<{ iceServers: RTCIceServer[] }> {
+    const res = await this.client.get('/calls/turn-credentials');
+    return res.data;
+  }
 }
 
 // Export singleton instance

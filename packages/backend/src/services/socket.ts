@@ -224,10 +224,10 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
           include: { sender: { select: { id: true, username: true, displayName: true, avatarUrl: true } } },
         });
         io.to(`conversation:${conversationId}`).emit('message:new', msg);
-        // Also update conversation's last message timestamp
+        // Touch the conversation so it sorts to top (updatedAt is auto-managed by @updatedAt)
         await prisma.conversation.update({
           where: { id: conversationId },
-          data: { lastMessageAt: new Date() },
+          data: { updatedAt: new Date() },
         });
       } catch (err) {
         console.error('[Call] Failed to post system message:', err);

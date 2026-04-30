@@ -92,9 +92,9 @@ class CallService {
     if (Date.now() - this.iceServersFetchedAt < ONE_HOUR) return;
 
     try {
-      const response = await api.get('/calls/turn-credentials');
-      if (response.data?.iceServers) {
-        this.iceServers = response.data.iceServers;
+      const response = await api.getTurnCredentials();
+      if (response?.iceServers) {
+        this.iceServers = response.iceServers;
         this.iceServersFetchedAt = Date.now();
       }
     } catch (e) {
