@@ -5,6 +5,7 @@ import { env } from '../config/env';
 import { cacheUtils } from '../config/redis';
 import { prisma } from '../config/database';
 import { AuthPayload } from '../middleware/auth';
+import { sendCallPushNotification, sendMessagePushNotification } from '../modules/push/pushService';
 
 // Linda bot user ID — set by initializeLinda() to avoid circular imports
 let _lindaBotUserId: string | null = null;
@@ -137,6 +138,35 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
       }
     }
 
+    // Check for any pending RINGING calls where this user is the callee
+    // This handles the case where the user opens the browser AFTER a call was initiated
+    try {
+      const pendingCalls = await (prisma as any).call.findMany({
+        where: {
+          calleeId: userId,
+          status: 'RINGING',
+        },
+        include: {
+          caller: { select: { id: true, displayName: true, username: true, avatarUrl: true } },
+        },
+      });
+      for (const call of pendingCalls) {
+        const callData = {
+          callId: call.id,
+          callerId: call.callerId,
+          callerName: call.caller?.displayName || call.caller?.username || 'Unknown',
+          callerAvatar: call.caller?.avatarUrl || null,
+          conversationId: call.conversationId,
+          callType: call.type,
+          timestamp: call.createdAt?.toISOString() || new Date().toISOString(),
+        };
+        console.log(`[Call] Sending pending RINGING call ${call.id} to newly connected user ${userId}`);
+        socket.emit('call:incoming', callData);
+      }
+    } catch (err) {
+      console.error('[Call] Failed to check pending calls on connect:', err);
+    }
+
     // --- EVENT HANDLERS ---
 
     // Join a conversation room
@@ -152,10 +182,32 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
     });
 
     // New message - broadcast to conversation members
-    socket.on('message:send', (data: { conversationId: string; message: unknown }) => {
+    socket.on('message:send', async (data: { conversationId: string; message: unknown }) => {
       socket
         .to(`conversation:${data.conversationId}`)
         .emit('message:new', data.message);
+
+      // Send push notifications to conversation participants who are offline or not in this tab
+      try {
+        const msg = data.message as any;
+        if (msg?.content && msg?.senderId) {
+          const participants = await prisma.conversationParticipant.findMany({
+            where: { conversationId: data.conversationId, userId: { not: msg.senderId } },
+            select: { userId: true },
+          });
+          const senderName = msg.sender?.displayName || msg.sender?.username || socket.username || 'Someone';
+          for (const p of participants) {
+            sendMessagePushNotification(
+              p.userId,
+              senderName,
+              msg.content,
+              data.conversationId,
+            ).catch(() => {});
+          }
+        }
+      } catch (err) {
+        // Push is best-effort, don't block message delivery
+      }
     });
 
     // Message edited
@@ -339,6 +391,15 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
         const targetRoom = io.sockets.adapter.rooms.get(`user:${data.targetUserId}`);
         console.log(`[Call] Initiate: caller=${userId} (room size: ${callerRoom?.size ?? 0}), target=${data.targetUserId} (room size: ${targetRoom?.size ?? 0}), callType=${data.callType}`);
         io.to(`user:${data.targetUserId}`).emit('call:incoming', callData);
+
+        // Send Web Push notification (for when browser is in background / screen off)
+        sendCallPushNotification(
+          data.targetUserId,
+          callData.callerName,
+          data.callType,
+          call.id,
+          data.conversationId,
+        ).catch(err => console.error('[Call] Push notification error:', err));
 
         // Also confirm to the caller with the callId
         socket.emit('call:initiated', callData);

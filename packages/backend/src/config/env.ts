@@ -64,6 +64,11 @@ export const env = {
   // TURN Server (Coturn) — for WebRTC call relay
   TURN_SERVER: process.env.TURN_SERVER || '',       // e.g. turn.yourdomain.com
   TURN_SECRET: process.env.TURN_SECRET || '',       // shared secret for HMAC credentials
+
+  // Web Push (VAPID)
+  VAPID_PUBLIC_KEY: process.env.VAPID_PUBLIC_KEY || '',
+  VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY || '',
+  VAPID_SUBJECT: process.env.VAPID_SUBJECT || 'mailto:admin@theomnilink.io',
 } as const;
 
 // Validate required vars in production

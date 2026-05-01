@@ -1491,6 +1491,21 @@ class APIClient {
     const res = await this.client.get('/calls/turn-credentials');
     return res.data;
   }
+
+  // --- Push Notifications ---
+
+  async getVapidPublicKey(): Promise<{ publicKey: string }> {
+    const res = await this.client.get('/push/vapid-public-key');
+    return res.data;
+  }
+
+  async pushSubscribe(subscription: { endpoint: string; keys: { p256dh: string; auth: string } }): Promise<void> {
+    await this.client.post('/push/subscribe', subscription);
+  }
+
+  async pushUnsubscribe(endpoint: string): Promise<void> {
+    await this.client.post('/push/unsubscribe', { endpoint });
+  }
 }
 
 // Export singleton instance

@@ -113,6 +113,7 @@ model User {
   blockedMe          BlockedUser[]    @relation("BlockedMe")
   reportsMade        ReportedUser[]   @relation("ReportsMade")
   reportsReceived    ReportedUser[]   @relation("ReportsReceived")
+  pushSubscriptions  PushSubscription[]
 
   @@map("users")
 }
@@ -912,4 +913,20 @@ model Call {
   @@index([calleeId, createdAt])
   @@index([conversationId])
   @@map("calls")
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  endpoint  String
+  p256dh    String
+  auth      String
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, endpoint])
+  @@index([userId])
+  @@map("push_subscriptions")
 }

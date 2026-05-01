@@ -22,6 +22,8 @@ import { interPanelRoutes } from './modules/inter-panel/interPanel.routes';
 import { projectRoutes } from './modules/projects/project.routes';
 import { checklistRoutes } from './modules/checklists/checklist.routes';
 import { callRoutes } from './modules/calls/call.routes';
+import { pushRoutes } from './modules/push/push.routes';
+import { initializePush } from './modules/push/pushService';
 import { initializeLinda } from './modules/linda/linda.controller';
 import { startTaskReminderJob } from './modules/tasks/taskReminder';
 import { resolveOrganization } from './middleware/orgScope';
@@ -78,6 +80,7 @@ async function bootstrap() {
   app.use('/api', projectRoutes);
   app.use('/api', checklistRoutes);
   app.use('/api', callRoutes);
+  app.use('/api', pushRoutes);
   app.use('/api', adminRoutes);
   // IMPORTANT: orgAdminRoutes MUST be scoped to /api/org-admin so its
   // router.use(requireOrgAdmin) middleware does not leak to subsequent
@@ -96,6 +99,9 @@ async function bootstrap() {
 
   // Connect database
   await connectDatabase();
+
+  // Initialize Web Push
+  initializePush();
 
   // Initialize WebSocket
   initializeSocketServer(httpServer);

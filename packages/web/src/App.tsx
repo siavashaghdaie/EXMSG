@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/authStore';
 import { useSuperAdminStore } from '@/store/superAdminStore';
 import { setupPresenceSocketListeners } from '@/store/presenceStore';
+import { initializePushNotifications } from '@/services/pushService';
 import { LoginPage } from '@/components/auth/LoginPage';
 import { RegisterPage } from '@/components/auth/RegisterPage';
 import { VerifyOtpPage } from '@/components/auth/VerifyOtpPage';
@@ -36,6 +37,15 @@ function App() {
     if (isAuthenticated) {
       const unsubscribe = setupPresenceSocketListeners();
       return unsubscribe;
+    }
+  }, [isAuthenticated]);
+
+  // Initialize push notifications after authentication
+  useEffect(() => {
+    if (isAuthenticated) {
+      initializePushNotifications().catch(err => {
+        console.warn('[App] Push notification init failed (non-critical):', err);
+      });
     }
   }, [isAuthenticated]);
 
