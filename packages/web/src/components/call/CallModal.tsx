@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff } from 'lucide-react';
+import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Volume2, Volume1 } from 'lucide-react';
 import { callService } from '@/services/callService';
 import Avatar from '@/components/common/Avatar';
 
@@ -19,27 +19,20 @@ export default function CallModal() {
     const localStream = callService.getLocalStream();
     const remoteStream = callService.getRemoteStream();
 
-    console.log('[CallModal] Stream attach effect — local:', !!localStream, 'remote:', !!remoteStream,
-      'status:', callState.status, 'remoteAudioRef:', !!remoteAudioRef.current, 'remoteVideoRef:', !!remoteVideoRef.current);
-
     if (localVideoRef.current && localStream) {
       localVideoRef.current.srcObject = localStream;
     }
 
     if (remoteStream) {
-      const tracks = remoteStream.getTracks();
-      console.log('[CallModal] Remote stream tracks:', tracks.map(t => `${t.kind}:${t.readyState}:enabled=${t.enabled}`).join(', '));
-
       // Always attach to audio element for playback
       if (remoteAudioRef.current) {
         if (remoteAudioRef.current.srcObject !== remoteStream) {
           remoteAudioRef.current.srcObject = remoteStream;
         }
-        // Force play — retry on failure
         const playPromise = remoteAudioRef.current.play();
         if (playPromise) {
           playPromise.catch(e => {
-            console.warn('[CallModal] Audio autoplay blocked:', e, '— will retry on user interaction');
+            console.warn('[CallModal] Audio autoplay blocked:', e);
           });
         }
       }
@@ -56,6 +49,7 @@ export default function CallModal() {
   // Timer
   useEffect(() => {
     if (callState.status !== 'connected' || !callState.startTime) return;
+    setElapsed(0);
     const interval = setInterval(() => {
       setElapsed(Math.floor((Date.now() - callState.startTime!) / 1000));
     }, 1000);
@@ -75,8 +69,34 @@ export default function CallModal() {
   const isConnected = callState.status === 'connected';
   const isVideo = callState.callType === 'video';
 
+  // iOS-style control button component
+  const ControlButton = ({ active, activeColor, icon, label, onClick, size = 'normal' }: {
+    active?: boolean;
+    activeColor?: string;
+    icon: React.ReactNode;
+    label: string;
+    onClick: () => void;
+    size?: 'normal' | 'large';
+  }) => (
+    <div className="flex flex-col items-center gap-2">
+      <button
+        onClick={onClick}
+        className={`rounded-full transition-all active:scale-95 ${
+          size === 'large' ? 'p-5' : 'p-4'
+        } ${
+          active
+            ? `${activeColor || 'bg-white text-slate-900'}`
+            : 'bg-white/15 text-white hover:bg-white/25 backdrop-blur-sm'
+        }`}
+      >
+        {icon}
+      </button>
+      <span className="text-white/60 text-xs font-medium">{label}</span>
+    </div>
+  );
+
   return (
-    <div className="fixed inset-0 z-[100] bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+    <div className="fixed inset-0 z-[100] bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 flex flex-col items-center justify-between">
       {/* Full-screen video for connected video calls */}
       {isVideo && isConnected && (
         <div className="absolute inset-0">
@@ -97,21 +117,19 @@ export default function CallModal() {
         </div>
       )}
 
-      {/* Overlay content */}
-      <div className={`relative z-10 text-center ${isVideo && isConnected ? 'mt-auto mb-32' : ''}`}>
-        {/* Avatar / Status - show when not in active video */}
+      {/* Top section: Avatar and caller info */}
+      <div className={`relative z-10 text-center pt-16 ${isVideo && isConnected ? 'mt-auto' : ''}`}>
         {!(isVideo && isConnected) && (
           <div className="mb-6">
-            {/* Animated ring for ringing state */}
             <div className={`relative inline-block ${isRinging ? 'animate-pulse' : ''}`}>
               {isRinging && (
                 <>
-                  <div className="absolute -inset-3 rounded-full border-2 border-green-400/40 animate-ping" />
-                  <div className="absolute -inset-6 rounded-full border border-green-400/20 animate-ping" style={{ animationDelay: '0.5s' }} />
+                  <div className="absolute -inset-4 rounded-full border-2 border-green-400/30 animate-ping" />
+                  <div className="absolute -inset-8 rounded-full border border-green-400/15 animate-ping" style={{ animationDelay: '0.5s' }} />
                 </>
               )}
               {isCalling && (
-                <div className="absolute -inset-3 rounded-full border-2 border-blue-400/40 animate-ping" />
+                <div className="absolute -inset-4 rounded-full border-2 border-blue-400/30 animate-ping" />
               )}
               <div className="relative">
                 <Avatar
@@ -128,8 +146,8 @@ export default function CallModal() {
         <h2 className="text-2xl font-semibold text-white drop-shadow-lg">
           {callState.remoteUserName}
         </h2>
-        <p className="text-white/70 mt-2 text-lg">
-          {isRinging && (isVideo ? '📹 Incoming Video Call...' : '📞 Incoming Voice Call...')}
+        <p className="text-white/60 mt-2 text-base">
+          {isRinging && 'Incoming Call...'}
           {isCalling && 'Calling...'}
           {isConnected && formatTime(elapsed)}
         </p>
@@ -140,65 +158,75 @@ export default function CallModal() {
         )}
       </div>
 
-      {/* Hidden audio element for remote stream (always present for audio playback) */}
+      {/* Hidden audio element for remote stream playback */}
       <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
 
-      {/* Controls bar */}
-      <div className="absolute bottom-0 left-0 right-0 pb-10 pt-6 bg-gradient-to-t from-black/60 to-transparent">
-        <div className="flex items-center justify-center gap-5">
-          {isRinging ? (
-            <>
+      {/* Bottom controls section */}
+      <div className="relative z-10 w-full pb-12 pt-8 bg-gradient-to-t from-black/40 to-transparent">
+        {isRinging ? (
+          /* Incoming call: Decline and Accept */
+          <div className="flex items-center justify-center gap-16">
+            <div className="flex flex-col items-center gap-2">
               <button
                 onClick={() => callService.rejectCall()}
                 className="p-5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-all shadow-lg shadow-red-500/30 active:scale-95"
-                title="Decline"
               >
                 <PhoneOff size={28} />
               </button>
+              <span className="text-white/60 text-xs font-medium">Decline</span>
+            </div>
+            <div className="flex flex-col items-center gap-2">
               <button
                 onClick={() => callService.acceptCall()}
                 className="p-5 bg-green-500 text-white rounded-full hover:bg-green-600 transition-all shadow-lg shadow-green-500/30 active:scale-95 animate-bounce"
-                title="Accept"
               >
                 <Phone size={28} />
               </button>
-            </>
-          ) : (
-            <>
-              <button
+              <span className="text-white/60 text-xs font-medium">Accept</span>
+            </div>
+          </div>
+        ) : (
+          /* Active call or calling: Grid of controls + end button */
+          <div className="flex flex-col items-center gap-8">
+            {/* Top row: mute, video, speaker */}
+            <div className="flex items-start justify-center gap-8">
+              <ControlButton
+                active={callState.isMuted}
+                activeColor="bg-white text-slate-900"
+                icon={callState.isMuted ? <MicOff size={22} /> : <Mic size={22} />}
+                label={callState.isMuted ? 'Unmute' : 'Mute'}
                 onClick={() => callService.toggleMute()}
-                className={`p-4 rounded-full transition-all active:scale-95 ${
-                  callState.isMuted
-                    ? 'bg-red-500 text-white shadow-lg shadow-red-500/30'
-                    : 'bg-white/10 text-white hover:bg-white/20 backdrop-blur-sm'
-                }`}
-                title={callState.isMuted ? 'Unmute' : 'Mute'}
-              >
-                {callState.isMuted ? <MicOff size={22} /> : <Mic size={22} />}
-              </button>
+              />
               {isVideo && (
-                <button
+                <ControlButton
+                  active={callState.isVideoOff}
+                  activeColor="bg-white text-slate-900"
+                  icon={callState.isVideoOff ? <VideoOff size={22} /> : <Video size={22} />}
+                  label={callState.isVideoOff ? 'Camera On' : 'Camera Off'}
                   onClick={() => callService.toggleVideo()}
-                  className={`p-4 rounded-full transition-all active:scale-95 ${
-                    callState.isVideoOff
-                      ? 'bg-red-500 text-white shadow-lg shadow-red-500/30'
-                      : 'bg-white/10 text-white hover:bg-white/20 backdrop-blur-sm'
-                  }`}
-                  title={callState.isVideoOff ? 'Turn on camera' : 'Turn off camera'}
-                >
-                  {callState.isVideoOff ? <VideoOff size={22} /> : <Video size={22} />}
-                </button>
+                />
               )}
+              <ControlButton
+                active={callState.isSpeakerOn}
+                activeColor="bg-white text-slate-900"
+                icon={callState.isSpeakerOn ? <Volume2 size={22} /> : <Volume1 size={22} />}
+                label="Speaker"
+                onClick={() => callService.toggleSpeaker()}
+              />
+            </div>
+
+            {/* End call button */}
+            <div className="flex flex-col items-center gap-2">
               <button
                 onClick={() => callService.endCall()}
                 className="p-5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-all shadow-lg shadow-red-500/30 active:scale-95"
-                title="End call"
               >
                 <PhoneOff size={28} />
               </button>
-            </>
-          )}
-        </div>
+              <span className="text-white/60 text-xs font-medium">End</span>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

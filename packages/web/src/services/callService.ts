@@ -14,6 +14,7 @@ interface CallState {
   remoteUserAvatar: string | null;
   isMuted: boolean;
   isVideoOff: boolean;
+  isSpeakerOn: boolean;
   startTime: number | null;
 }
 
@@ -58,7 +59,7 @@ class CallService {
   private pendingOffer: RTCSessionDescriptionInit | null = null;
   private pendingCandidates: RTCIceCandidateInit[] = []; // Buffer ICE candidates until peer connection + remote desc ready
   private isCaller: boolean = false;
-  private isCleaningUp: boolean = false; // Prevent re-entrant cleanup from connection state events
+  // Speaker state is tracked in CallState.isSpeakerOn and handled by CallModal
   private _remoteUserId: string = '';
 
   private state: CallState = {
@@ -71,6 +72,7 @@ class CallService {
     remoteUserAvatar: null,
     isMuted: false,
     isVideoOff: false,
+    isSpeakerOn: false,
     startTime: null,
   };
 
@@ -109,6 +111,7 @@ class CallService {
     s.off('call:initiated');
     s.off('call:incoming');
     s.off('call:accepted');
+    s.off('call:accepted-elsewhere');
     s.off('call:rejected');
     s.off('call:ended');
     s.off('call:expired');
@@ -159,6 +162,16 @@ class CallService {
       this.handleCallAccepted(data);
     });
 
+    // Another device of the same user accepted this call — stop ringing on this device
+    socket.on<any>('call:accepted-elsewhere', (data) => {
+      console.log('[Call] call:accepted-elsewhere received, callId:', data?.callId, 'our callId:', this.state.callId, 'status:', this.state.status);
+      if (this.state.status === 'ringing' && (!data?.callId || data.callId === this.state.callId)) {
+        console.log('[Call] Call was accepted on another device — cleaning up');
+        stopRingtone();
+        this.cleanup();
+      }
+    });
+
     socket.on<any>('call:rejected', (data) => {
       console.log('[Call] call:rejected received, current status:', this.state.status, 'data callId:', data?.callId, 'our callId:', this.state.callId);
       // Only act on rejection if we're still in 'calling' state AND the callId matches
@@ -175,14 +188,20 @@ class CallService {
     });
 
     socket.on<any>('call:ended', (data) => {
-      console.log('[Call] call:ended received from remote, data callId:', data?.callId, 'our callId:', this.state.callId, 'status:', this.state.status);
-      // Ignore stale call:ended events from previous calls
-      if (data?.callId && data.callId !== this.state.callId) {
-        console.log('[Call] Ignoring call:ended — callId mismatch (ours:', this.state.callId, 'theirs:', data.callId, ')');
-        return;
-      }
+      console.log('[Call] call:ended received from remote, data callId:', data?.callId, 'our callId:', this.state.callId, 'status:', this.state.status, 'enderId:', data?.enderId);
       if (this.state.status === 'idle') {
         console.log('[Call] Ignoring call:ended — already idle');
+        return;
+      }
+      // System-initiated cleanup (enderId === 'system') always forces cleanup
+      if (data?.enderId === 'system') {
+        console.log('[Call] System-initiated call cleanup — forcing cleanup');
+        this.cleanup();
+        return;
+      }
+      // Ignore stale call:ended events from previous calls
+      if (data?.callId && this.state.callId && data.callId !== this.state.callId) {
+        console.log('[Call] Ignoring call:ended — callId mismatch (ours:', this.state.callId, 'theirs:', data.callId, ')');
         return;
       }
       this.cleanup();
@@ -346,14 +365,12 @@ class CallService {
     // If stuck in a non-idle state from a previous call, force cleanup first
     if (this.state.status !== 'idle') {
       console.warn('[Call] Was in state:', this.state.status, '— force cleaning up before new call');
-      this.isCleaningUp = false;
       this.cleanup();
     }
 
     try {
       this.isCaller = true;
       this._remoteUserId = targetUserId;
-      this.isCleaningUp = false;
       this.pendingCandidates = [];
 
       this.updateState({
@@ -425,7 +442,6 @@ class CallService {
 
     try {
       const { remoteUserId, callType, callId } = this.state;
-      this.isCleaningUp = false;
 
       stopRingtone();
 
@@ -494,9 +510,7 @@ class CallService {
 
   // Either party ends
   endCall() {
-    console.log('[Call] endCall() called, status:', this.state.status, 'isCleaningUp:', this.isCleaningUp);
-    // Reset isCleaningUp so cleanup() can run — user explicitly wants to end the call
-    this.isCleaningUp = false;
+    console.log('[Call] endCall() called, status:', this.state.status);
     const { remoteUserId, callId } = this.state;
     stopRingtone();
     if (remoteUserId) {
@@ -526,6 +540,12 @@ class CallService {
         this.updateState({ isVideoOff: !videoTrack.enabled });
       }
     }
+  }
+
+  toggleSpeaker() {
+    const newState = !this.state.isSpeakerOn;
+    this.updateState({ isSpeakerOn: newState });
+    // Speaker toggle is handled by the CallModal via audio element sinkId
   }
 
   private createPeerConnection() {
@@ -620,14 +640,12 @@ class CallService {
     // If in any other non-idle state (e.g. stuck from a previous call), force cleanup first
     if (this.state.status !== 'idle') {
       console.log('[Call] Was in state', this.state.status, '— force cleaning up before accepting incoming call');
-      this.isCleaningUp = false;
       this.cleanup();
     }
 
     playRingtone('incoming');
     this.isCaller = false;
     this._remoteUserId = data.callerId;
-    this.isCleaningUp = false;
     this.pendingCandidates = []; // Clear stale candidates from previous calls
 
     // Store the offer if it came with the incoming call (new flow)
@@ -669,12 +687,9 @@ class CallService {
   }
 
   private cleanup() {
-    if (this.isCleaningUp) {
-      console.log('[Call] cleanup() already in progress, skipping');
-      return;
-    }
-    this.isCleaningUp = true;
-    console.log('[Call] Cleaning up call state');
+    // Always allow cleanup to run — never block it.
+    // Multiple calls to cleanup are safe since everything is null-checked.
+    console.log('[Call] Cleaning up call state (status was:', this.state.status, ')');
 
     stopRingtone();
     this.isCaller = false;
@@ -682,14 +697,17 @@ class CallService {
     this.pendingOffer = null;
     this.pendingCandidates = [];
 
+    // Stop and release all local media tracks
     if (this.localStream) {
-      this.localStream.getTracks().forEach(t => t.stop());
+      this.localStream.getTracks().forEach(t => {
+        try { t.stop(); } catch (e) { /* ignore */ }
+      });
       this.localStream = null;
     }
     this.remoteStream = null;
 
+    // Close peer connection — remove event handlers first to prevent re-entrant calls
     if (this.peerConnection) {
-      // Remove all event handlers BEFORE closing to prevent re-entrant calls
       this.peerConnection.onicecandidate = null;
       this.peerConnection.ontrack = null;
       this.peerConnection.onconnectionstatechange = null;
@@ -713,11 +731,9 @@ class CallService {
       remoteUserAvatar: null,
       isMuted: false,
       isVideoOff: false,
+      isSpeakerOn: false,
       startTime: null,
     });
-
-    // CRITICAL: Reset isCleaningUp AFTER everything is done so future calls/endCall work
-    this.isCleaningUp = false;
   }
 }
 

@@ -278,6 +278,35 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
           select: { id: true, displayName: true, username: true, avatarUrl: true },
         });
 
+        // Clean up any stale RINGING/ACTIVE calls involving either user
+        // This prevents "busy" state from persisting after a call wasn't properly ended
+        const staleCalls = await (prisma as any).call.findMany({
+          where: {
+            status: { in: ['RINGING', 'ACTIVE'] },
+            OR: [
+              { callerId: userId },
+              { calleeId: userId },
+              { callerId: data.targetUserId },
+              { calleeId: data.targetUserId },
+            ],
+          },
+          select: { id: true, callerId: true, calleeId: true },
+        });
+        if (staleCalls.length > 0) {
+          console.log(`[Call] Cleaning up ${staleCalls.length} stale calls before new call`);
+          await (prisma as any).call.updateMany({
+            where: {
+              id: { in: staleCalls.map((c: any) => c.id) },
+            },
+            data: { status: 'ENDED', endedAt: new Date() },
+          });
+          // Notify all parties of stale calls to clean up their UI
+          for (const staleCall of staleCalls) {
+            io.to(`user:${staleCall.callerId}`).emit('call:ended', { callId: staleCall.id, enderId: 'system' });
+            io.to(`user:${staleCall.calleeId}`).emit('call:ended', { callId: staleCall.id, enderId: 'system' });
+          }
+        }
+
         // Create call record in DB
         const call = await (prisma as any).call.create({
           data: {
@@ -372,6 +401,13 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
           accepterAvatar: accepter?.avatarUrl || null,
         });
         console.log(`[Call] call:accepted emitted successfully`);
+
+        // Notify OTHER devices of the same callee that the call was picked up elsewhere
+        // (so they stop ringing). socket.broadcast sends to all sockets in the room EXCEPT this one.
+        socket.broadcast.to(`user:${userId}`).emit('call:accepted-elsewhere', {
+          callId: data.callId,
+        });
+        console.log(`[Call] call:accepted-elsewhere emitted to other devices of user:${userId}`);
       } catch (err) {
         console.error('[Call] Accept error:', err);
       }
@@ -474,6 +510,40 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
     // Disconnect
     socket.on('disconnect', async () => {
       console.warn(`User disconnected: ${socket.username}`);
+
+      // End any active/ringing calls this user is part of
+      // Only if this is the LAST socket for this user (no other devices connected)
+      const userRoom = io.sockets.adapter.rooms.get(`user:${userId}`);
+      const remainingSockets = userRoom?.size ?? 0;
+      if (remainingSockets === 0) {
+        try {
+          const activeCalls = await (prisma as any).call.findMany({
+            where: {
+              status: { in: ['RINGING', 'ACTIVE'] },
+              OR: [{ callerId: userId }, { calleeId: userId }],
+            },
+            select: { id: true, callerId: true, calleeId: true, status: true, conversationId: true, type: true, startedAt: true },
+          });
+          for (const call of activeCalls) {
+            const duration = call.startedAt ? Math.round((Date.now() - new Date(call.startedAt).getTime()) / 1000) : 0;
+            await (prisma as any).call.update({
+              where: { id: call.id },
+              data: { status: 'ENDED', endedAt: new Date(), duration },
+            });
+            const otherUserId = call.callerId === userId ? call.calleeId : call.callerId;
+            io.to(`user:${otherUserId}`).emit('call:ended', { callId: call.id, enderId: userId });
+            console.log(`[Call] Auto-ended call ${call.id} on disconnect (user ${userId})`);
+
+            // Post system message
+            if (call.conversationId) {
+              const callTypeEmoji = call.type === 'video' ? '📹' : '📞';
+              await postCallSystemMessage(call.conversationId, userId, `${callTypeEmoji} Call ended (disconnected)`);
+            }
+          }
+        } catch (err) {
+          console.error('[Call] Failed to cleanup calls on disconnect:', err);
+        }
+      }
 
       // Set user offline in cache
       await cacheUtils.setUserOffline(userId);

@@ -190,6 +190,10 @@ class SocketService {
         this.emit('call:accepted', data);
       });
 
+      this.socket.on('call:accepted-elsewhere', (data: any) => {
+        this.emit('call:accepted-elsewhere', data);
+      });
+
       this.socket.on('call:rejected', (data: any) => {
         this.emit('call:rejected', data);
       });
