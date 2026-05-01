@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
+import { Bell, X } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { useChatStore, setupChatSocketListeners } from '@/store/chatStore';
 import { setupPresenceSocketListeners } from '@/store/presenceStore';
+import { initializePushNotifications } from '@/services/pushService';
 import { socket } from '@/services/socket';
 import { api } from '@/services/api';
 import Sidebar from '@/components/sidebar/Sidebar';
@@ -41,6 +43,7 @@ export const ChatLayout: React.FC = () => {
   const [showPlanner, setShowPlanner] = useState(false);
   const [showOffice, setShowOffice] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
+  const [showPushBanner, setShowPushBanner] = useState(false);
   const [, setAnnouncementCount] = useState(0);
   const [taskCount, setTaskCount] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -79,6 +82,29 @@ export const ChatLayout: React.FC = () => {
       setShowWizard(true);
     }
   }, [user?.id]);
+
+  // Show push notification banner if permission not yet granted
+  useEffect(() => {
+    if (!isAuthenticated || !('Notification' in window) || !('PushManager' in window)) return;
+    const dismissed = localStorage.getItem('omnilink_push_banner_dismissed');
+    if (!dismissed && Notification.permission === 'default') {
+      setShowPushBanner(true);
+    }
+  }, [isAuthenticated]);
+
+  const handleEnablePush = async () => {
+    setShowPushBanner(false);
+    try {
+      await initializePushNotifications();
+    } catch (err) {
+      console.warn('[ChatLayout] Push init failed:', err);
+    }
+  };
+
+  const handleDismissPushBanner = () => {
+    setShowPushBanner(false);
+    localStorage.setItem('omnilink_push_banner_dismissed', 'true');
+  };
 
   // Reusable function to refresh task count
   const refreshTaskCount = async () => {
@@ -262,6 +288,19 @@ export const ChatLayout: React.FC = () => {
 
   return (
     <div className="h-[100dvh] bg-gray-50 dark:bg-surface-950 flex overflow-hidden flex-col md:flex-row">
+      {/* Push notification permission banner */}
+      {showPushBanner && (
+        <div className="absolute top-0 left-0 right-0 z-50 flex items-center gap-2 px-4 py-2 bg-primary-600 text-white text-sm">
+          <Bell className="w-4 h-4 flex-shrink-0" />
+          <span className="flex-1">Enable notifications to get alerts for calls and messages when this tab isn't active.</span>
+          <button onClick={handleEnablePush} className="px-3 py-1 bg-white text-primary-700 rounded font-medium text-xs hover:bg-primary-50">
+            Enable
+          </button>
+          <button onClick={handleDismissPushBanner} className="p-1 hover:bg-primary-700 rounded">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
       {/* Sidebar/Conversation List - Full screen on mobile when visible */}
       {shouldShowSidebar && !(isMobile && isSubPageOpen) && (
         <div className={isMobile ? 'w-full' : ''} style={isMobile && showBottomNav ? { height: 'calc(100% - 59px)' } : isMobile ? { height: '100%' } : undefined}>
