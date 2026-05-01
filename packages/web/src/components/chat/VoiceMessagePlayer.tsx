@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Play, Pause } from 'lucide-react';
 
 // ── Global single-playback: only one voice message plays at a time ──

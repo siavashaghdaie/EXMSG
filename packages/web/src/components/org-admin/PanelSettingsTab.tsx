@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Building2, Camera, Globe, Lock, Save, Loader, AlertCircle } from 'lucide-react';
 import { api } from '@/services/api';
 

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, Sparkles, X, Paperclip, Mic, Image as ImageIcon, ChevronLeft, Users, Eye, SlidersHorizontal, MessageSquare, ClipboardList, Megaphone, RefreshCw, CheckCircle2, XCircle, ArrowUpDown } from 'lucide-react';
 import { api, LindaConversationSummary, LindaMessageData, LindaActivity } from '@/services/api';
 import VoiceRecorder from '@/components/chat/VoiceRecorder';

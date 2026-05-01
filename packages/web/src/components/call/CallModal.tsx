@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Volume2, Volume1 } from 'lucide-react';
 import { callService } from '@/services/callService';
 import Avatar from '@/components/common/Avatar';
