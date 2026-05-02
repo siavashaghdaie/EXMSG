@@ -67,18 +67,20 @@ export const LoginPage: React.FC = () => {
     }
   }, [inviteEmail]);
 
-  const validateEmail = (email: string): boolean => {
+  const validateIdentifier = (value: string): boolean => {
+    // Accept either a valid email or a username (3+ chars, alphanumeric + underscore)
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
+    const usernameRegex = /^[a-zA-Z0-9_]{3,30}$/;
+    return emailRegex.test(value) || usernameRegex.test(value);
   };
 
   const validateForm = (): boolean => {
     const errors: FormErrors = {};
 
     if (!formData.email.trim()) {
-      errors.email = 'Email is required';
-    } else if (!validateEmail(formData.email)) {
-      errors.email = 'Please enter a valid email address';
+      errors.email = 'Email or username is required';
+    } else if (!validateIdentifier(formData.email)) {
+      errors.email = 'Please enter a valid email address or username';
     }
 
     if (!formData.password) {
@@ -203,12 +205,12 @@ export const LoginPage: React.FC = () => {
 
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl p-8 space-y-6 border border-gray-200 dark:border-gray-800">
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Email Input */}
+            {/* Email or Username Input */}
             <Input
-              type="email"
+              type="text"
               name="email"
-              label="Email address"
-              placeholder="you@example.com"
+              label="Email or username"
+              placeholder="you@example.com or username"
               value={formData.email}
               onChange={handleChange}
               onBlur={handleBlur}

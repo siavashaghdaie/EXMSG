@@ -73,6 +73,7 @@ async function bootstrap() {
   app.use('/api/auth', authRoutes);
   app.use('/api', superAdminRoutes);
   app.use('/api', interPanelRoutes);
+  app.use('/api', pushRoutes);       // Must be before messagingRoutes (has public endpoint)
   app.use('/api', messagingRoutes);
   app.use('/api/users', userRoutes);
   app.use('/api', lindaRoutes);
@@ -80,7 +81,6 @@ async function bootstrap() {
   app.use('/api', projectRoutes);
   app.use('/api', checklistRoutes);
   app.use('/api', callRoutes);
-  app.use('/api', pushRoutes);
   app.use('/api', adminRoutes);
   // IMPORTANT: orgAdminRoutes MUST be scoped to /api/org-admin so its
   // router.use(requireOrgAdmin) middleware does not leak to subsequent

@@ -430,11 +430,21 @@ export class AuthController {
 
   async login(req: Request, res: Response): Promise<void> {
     try {
-      const { email: rawEmail, password } = req.body as LoginInput;
-      const email = rawEmail.toLowerCase().trim();
+      const { email: rawIdentifier, password } = req.body as LoginInput;
+      const identifier = rawIdentifier.toLowerCase().trim();
+
+      // Determine if the user entered an email or a username
+      const isEmail = identifier.includes('@');
 
       const user = await prisma.user.findFirst({
-        where: { email: { equals: email, mode: 'insensitive' } },
+        where: isEmail
+          ? { email: { equals: identifier, mode: 'insensitive' } }
+          : {
+              OR: [
+                { username: { equals: identifier, mode: 'insensitive' } },
+                { email: { equals: identifier, mode: 'insensitive' } },
+              ],
+            },
         select: {
           id: true,
           email: true,

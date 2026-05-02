@@ -36,7 +36,9 @@ export const registerSchema = z.object({
 
 export const loginSchema = z.object({
   body: z.object({
-    email: z.string().email('Invalid email address'),
+    // Accept either a valid email or a username (non-email string).
+    // The controller will look up the user by email OR username.
+    email: z.string().min(1, 'Email or username is required'),
     password: z.string().min(1, 'Password is required'),
   }),
 });

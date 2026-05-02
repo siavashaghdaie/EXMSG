@@ -89,7 +89,7 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
     // Auto-join ALL conversation rooms so the user receives real-time events
     // This is more robust than relying on the client to join rooms
     try {
-      const userConversations = await prisma.conversationParticipant.findMany({
+      const userConversations = await prisma.conversationMember.findMany({
         where: { userId },
         select: { conversationId: true },
       });
@@ -191,7 +191,7 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
       try {
         const msg = data.message as any;
         if (msg?.content && msg?.senderId) {
-          const participants = await prisma.conversationParticipant.findMany({
+          const participants = await prisma.conversationMember.findMany({
             where: { conversationId: data.conversationId, userId: { not: msg.senderId } },
             select: { userId: true },
           });
