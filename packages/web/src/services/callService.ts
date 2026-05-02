@@ -231,8 +231,19 @@ class CallService {
         console.log('[Call] Ignoring call:ended — already idle');
         return;
       }
-      // System-initiated cleanup (enderId === 'system') always forces cleanup
+      // System-initiated cleanup (enderId === 'system')
       if (data?.enderId === 'system') {
+        // If we have a callId and it doesn't match, ignore (stale cleanup from a previous call)
+        if (data?.callId && this.state.callId && data.callId !== this.state.callId) {
+          console.log('[Call] Ignoring system call:ended — callId mismatch (ours:', this.state.callId, 'theirs:', data.callId, ')');
+          return;
+        }
+        // If we're in 'calling' state and don't have a callId yet, ignore —
+        // we just initiated a call and this is a stale cleanup from a previous call
+        if (this.state.status === 'calling' && !this.state.callId) {
+          console.log('[Call] Ignoring system call:ended — we just started calling and have no callId yet');
+          return;
+        }
         console.log('[Call] System-initiated call cleanup — forcing cleanup');
         this.cleanup();
         return;

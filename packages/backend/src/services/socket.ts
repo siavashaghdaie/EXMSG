@@ -352,10 +352,13 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
             },
             data: { status: 'ENDED', endedAt: new Date() },
           });
-          // Notify all parties of stale calls to clean up their UI
+          // Notify OTHER parties of stale calls to clean up their UI.
+          // Do NOT send to the current user (userId) — they are initiating a new
+          // call and would wrongly clean up their brand-new "calling" state because
+          // the system call:ended event bypasses callId checks.
           for (const staleCall of staleCalls) {
-            io.to(`user:${staleCall.callerId}`).emit('call:ended', { callId: staleCall.id, enderId: 'system' });
-            io.to(`user:${staleCall.calleeId}`).emit('call:ended', { callId: staleCall.id, enderId: 'system' });
+            const otherParty = staleCall.callerId === userId ? staleCall.calleeId : staleCall.callerId;
+            io.to(`user:${otherParty}`).emit('call:ended', { callId: staleCall.id, enderId: 'system' });
           }
         }
 
