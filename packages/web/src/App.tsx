@@ -18,6 +18,25 @@ import ChatLayout from '@/components/layout/ChatLayout';
 import ChatView from '@/components/chat/ChatView';
 import CallModal from '@/components/call/CallModal';
 
+/**
+ * Isolated component that handles push notification init.
+ * Extracted to its own component to ensure the minifier keeps
+ * `isAuthenticated` properly scoped (fixes blank-page bug).
+ */
+function PushNotificationInit() {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      initializePushNotifications().catch((err) => {
+        console.warn('[App] Push notification init failed (non-critical):', err);
+      });
+    }
+  }, [isAuthenticated]);
+
+  return null;
+}
+
 function App() {
   const { checkAuth, isAuthenticated, hasCheckedAuth } = useAuthStore();
   const {
@@ -40,15 +59,6 @@ function App() {
     }
   }, [isAuthenticated]);
 
-  // Initialize push notifications after authentication
-  useEffect(() => {
-    if (isAuthenticated) {
-      initializePushNotifications().catch(err => {
-        console.warn('[App] Push notification init failed (non-critical):', err);
-      });
-    }
-  }, [isAuthenticated]);
-
   // Only show the global spinner during the *initial* auth check.
   // After that, per-page loading states handle login/register/etc.
   if (!hasCheckedAuth || !hasCheckedSuperAdminAuth) {
@@ -64,6 +74,8 @@ function App() {
 
   return (
     <>
+    {/* Push notification init — isolated component for safe minification */}
+    <PushNotificationInit />
     {/* Global call overlay — always mounted when authenticated */}
     {isAuthenticated && <CallModal />}
 
