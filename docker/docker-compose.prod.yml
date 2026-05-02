@@ -91,6 +91,9 @@ services:
       S3_REGION: ${S3_REGION:-us-east-1}
       TURN_SERVER: ${TURN_SERVER:-}
       TURN_SECRET: ${TURN_SECRET:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
     volumes:
       - uploads_data:/app/uploads
     networks:
