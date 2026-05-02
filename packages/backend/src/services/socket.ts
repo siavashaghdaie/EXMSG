@@ -404,7 +404,7 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
         // Also confirm to the caller with the callId
         socket.emit('call:initiated', callData);
 
-        // Auto-expire the call after 45 seconds if not answered
+        // Auto-expire the call after 60 seconds if not answered
         setTimeout(async () => {
           try {
             const currentCall = await (prisma as any).call.findUnique({ where: { id: call.id } });
@@ -413,8 +413,11 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
                 where: { id: call.id },
                 data: { status: 'MISSED', endedAt: new Date() },
               });
+              // Notify BOTH sides so caller and receiver UIs clean up properly
               io.to(`user:${userId}`).emit('call:missed', { callId: call.id, targetUserId: data.targetUserId });
               io.to(`user:${data.targetUserId}`).emit('call:expired', { callId: call.id });
+              io.to(`user:${data.targetUserId}`).emit('call:ended', { callId: call.id, enderId: 'system' });
+              io.to(`user:${userId}`).emit('call:ended', { callId: call.id, enderId: 'system' });
 
               // Post "Missed call" system message in the conversation
               const callerName = caller?.displayName || caller?.username || 'Someone';
@@ -431,7 +434,7 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
           } catch (err) {
             console.error('[Call] Auto-expire error:', err);
           }
-        }, 45000);
+        }, 60000);
       } catch (err) {
         console.error('[Call] Initiate error:', err);
         socket.emit('call:error', { message: 'Failed to initiate call' });
@@ -505,13 +508,21 @@ export function initializeSocketServer(httpServer: HttpServer): Server {
         const call = await (prisma as any).call.findUnique({ where: { id: data.callId } });
         let duration = 0;
         if (call) {
+          // If the call was still RINGING (never answered), mark as MISSED instead of ENDED
+          const newStatus = call.status === 'RINGING' ? 'MISSED' : 'ENDED';
           duration = call.startedAt ? Math.round((Date.now() - new Date(call.startedAt).getTime()) / 1000) : 0;
           await (prisma as any).call.update({
             where: { id: data.callId },
-            data: { status: 'ENDED', endedAt: new Date(), duration },
+            data: { status: newStatus, endedAt: new Date(), duration },
           });
         }
+        // Notify the remote side that the call has ended
         io.to(`user:${data.targetUserId}`).emit('call:ended', {
+          callId: data.callId,
+          enderId: userId,
+        });
+        // Also notify the caller's own other devices/tabs
+        socket.broadcast.to(`user:${userId}`).emit('call:ended', {
           callId: data.callId,
           enderId: userId,
         });

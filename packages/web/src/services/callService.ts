@@ -27,20 +27,58 @@ function playRingtone(type: 'incoming' | 'outgoing') {
   stopRingtone();
   try {
     const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    gain.gain.value = 0.15;
-    osc.frequency.value = type === 'incoming' ? 440 : 480;
-    osc.type = 'sine';
-    osc.start();
 
-    const pulseInterval = setInterval(() => {
-      gain.gain.value = gain.gain.value > 0 ? 0 : 0.15;
-    }, type === 'incoming' ? 500 : 1500);
+    if (type === 'incoming') {
+      // Incoming: single 440 Hz tone pulsing 0.5s on / 0.5s off
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      gain.gain.value = 0.15;
+      osc.frequency.value = 440;
+      osc.type = 'sine';
+      osc.start();
 
-    (ringtoneAudio as any) = { stop: () => { osc.stop(); audioCtx.close(); clearInterval(pulseInterval); } };
+      const pulseInterval = setInterval(() => {
+        gain.gain.value = gain.gain.value > 0 ? 0 : 0.15;
+      }, 500);
+
+      (ringtoneAudio as any) = { stop: () => { osc.stop(); audioCtx.close(); clearInterval(pulseInterval); } };
+    } else {
+      // Outgoing: North American ringback tone — 440 Hz + 480 Hz dual tone
+      // Cadence: 2 seconds ON, 4 seconds OFF (clearly distinct from busy tone
+      // which is 480+620 Hz with 0.5s on / 0.5s off)
+      const osc1 = audioCtx.createOscillator();
+      const osc2 = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(audioCtx.destination);
+      gain.gain.value = 0.12;
+      osc1.frequency.value = 440;
+      osc2.frequency.value = 480;
+      osc1.type = 'sine';
+      osc2.type = 'sine';
+      osc1.start();
+      osc2.start();
+
+      // 2s on, 4s off cadence using recursive timeouts for accurate timing
+      let cadenceTimer: ReturnType<typeof setTimeout>;
+      const doCadence = (on: boolean) => {
+        gain.gain.value = on ? 0.12 : 0;
+        cadenceTimer = setTimeout(() => doCadence(!on), on ? 2000 : 4000);
+      };
+      doCadence(true);
+
+      (ringtoneAudio as any) = {
+        stop: () => {
+          clearTimeout(cadenceTimer);
+          osc1.stop();
+          osc2.stop();
+          audioCtx.close();
+        },
+      };
+    }
   } catch {}
 }
 

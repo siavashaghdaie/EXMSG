@@ -242,7 +242,7 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
 
   if (loading) {
     return (
-      <div className="w-80 border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex items-center justify-center">
+      <div className="absolute inset-0 z-30 md:relative md:inset-auto md:z-auto w-full md:w-80 md:border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex items-center justify-center">
         <div className="animate-spin w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full" />
       </div>
     );
@@ -262,7 +262,7 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
 
   if (showStarred) {
     return (
-      <div className="w-80 border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex flex-col h-full">
+      <div className="absolute inset-0 z-30 md:relative md:inset-auto md:z-auto w-full md:w-80 md:border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex flex-col h-full">
         <div className="flex items-center gap-2 p-4 border-b border-slate-200 dark:border-surface-700">
           <button onClick={() => setShowStarred(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-surface-700 rounded">
             <ChevronRight size={18} className="rotate-180 text-slate-600 dark:text-slate-400" />
@@ -288,7 +288,7 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
 
   if (showMedia) {
     return (
-      <div className="w-80 border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex flex-col h-full">
+      <div className="absolute inset-0 z-30 md:relative md:inset-auto md:z-auto w-full md:w-80 md:border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex flex-col h-full">
         <div className="flex items-center gap-2 p-4 border-b border-slate-200 dark:border-surface-700">
           <button onClick={() => setShowMedia(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-surface-700 rounded">
             <ChevronRight size={18} className="rotate-180 text-slate-600 dark:text-slate-400" />
@@ -346,7 +346,7 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
   // ============================================
   if (showWallpaperPicker) {
     return (
-      <div className="w-80 border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex flex-col h-full">
+      <div className="absolute inset-0 z-30 md:relative md:inset-auto md:z-auto w-full md:w-80 md:border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex flex-col h-full">
         <div className="flex items-center gap-2 p-4 border-b border-slate-200 dark:border-surface-700">
           <button onClick={() => setShowWallpaperPicker(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-surface-700 rounded">
             <ChevronRight size={18} className="rotate-180 text-slate-600 dark:text-slate-400" />
@@ -427,7 +427,7 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
   // ============================================
   if (showNotificationSound) {
     return (
-      <div className="w-80 border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex flex-col h-full">
+      <div className="absolute inset-0 z-30 md:relative md:inset-auto md:z-auto w-full md:w-80 md:border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex flex-col h-full">
         <div className="flex items-center gap-2 p-4 border-b border-slate-200 dark:border-surface-700">
           <button onClick={() => setShowNotificationSound(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-surface-700 rounded">
             <ChevronRight size={18} className="rotate-180 text-slate-600 dark:text-slate-400" />
@@ -467,7 +467,7 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
       { label: 'Never Save', value: 'never', desc: 'Don\'t auto-save media from this chat' },
     ];
     return (
-      <div className="w-80 border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex flex-col h-full">
+      <div className="absolute inset-0 z-30 md:relative md:inset-auto md:z-auto w-full md:w-80 md:border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex flex-col h-full">
         <div className="flex items-center gap-2 p-4 border-b border-slate-200 dark:border-surface-700">
           <button onClick={() => setShowSaveMedia(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-surface-700 rounded">
             <ChevronRight size={18} className="rotate-180 text-slate-600 dark:text-slate-400" />
@@ -509,7 +509,7 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
   // Main settings panel
   // ============================================
   return (
-    <div className="w-80 border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex flex-col h-full">
+    <div className="absolute inset-0 z-30 md:relative md:inset-auto md:z-auto w-full md:w-80 md:border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-surface-700">
         <h3 className="font-semibold text-slate-900 dark:text-white">Chat Settings</h3>

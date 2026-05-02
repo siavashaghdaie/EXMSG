@@ -240,8 +240,10 @@ export class AnnouncementController {
       const announcements = await db.announcement.findMany({
         where: {
           expiresAt: { gt: now },
-          // Strictly scope to the current workspace — no global fallback
-          ...(req.orgId ? { organizationId: req.orgId } : {}),
+          // Show org-scoped announcements AND global ones (organizationId is null)
+          ...(req.orgId
+            ? { OR: [{ organizationId: req.orgId }, { organizationId: null }] }
+            : {}),
         },
         include: includeClause,
         orderBy: [
@@ -364,10 +366,16 @@ export class AnnouncementController {
 
       let unnotedCount = 0;
 
+      // Build org filter consistent with getAll
+      const orgFilter = req.orgId
+        ? { OR: [{ organizationId: req.orgId }, { organizationId: null }] }
+        : {};
+
       if (hasReads) {
         const allAnnouncements = await db.announcement.findMany({
           where: {
             expiresAt: { gt: now },
+            ...orgFilter,
           },
           select: {
             id: true,
@@ -383,6 +391,7 @@ export class AnnouncementController {
         unnotedCount = await db.announcement.count({
           where: {
             expiresAt: { gt: now },
+            ...orgFilter,
           },
         });
       }

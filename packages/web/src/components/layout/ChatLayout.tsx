@@ -178,7 +178,12 @@ export const ChatLayout: React.FC = () => {
 
     const initializeChat = async () => {
       try {
-        // Ensure socket is connected before setting up listeners
+        // Setup socket listeners BEFORE connecting so no events are missed
+        // between the connect moment and listener registration
+        const unsubscribeChatListeners = setupChatSocketListeners();
+        const unsubscribePresenceListeners = setupPresenceSocketListeners();
+
+        // Now connect the socket
         const token = localStorage.getItem('accessToken');
         if (token && !socket.isConnected()) {
           try {
@@ -188,20 +193,16 @@ export const ChatLayout: React.FC = () => {
           }
         }
 
-        // Setup socket listeners for chat and presence
-        const unsubscribeChatListeners = setupChatSocketListeners();
-        const unsubscribePresenceListeners = setupPresenceSocketListeners();
-
         // Fetch conversations (this also joins all conversation rooms)
         await fetchConversations();
 
-        // Listen for socket reconnect — re-join all conversation rooms
+        // Listen for socket reconnect — re-fetch conversations to pick up
+        // any messages missed during the disconnect window
         const unsubscribeReconnect = socket.on('socket:reconnect', () => {
-          console.log('[ChatLayout] Socket reconnected, re-joining conversation rooms...');
-          const conversations = useChatStore.getState().conversations;
-          conversations.forEach((conv) => {
-            socket.joinConversation(conv.id);
-          });
+          console.log('[ChatLayout] Socket reconnected, refreshing conversations...');
+          // Room re-joins are handled automatically by SocketService.rejoinRooms()
+          // Re-fetch conversations to pick up any messages missed during disconnect
+          fetchConversations();
         });
 
         // Store cleanup function
