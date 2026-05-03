@@ -192,8 +192,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const unique = newMessages.filter(m => !existingIds.has(m.id));
           allMessages = [...unique, ...existingMessages];
         } else {
-          // Initial load — replace with fresh data
-          allMessages = newMessages;
+          // Initial load — replace with fresh data, but preserve client-side translations
+          // that were applied via socket real-time translate (in case backend response
+          // doesn't include them yet or arrives without translation fields)
+          const translationMap = new Map<string, { translatedContent?: string; translatedFrom?: string; translatedTo?: string }>();
+          existingMessages.forEach(m => {
+            if ((m as any).translatedContent) {
+              translationMap.set(m.id, {
+                translatedContent: (m as any).translatedContent,
+                translatedFrom: (m as any).translatedFrom,
+                translatedTo: (m as any).translatedTo,
+              });
+            }
+          });
+          allMessages = newMessages.map(m => {
+            const existing = translationMap.get(m.id);
+            // Keep client-side translation if server didn't return one
+            if (existing && !(m as any).translatedContent) {
+              return { ...m, ...existing };
+            }
+            return m;
+          });
         }
 
         const updated = new Map(state.messages);

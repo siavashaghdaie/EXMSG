@@ -313,7 +313,7 @@ export default function AgentsPage({ onClose, isEmbedded = false, initialAgentSl
                     <h3 className="font-semibold text-sm text-gray-900 dark:text-white truncate">{agent.name}</h3>
                     {agent.isMandatory && (
                       <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400 rounded text-[9px] font-medium flex-shrink-0">
-                        <Crown size={7} /> Core
+                        <Crown size={7} /> Mandatory
                       </span>
                     )}
                     {agent.isPopular && !agent.isMandatory && (
@@ -321,7 +321,7 @@ export default function AgentsPage({ onClose, isEmbedded = false, initialAgentSl
                         <Star size={7} className="fill-current" /> Popular
                       </span>
                     )}
-                    {!isHired && (
+                    {!isHired && !agent.isMandatory && (
                       <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-surface-700 text-slate-500 dark:text-slate-400 rounded text-[9px] font-medium flex-shrink-0">
                         Not hired
                       </span>
@@ -347,17 +347,16 @@ export default function AgentsPage({ onClose, isEmbedded = false, initialAgentSl
                       <SlidersHorizontal size={14} />
                     </button>
                   )}
-                  {/* Toggle switch (only for hired agents) */}
-                  {isHired && (
-                    agent.isMandatory ? (
-                      <div
-                        className="relative rounded-full bg-primary-600 opacity-70 cursor-not-allowed flex-shrink-0"
-                        style={{ width: 44, height: 24, minWidth: 44, boxSizing: 'border-box' }}
-                        title="Core agent — always active"
-                      >
-                        <div className="absolute bg-white rounded-full shadow-sm" style={{ width: 18, height: 18, top: 3, left: 23 }} />
-                      </div>
-                    ) : (
+                  {/* Toggle switch — mandatory agents always show ON + locked */}
+                  {agent.isMandatory ? (
+                    <div
+                      className="relative rounded-full bg-primary-600 opacity-70 cursor-not-allowed flex-shrink-0"
+                      style={{ width: 44, height: 24, minWidth: 44, boxSizing: 'border-box' }}
+                      title="Mandatory agent — always active"
+                    >
+                      <div className="absolute bg-white rounded-full shadow-sm" style={{ width: 18, height: 18, top: 3, left: 23 }} />
+                    </div>
+                  ) : isHired ? (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -373,8 +372,7 @@ export default function AgentsPage({ onClose, isEmbedded = false, initialAgentSl
                           style={{ width: 18, height: 18, top: 3, left: isEnabled ? 23 : 3, transition: 'left 0.2s ease' }}
                         />
                       </button>
-                    )
-                  )}
+                  ) : null}
                   <ChevronRight
                     size={14}
                     className={`text-gray-400 transition-transform flex-shrink-0 ${isExpanded ? 'rotate-90' : ''}`}

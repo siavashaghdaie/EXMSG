@@ -301,4 +301,31 @@ export async function seedAgents() {
   }
 
   console.log(`[Agents] Seeded ${presetAgents.length} preset agents`);
+
+  // Auto-hire mandatory agents for all existing organizations
+  const mandatoryAgents = await prisma.agent.findMany({ where: { isMandatory: true } });
+  if (mandatoryAgents.length > 0) {
+    const allOrgs = await prisma.organization.findMany({ select: { id: true } });
+    let autoHired = 0;
+    for (const org of allOrgs) {
+      for (const agent of mandatoryAgents) {
+        const existing = await prisma.orgAgent.findUnique({
+          where: { organizationId_agentId: { organizationId: org.id, agentId: agent.id } },
+        });
+        if (!existing) {
+          await prisma.orgAgent.create({
+            data: {
+              organizationId: org.id,
+              agentId: agent.id,
+              isEnabled: true,
+            },
+          });
+          autoHired++;
+        }
+      }
+    }
+    if (autoHired > 0) {
+      console.log(`[Agents] Auto-hired ${autoHired} mandatory agent(s) for organizations`);
+    }
+  }
 }

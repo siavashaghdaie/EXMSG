@@ -173,11 +173,6 @@ export default function ChatView() {
   useEffect(() => {
     if (conversationId) {
       fetchMessages(conversationId);
-      // Find conversation in list and set as active
-      const conv = conversations.find(c => c.id === conversationId);
-      if (conv) {
-        setActiveConversation(conv);
-      }
       // Preload translation settings for real-time message translation
       api.getChatSettings(conversationId).then((settings: any) => {
         if (settings) {
@@ -193,7 +188,18 @@ export default function ChatView() {
         }
       }).catch(() => {/* ignore — settings not available yet */});
     }
-  }, [conversationId, fetchMessages, conversations, setActiveConversation]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId]);
+
+  // Keep active conversation in sync with conversations list
+  useEffect(() => {
+    if (conversationId) {
+      const conv = conversations.find(c => c.id === conversationId);
+      if (conv) {
+        setActiveConversation(conv);
+      }
+    }
+  }, [conversationId, conversations, setActiveConversation]);
 
   // Handle scroll detection
   const handleScroll = () => {
