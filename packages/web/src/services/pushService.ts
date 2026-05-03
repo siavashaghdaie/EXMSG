@@ -45,7 +45,7 @@ export async function initializePushNotifications(): Promise<void> {
     // Subscribe to push
     const subscription = await swRegistration.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(publicKey),
+      applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
     });
 
     console.log('[Push] Subscribed successfully');
