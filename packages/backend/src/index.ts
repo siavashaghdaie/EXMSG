@@ -23,8 +23,10 @@ import { projectRoutes } from './modules/projects/project.routes';
 import { checklistRoutes } from './modules/checklists/checklist.routes';
 import { callRoutes } from './modules/calls/call.routes';
 import { pushRoutes } from './modules/push/push.routes';
+import { agentRoutes } from './modules/agents/agent.routes';
 import { initializePush } from './modules/push/pushService';
 import { initializeLinda } from './modules/linda/linda.controller';
+import { seedAgents } from './modules/agents/agent.controller';
 import { startTaskReminderJob } from './modules/tasks/taskReminder';
 import { resolveOrganization } from './middleware/orgScope';
 
@@ -81,6 +83,7 @@ async function bootstrap() {
   app.use('/api', projectRoutes);
   app.use('/api', checklistRoutes);
   app.use('/api', callRoutes);
+  app.use('/api', agentRoutes);
   app.use('/api', adminRoutes);
   // IMPORTANT: orgAdminRoutes MUST be scoped to /api/org-admin so its
   // router.use(requireOrgAdmin) middleware does not leak to subsequent
@@ -105,6 +108,9 @@ async function bootstrap() {
 
   // Initialize WebSocket
   initializeSocketServer(httpServer);
+
+  // Seed AI agent catalog
+  await seedAgents();
 
   // Initialize Linda bot (ensure she's online)
   await initializeLinda();

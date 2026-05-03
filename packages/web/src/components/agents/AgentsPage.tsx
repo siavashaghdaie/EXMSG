@@ -1,16 +1,36 @@
-import React, { useState } from 'react';
-import { Bot, MessageSquare, FileText, Search, Zap, Shield, Globe, Code, Plus, ChevronRight, X, Star, SlidersHorizontal } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  Bot, MessageSquare, FileText, Search, Zap, Shield, Globe, Code,
+  ChevronRight, X, Star, SlidersHorizontal, Crown, BarChart3,
+  UserPlus, UserMinus,
+} from 'lucide-react';
+import { api } from '../../services/api';
 
-interface Agent {
+interface AgentData {
   id: string;
+  slug: string;
   name: string;
+  role: string;
+  tagline: string | null;
   description: string;
+  category: string;
   capabilities: string[];
-  icon: React.ReactNode;
-  category: 'productivity' | 'communication' | 'analysis' | 'security';
-  color: string;
-  popular?: boolean;
-  mandatory?: boolean;
+  avatarUrl: string | null;
+  gradientFrom: string | null;
+  gradientTo: string | null;
+  iconName: string | null;
+  pricing: string;
+  isBuiltIn: boolean;
+  isMandatory: boolean;
+  isPopular: boolean;
+}
+
+interface OrgAgentData {
+  id: string;
+  agentId: string;
+  isEnabled: boolean;
+  settings: any;
+  agent: AgentData;
 }
 
 interface AgentsPageProps {
@@ -18,64 +38,16 @@ interface AgentsPageProps {
   isEmbedded?: boolean;
 }
 
-const AVAILABLE_AGENTS: Agent[] = [
-  {
-    id: 'linda',
-    name: 'Linda',
-    description: 'AI secretary that manages your conversations, schedules, and daily tasks with natural language understanding.',
-    capabilities: ['Message summarization', 'Meeting scheduling', 'Task delegation', 'Smart replies'],
-    icon: <Bot size={20} />,
-    category: 'productivity',
-    color: 'from-violet-500 to-blue-500',
-    mandatory: true,
-  },
-  {
-    id: 'analyst',
-    name: 'DataBot',
-    description: 'Analyzes conversations and documents to extract insights, trends, and actionable data for your team.',
-    capabilities: ['Conversation analytics', 'Sentiment analysis', 'Report generation', 'Trend detection'],
-    icon: <FileText size={20} />,
-    category: 'analysis',
-    color: 'from-emerald-500 to-teal-500',
-  },
-  {
-    id: 'translator',
-    name: 'LinguaBot',
-    description: 'Real-time message translation across 50+ languages with context-aware accuracy for global teams.',
-    capabilities: ['Real-time translation', 'Language detection', 'Cultural context', 'Multi-language threads'],
-    icon: <Globe size={20} />,
-    category: 'communication',
-    color: 'from-blue-500 to-cyan-500',
-    popular: true,
-  },
-  {
-    id: 'codebot',
-    name: 'CodeAssist',
-    description: 'Helps developers share, review, and discuss code snippets with syntax highlighting and AI suggestions.',
-    capabilities: ['Code review', 'Syntax highlighting', 'Bug detection', 'Documentation'],
-    icon: <Code size={20} />,
-    category: 'productivity',
-    color: 'from-orange-500 to-red-500',
-  },
-  {
-    id: 'guardian',
-    name: 'Guardian',
-    description: 'Monitors conversations for compliance, sensitive data leaks, and policy violations in real-time.',
-    capabilities: ['DLP monitoring', 'Compliance checks', 'Threat detection', 'Audit logging'],
-    icon: <Shield size={20} />,
-    category: 'security',
-    color: 'from-red-500 to-pink-500',
-  },
-  {
-    id: 'quickbot',
-    name: 'QuickReply',
-    description: 'Generates smart, context-aware reply suggestions to help you respond faster in busy conversations.',
-    capabilities: ['Smart suggestions', 'Tone adjustment', 'Template responses', 'Priority detection'],
-    icon: <Zap size={20} />,
-    category: 'communication',
-    color: 'from-amber-500 to-yellow-500',
-  },
-];
+const ICON_MAP: Record<string, React.ReactNode> = {
+  MessageSquare: <MessageSquare size={20} />,
+  Globe: <Globe size={20} />,
+  BarChart3: <BarChart3 size={20} />,
+  Code: <Code size={20} />,
+  Shield: <Shield size={20} />,
+  Zap: <Zap size={20} />,
+  FileText: <FileText size={20} />,
+  Bot: <Bot size={20} />,
+};
 
 const CATEGORIES = [
   { id: 'all', label: 'All' },
@@ -86,15 +58,48 @@ const CATEGORIES = [
 ];
 
 export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPageProps) {
+  const [catalog, setCatalog] = useState<AgentData[]>([]);
+  const [hiredAgents, setHiredAgents] = useState<OrgAgentData[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [enabledAgents, setEnabledAgents] = useState<Set<string>>(new Set(['linda']));
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [tuningAgent, setTuningAgent] = useState<string | null>(null);
   const [agentSettings, setAgentSettings] = useState<Record<string, { responsiveness: number; creativity: number; verbosity: number }>>({});
   const [isMobile] = useState(window.innerWidth < 768);
+  const [savingSettings, setSavingSettings] = useState(false);
 
-  const getAgentSetting = (agentId: string) => agentSettings[agentId] || { responsiveness: 70, creativity: 50, verbosity: 60 };
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      const [catalogData, hiredData] = await Promise.all([
+        api.getAgentCatalog(),
+        api.getHiredAgents(),
+      ]);
+      setCatalog(catalogData);
+      setHiredAgents(hiredData);
+      // Initialize settings from hired agents
+      const settings: Record<string, any> = {};
+      hiredData.forEach((ha: OrgAgentData) => {
+        if (ha.settings) {
+          settings[ha.agentId] = ha.settings;
+        }
+      });
+      setAgentSettings(settings);
+    } catch (err) {
+      console.error('Failed to load agents:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const hiredMap = new Map(hiredAgents.map(ha => [ha.agentId, ha]));
+
+  const getAgentSetting = (agentId: string) =>
+    agentSettings[agentId] || { responsiveness: 70, creativity: 50, verbosity: 60 };
 
   const updateAgentSetting = (agentId: string, key: string, value: number) => {
     setAgentSettings(prev => ({
@@ -103,7 +108,51 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
     }));
   };
 
-  const filteredAgents = AVAILABLE_AGENTS.filter((agent) => {
+  const saveAgentSettings = async (agentId: string) => {
+    setSavingSettings(true);
+    try {
+      await api.updateAgentSettings(agentId, { settings: getAgentSetting(agentId) });
+      setTuningAgent(null);
+    } catch (err) {
+      console.error('Failed to save settings:', err);
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const toggleAgent = async (agentId: string) => {
+    const hired = hiredMap.get(agentId);
+    if (!hired) return;
+    const agent = catalog.find(a => a.id === agentId);
+    if (agent?.isMandatory) return;
+
+    try {
+      const updated = await api.updateAgentSettings(agentId, { isEnabled: !hired.isEnabled });
+      setHiredAgents(prev => prev.map(ha => ha.agentId === agentId ? { ...ha, isEnabled: updated.isEnabled } : ha));
+    } catch (err) {
+      console.error('Failed to toggle agent:', err);
+    }
+  };
+
+  const handleHire = async (agentId: string) => {
+    try {
+      const result = await api.hireAgent(agentId);
+      setHiredAgents(prev => [...prev, result]);
+    } catch (err) {
+      console.error('Failed to hire agent:', err);
+    }
+  };
+
+  const handleFire = async (agentId: string) => {
+    try {
+      await api.fireAgent(agentId);
+      setHiredAgents(prev => prev.filter(ha => ha.agentId !== agentId));
+    } catch (err) {
+      console.error('Failed to fire agent:', err);
+    }
+  };
+
+  const filteredAgents = catalog.filter((agent) => {
     const matchesCategory = activeCategory === 'all' || agent.category === activeCategory;
     const matchesSearch =
       !searchQuery ||
@@ -112,23 +161,9 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
     return matchesCategory && matchesSearch;
   });
 
-  const toggleAgent = (agentId: string) => {
-    const agent = AVAILABLE_AGENTS.find(a => a.id === agentId);
-    if (agent?.mandatory) return; // Can't toggle mandatory agents
-    setEnabledAgents((prev) => {
-      const next = new Set(prev);
-      if (next.has(agentId)) {
-        next.delete(agentId);
-      } else {
-        next.add(agentId);
-      }
-      return next;
-    });
-  };
-
   const content = (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Header - only show when not embedded in settings */}
+      {/* Header */}
       {!isEmbedded && (
         <div className="flex items-center gap-3 p-3 border-b border-gray-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex-shrink-0">
           <div className="w-9 h-9 bg-gradient-to-br from-violet-500 to-blue-500 rounded-full flex items-center justify-center flex-shrink-0">
@@ -137,7 +172,7 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
           <div className="flex-1 min-w-0">
             <h2 className="font-semibold text-sm text-gray-900 dark:text-white">AI Agents</h2>
             <p className="text-[11px] text-gray-500 dark:text-gray-400">
-              {enabledAgents.size} active
+              {hiredAgents.filter(ha => ha.isEnabled).length} active of {hiredAgents.length} hired
             </p>
           </div>
           {onClose && (
@@ -168,7 +203,7 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
         </div>
       </div>
 
-      {/* Category Tabs — constrained with proper overflow */}
+      {/* Category Tabs */}
       <div className="px-3 pb-2 flex-shrink-0 overflow-hidden">
         <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-0.5 px-0.5" style={{ WebkitOverflowScrolling: 'touch' }}>
           {CATEGORIES.map((cat) => (
@@ -189,16 +224,25 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
 
       {/* Agent List */}
       <div className={`flex-1 overflow-y-auto px-3 space-y-2.5 ${isMobile && !isEmbedded ? 'pb-20' : 'pb-4'}`}>
-        {filteredAgents.map((agent) => {
-          const isEnabled = enabledAgents.has(agent.id);
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-16">
+            <div className="w-8 h-8 border-3 border-violet-500 border-t-transparent rounded-full animate-spin" />
+            <p className="mt-3 text-sm text-slate-500">Loading agents...</p>
+          </div>
+        ) : filteredAgents.map((agent) => {
+          const hired = hiredMap.get(agent.id);
+          const isEnabled = hired?.isEnabled ?? false;
+          const isHired = !!hired;
           const isExpanded = expandedAgent === agent.id;
 
           return (
             <div
               key={agent.id}
               className={`rounded-xl border transition-all overflow-hidden ${
-                isEnabled
+                isHired && isEnabled
                   ? 'border-primary-200 dark:border-primary-800 bg-primary-50/50 dark:bg-primary-900/10'
+                  : isHired
+                  ? 'border-gray-200 dark:border-surface-700 bg-gray-50 dark:bg-surface-800'
                   : 'border-gray-200 dark:border-surface-700 bg-white dark:bg-surface-800'
               }`}
             >
@@ -207,28 +251,38 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
                 className="flex items-center gap-2.5 p-3 cursor-pointer"
                 onClick={() => setExpandedAgent(isExpanded ? null : agent.id)}
               >
-                <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${agent.color} flex items-center justify-center flex-shrink-0`}>
-                  <span className="text-white">{agent.icon}</span>
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                  style={{
+                    background: `linear-gradient(135deg, ${agent.gradientFrom || '#8B5CF6'}, ${agent.gradientTo || '#6366F1'})`,
+                  }}
+                >
+                  <span className="text-white">{ICON_MAP[agent.iconName || 'Bot'] || <Bot size={20} />}</span>
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <h3 className="font-semibold text-sm text-gray-900 dark:text-white truncate">{agent.name}</h3>
-                    {agent.mandatory && (
-                      <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded text-[9px] font-medium flex-shrink-0">
-                        <Shield size={7} className="fill-current" /> Mandatory
+                    {agent.isMandatory && (
+                      <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400 rounded text-[9px] font-medium flex-shrink-0">
+                        <Crown size={7} /> Core
                       </span>
                     )}
-                    {agent.popular && !agent.mandatory && (
+                    {agent.isPopular && !agent.isMandatory && (
                       <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded text-[9px] font-medium flex-shrink-0">
                         <Star size={7} className="fill-current" /> Popular
                       </span>
                     )}
+                    {!isHired && (
+                      <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-surface-700 text-slate-500 dark:text-slate-400 rounded text-[9px] font-medium flex-shrink-0">
+                        Not hired
+                      </span>
+                    )}
                   </div>
-                  <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate mt-0.5">{agent.description}</p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate mt-0.5">{agent.role}</p>
                 </div>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
                   {/* Tuning button */}
-                  {isEnabled && (
+                  {isHired && isEnabled && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -244,40 +298,33 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
                       <SlidersHorizontal size={14} />
                     </button>
                   )}
-                  {/* Toggle switch */}
-                  {agent.mandatory ? (
-                    <div
-                      className="relative rounded-full bg-primary-600 opacity-70 cursor-not-allowed flex-shrink-0"
-                      style={{ width: 44, height: 24, minWidth: 44, boxSizing: 'border-box' }}
-                      title="Linda is mandatory and cannot be disabled"
-                    >
+                  {/* Toggle switch (only for hired agents) */}
+                  {isHired && (
+                    agent.isMandatory ? (
                       <div
-                        className="absolute bg-white rounded-full shadow-sm"
-                        style={{ width: 18, height: 18, top: 3, left: 23 }}
-                      />
-                    </div>
-                  ) : (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleAgent(agent.id);
-                      }}
-                      className={`relative rounded-full transition-colors flex-shrink-0 ${
-                        isEnabled ? 'bg-primary-600' : 'bg-gray-300 dark:bg-surface-600'
-                      }`}
-                      style={{ width: 44, height: 24, minWidth: 44, boxSizing: 'border-box' }}
-                    >
-                      <div
-                        className="absolute bg-white rounded-full shadow-sm"
-                        style={{
-                          width: 18,
-                          height: 18,
-                          top: 3,
-                          left: isEnabled ? 23 : 3,
-                          transition: 'left 0.2s ease',
+                        className="relative rounded-full bg-primary-600 opacity-70 cursor-not-allowed flex-shrink-0"
+                        style={{ width: 44, height: 24, minWidth: 44, boxSizing: 'border-box' }}
+                        title="Core agent — always active"
+                      >
+                        <div className="absolute bg-white rounded-full shadow-sm" style={{ width: 18, height: 18, top: 3, left: 23 }} />
+                      </div>
+                    ) : (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleAgent(agent.id);
                         }}
-                      />
-                    </button>
+                        className={`relative rounded-full transition-colors flex-shrink-0 ${
+                          isEnabled ? 'bg-primary-600' : 'bg-gray-300 dark:bg-surface-600'
+                        }`}
+                        style={{ width: 44, height: 24, minWidth: 44, boxSizing: 'border-box' }}
+                      >
+                        <div
+                          className="absolute bg-white rounded-full shadow-sm"
+                          style={{ width: 18, height: 18, top: 3, left: isEnabled ? 23 : 3, transition: 'left 0.2s ease' }}
+                        />
+                      </button>
+                    )
                   )}
                   <ChevronRight
                     size={14}
@@ -287,7 +334,7 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
               </div>
 
               {/* Tuning Panel */}
-              {tuningAgent === agent.id && isEnabled && (
+              {tuningAgent === agent.id && isHired && isEnabled && (
                 <div className="px-3 pb-3 border-t border-violet-100 dark:border-violet-900/30 pt-3 bg-gradient-to-b from-violet-50/50 to-transparent dark:from-violet-900/10 dark:to-transparent">
                   <div className="flex items-center gap-2 mb-3">
                     <SlidersHorizontal size={13} className="text-violet-600 dark:text-violet-400" />
@@ -302,7 +349,9 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
                       <div key={key}>
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-[11px] font-medium text-gray-700 dark:text-gray-300">{label}</span>
-                          <span className="text-[10px] text-violet-600 dark:text-violet-400 font-semibold">{getAgentSetting(agent.id)[key as keyof ReturnType<typeof getAgentSetting>]}%</span>
+                          <span className="text-[10px] text-violet-600 dark:text-violet-400 font-semibold">
+                            {getAgentSetting(agent.id)[key as keyof ReturnType<typeof getAgentSetting>]}%
+                          </span>
                         </div>
                         <input
                           type="range"
@@ -319,11 +368,12 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      setTuningAgent(null);
+                      saveAgentSettings(agent.id);
                     }}
-                    className="mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-medium transition"
+                    disabled={savingSettings}
+                    className="mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-medium transition disabled:opacity-50"
                   >
-                    Save Settings
+                    {savingSettings ? 'Saving...' : 'Save Settings'}
                   </button>
                 </div>
               )}
@@ -332,7 +382,7 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
               {isExpanded && tuningAgent !== agent.id && (
                 <div className="px-3 pb-3 border-t border-gray-100 dark:border-surface-700 pt-2.5">
                   <p className="text-[11px] text-gray-600 dark:text-gray-400 mb-2.5 leading-relaxed">{agent.description}</p>
-                  <div className="space-y-1.5">
+                  <div className="space-y-1.5 mb-3">
                     <p className="text-[9px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold">Capabilities</p>
                     <div className="flex flex-wrap gap-1">
                       {agent.capabilities.map((cap) => (
@@ -345,18 +395,29 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
                       ))}
                     </div>
                   </div>
-                  {isEnabled ? (
-                    <button className="mt-2.5 w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-medium transition">
-                      <MessageSquare size={13} />
-                      Add to Conversation
-                    </button>
+                  {isHired ? (
+                    !agent.isMandatory && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleFire(agent.id);
+                        }}
+                        className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg text-xs font-medium transition"
+                      >
+                        <UserMinus size={13} />
+                        Remove from Office
+                      </button>
+                    )
                   ) : (
                     <button
-                      onClick={() => toggleAgent(agent.id)}
-                      className="mt-2.5 w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-gray-100 dark:bg-surface-700 hover:bg-gray-200 dark:hover:bg-surface-600 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-medium transition"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleHire(agent.id);
+                      }}
+                      className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-medium transition"
                     >
-                      <Plus size={13} />
-                      Enable Agent
+                      <UserPlus size={13} />
+                      Hire Agent
                     </button>
                   )}
                 </div>
@@ -365,7 +426,7 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
           );
         })}
 
-        {filteredAgents.length === 0 && (
+        {!loading && filteredAgents.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <Search size={28} className="text-gray-300 dark:text-gray-600 mb-3" />
             <p className="text-sm text-gray-500 dark:text-gray-400">No agents found</p>

@@ -36,6 +36,7 @@ model Organization {
   announcements Announcement[]
   sentPanelRequests     InterPanelRequest[] @relation("SentPanelRequests")
   receivedPanelRequests InterPanelRequest[] @relation("ReceivedPanelRequests")
+  orgAgents             OrgAgent[]
 
   @@map("organizations")
 }
@@ -929,4 +930,57 @@ model PushSubscription {
   @@unique([userId, endpoint])
   @@index([userId])
   @@map("push_subscriptions")
+}
+
+// ============================================
+// AI AGENT MARKETPLACE
+// ============================================
+
+// Global catalog of available AI agents
+model Agent {
+  id          String   @id @default(uuid())
+  slug        String   @unique                // e.g. "transguy", "linda", "guardian"
+  name        String                          // Display name
+  role        String                          // e.g. "Real-Time Translator"
+  tagline     String?                         // Short marketing tagline
+  description String                          // Full description / bio
+  category    String   @default("productivity") // productivity | communication | analysis | security | creativity
+  capabilities String[]                       // Array of capability strings
+  avatarUrl   String?  @map("avatar_url")     // Agent profile picture
+  gradientFrom String? @map("gradient_from")  // CSS gradient start color
+  gradientTo   String? @map("gradient_to")    // CSS gradient end color
+  iconName     String? @map("icon_name")      // Lucide icon name fallback
+  pricing      String  @default("free")       // free | subscription | per-use
+  priceAmount  Float?  @map("price_amount")   // Monthly price if applicable
+  isBuiltIn    Boolean @default(false) @map("is_built_in") // System agents like Linda
+  isMandatory  Boolean @default(false) @map("is_mandatory") // Can't be fired (e.g. Linda)
+  isPopular    Boolean @default(false) @map("is_popular")
+  isActive     Boolean @default(true)  @map("is_active")   // Available in marketplace
+  sortOrder    Int     @default(0)     @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  orgAgents    OrgAgent[]
+
+  @@index([category])
+  @@index([isActive, sortOrder])
+  @@map("agents")
+}
+
+// Per-organization hired agents
+model OrgAgent {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  agentId        String   @map("agent_id")
+  isEnabled      Boolean  @default(true)  @map("is_enabled")
+  settings       Json?                     // Agent-specific tuning (responsiveness, creativity, etc.)
+  hiredAt        DateTime @default(now()) @map("hired_at")
+  hiredBy        String?  @map("hired_by") // userId who hired the agent
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent        Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, agentId])
+  @@index([organizationId])
+  @@map("org_agents")
 }

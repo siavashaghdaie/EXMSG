@@ -1506,6 +1506,32 @@ class APIClient {
   async pushUnsubscribe(endpoint: string): Promise<void> {
     await this.client.post('/push/unsubscribe', { endpoint });
   }
+
+  // ── Agent Marketplace ──────────────────────────────────────
+
+  async getAgentCatalog(): Promise<any[]> {
+    const res = await this.client.get('/agents/catalog');
+    return res.data;
+  }
+
+  async getHiredAgents(): Promise<any[]> {
+    const res = await this.client.get('/agents/hired');
+    return res.data;
+  }
+
+  async hireAgent(agentId: string): Promise<any> {
+    const res = await this.client.post(`/agents/${agentId}/hire`);
+    return res.data;
+  }
+
+  async fireAgent(agentId: string): Promise<void> {
+    await this.client.delete(`/agents/${agentId}/fire`);
+  }
+
+  async updateAgentSettings(agentId: string, data: { isEnabled?: boolean; settings?: any }): Promise<any> {
+    const res = await this.client.patch(`/agents/${agentId}/settings`, data);
+    return res.data;
+  }
 }
 
 // Export singleton instance
