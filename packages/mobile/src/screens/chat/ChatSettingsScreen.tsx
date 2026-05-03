@@ -21,6 +21,8 @@ export default function ChatSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [chatInfo, setChatInfo] = useState<any>(null);
   const [showDisappearing, setShowDisappearing] = useState(false);
+  const [showTranslateSettings, setShowTranslateSettings] = useState(false);
+  const [showLangPicker, setShowLangPicker] = useState<{ field: string; title: string; includeAll?: boolean; includeNone?: boolean } | null>(null);
   const [showReport, setShowReport] = useState(false);
   const [reportReason, setReportReason] = useState('');
   const [reportDetails, setReportDetails] = useState('');
@@ -225,21 +227,7 @@ export default function ChatSettingsScreen() {
             label="Auto-Translate"
             subtitle={settings.autoTranslate ? `To ${settings.translateLang || 'English'}` : 'Off'}
             colors={colors}
-            trailing={
-              <Switch
-                value={settings.autoTranslate}
-                onValueChange={(v) => {
-                  updateSetting('autoTranslate', v);
-                  if (v && !settings.translateLang) {
-                    Alert.prompt?.('Translate to which language?', '', (lang: string) => {
-                      if (lang) updateSetting('translateLang', lang);
-                    }) || updateSetting('translateLang', 'English');
-                  }
-                }}
-                trackColor={{ false: '#ccc', true: colors.primary + '80' }}
-                thumbColor={settings.autoTranslate ? colors.primary : '#f4f3f4'}
-              />
-            }
+            onPress={() => setShowTranslateSettings(true)}
           />
         </View>
 
@@ -390,6 +378,147 @@ export default function ChatSettingsScreen() {
               </TouchableOpacity>
             ))}
             <TouchableOpacity style={styles.modalCancel} onPress={() => setShowDisappearing(false)}>
+              <Text style={{ color: colors.primary, fontWeight: '600' }}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Auto-Translate Settings Modal */}
+      <Modal visible={showTranslateSettings} animationType="slide">
+        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+            <TouchableOpacity onPress={() => setShowTranslateSettings(false)} style={{ marginRight: 12 }}>
+              <Ionicons name="arrow-back" size={24} color={colors.text} />
+            </TouchableOpacity>
+            <Ionicons name="language-outline" size={20} color={colors.primary} style={{ marginRight: 8 }} />
+            <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text }}>Auto-Translate</Text>
+          </View>
+          <ScrollView style={{ flex: 1, padding: 16 }}>
+            {/* Master Toggle */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.card, borderRadius: 12, padding: 16, marginBottom: 20 }}>
+              <View style={{ flex: 1, marginRight: 12 }}>
+                <Text style={{ fontSize: 15, fontWeight: '600', color: colors.text }}>Enable Auto-Translate</Text>
+                <Text style={{ fontSize: 12, color: colors.textSecondary, marginTop: 2 }}>
+                  {settings.autoTranslate ? 'Translation is active' : 'Translation is off'}
+                </Text>
+              </View>
+              <Switch
+                value={settings.autoTranslate}
+                onValueChange={(v) => {
+                  updateSetting('autoTranslate', v);
+                  if (v && !settings.translateLang) updateSetting('translateLang', 'English');
+                }}
+                trackColor={{ false: '#ccc', true: colors.primary + '80' }}
+                thumbColor={settings.autoTranslate ? colors.primary : '#f4f3f4'}
+              />
+            </View>
+
+            {settings.autoTranslate && (
+              <>
+                {/* Show messages in */}
+                <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', marginBottom: 8 }}>
+                  Show me all messages in
+                </Text>
+                <TouchableOpacity
+                  style={{ backgroundColor: colors.card, borderRadius: 12, padding: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}
+                  onPress={() => setShowLangPicker({ field: 'translateLang', title: 'Show Messages In' })}
+                >
+                  <Text style={{ fontSize: 15, color: colors.text }}>{settings.translateLang || 'English'}</Text>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+                </TouchableOpacity>
+                <Text style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 20 }}>
+                  Incoming messages will be translated to this language
+                </Text>
+
+                {/* Translate my messages */}
+                <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 16, marginBottom: 8 }}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', marginBottom: 4 }}>
+                    Translate my messages (optional)
+                  </Text>
+                  <Text style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 12 }}>
+                    If enabled, your outgoing messages will be translated before sending.
+                  </Text>
+                </View>
+
+                <Text style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 4 }}>From</Text>
+                <TouchableOpacity
+                  style={{ backgroundColor: colors.card, borderRadius: 12, padding: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}
+                  onPress={() => setShowLangPicker({ field: 'translateMyFrom', title: 'Translate From', includeAll: true, includeNone: true })}
+                >
+                  <Text style={{ fontSize: 15, color: settings.translateMyFrom ? colors.text : colors.textSecondary }}>
+                    {settings.translateMyFrom === 'all' ? 'All Languages (auto-detect)' : settings.translateMyFrom || "Don't translate my messages"}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+                </TouchableOpacity>
+
+                {settings.translateMyFrom && (
+                  <>
+                    <Text style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 4 }}>To</Text>
+                    <TouchableOpacity
+                      style={{ backgroundColor: colors.card, borderRadius: 12, padding: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}
+                      onPress={() => setShowLangPicker({ field: 'translateMyTo', title: 'Translate To' })}
+                    >
+                      <Text style={{ fontSize: 15, color: settings.translateMyTo ? colors.text : colors.textSecondary }}>
+                        {settings.translateMyTo || 'Select language...'}
+                      </Text>
+                      <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+                    </TouchableOpacity>
+                  </>
+                )}
+              </>
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Language Picker Modal */}
+      <Modal visible={!!showLangPicker} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card, maxHeight: '70%' }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>{showLangPicker?.title}</Text>
+            <ScrollView style={{ maxHeight: 400 }}>
+              {showLangPicker?.includeNone && (
+                <TouchableOpacity
+                  style={[styles.modalOption, !settings[showLangPicker.field] && { backgroundColor: colors.primary + '20' }]}
+                  onPress={() => { updateSetting(showLangPicker!.field, null); setShowLangPicker(null); }}
+                >
+                  <Text style={{ color: !settings[showLangPicker.field] ? colors.primary : colors.text }}>
+                    Don't translate my messages
+                  </Text>
+                  {!settings[showLangPicker.field] && <Ionicons name="checkmark" size={20} color={colors.primary} />}
+                </TouchableOpacity>
+              )}
+              {showLangPicker?.includeAll && (
+                <TouchableOpacity
+                  style={[styles.modalOption, settings[showLangPicker.field] === 'all' && { backgroundColor: colors.primary + '20' }]}
+                  onPress={() => { updateSetting(showLangPicker!.field, 'all'); setShowLangPicker(null); }}
+                >
+                  <Text style={{ color: settings[showLangPicker.field] === 'all' ? colors.primary : colors.text }}>
+                    All Languages (auto-detect)
+                  </Text>
+                  {settings[showLangPicker.field] === 'all' && <Ionicons name="checkmark" size={20} color={colors.primary} />}
+                </TouchableOpacity>
+              )}
+              {['English', 'Spanish', 'French', 'German', 'Italian', 'Portuguese', 'Russian',
+                'Chinese', 'Japanese', 'Korean', 'Arabic', 'Hindi', 'Turkish', 'Dutch',
+                'Swedish', 'Polish', 'Thai', 'Vietnamese', 'Indonesian', 'Malay', 'Filipino',
+                'Hebrew', 'Czech', 'Romanian', 'Hungarian', 'Greek', 'Danish', 'Finnish',
+                'Norwegian', 'Ukrainian', 'Persian', 'Bengali', 'Urdu', 'Swahili'].map(lang => {
+                const isActive = showLangPicker && settings[showLangPicker.field] === lang;
+                return (
+                  <TouchableOpacity
+                    key={lang}
+                    style={[styles.modalOption, isActive && { backgroundColor: colors.primary + '20' }]}
+                    onPress={() => { updateSetting(showLangPicker!.field, lang); setShowLangPicker(null); }}
+                  >
+                    <Text style={{ color: isActive ? colors.primary : colors.text }}>{lang}</Text>
+                    {isActive && <Ionicons name="checkmark" size={20} color={colors.primary} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <TouchableOpacity style={styles.modalCancel} onPress={() => setShowLangPicker(null)}>
               <Text style={{ color: colors.primary, fontWeight: '600' }}>Cancel</Text>
             </TouchableOpacity>
           </View>

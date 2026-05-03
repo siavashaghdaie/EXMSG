@@ -201,7 +201,9 @@ model ConversationMember {
   isLocked       Boolean        @default(false) @map("is_locked") // Lock chat (hide behind biometrics)
   isFavorite     Boolean        @default(false) @map("is_favorite")
   autoTranslate  Boolean        @default(false) @map("auto_translate")
-  translateLang  String?        @map("translate_lang") // Target language for auto-translate
+  translateLang  String?        @map("translate_lang") // Target language for auto-translate (show messages in)
+  translateMyFrom String?       @map("translate_my_from") // Translate my outgoing messages from this language (null or "all")
+  translateMyTo  String?        @map("translate_my_to") // Translate my outgoing messages to this language
   customNotificationSound String? @map("custom_notification_sound")
   chatWallpaper  String?        @map("chat_wallpaper") // CSS color or image URL
   saveMedia      String         @default("default") @map("save_media") // "default", "always", "never"

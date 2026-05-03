@@ -51,6 +51,14 @@ const NOTIFICATION_SOUNDS = [
   { label: 'None', value: 'none' },
 ];
 
+const LANGUAGES = [
+  'English', 'Spanish', 'French', 'German', 'Italian', 'Portuguese', 'Russian',
+  'Chinese', 'Japanese', 'Korean', 'Arabic', 'Hindi', 'Turkish', 'Dutch',
+  'Swedish', 'Polish', 'Thai', 'Vietnamese', 'Indonesian', 'Malay', 'Filipino',
+  'Hebrew', 'Czech', 'Romanian', 'Hungarian', 'Greek', 'Danish', 'Finnish',
+  'Norwegian', 'Ukrainian', 'Persian', 'Bengali', 'Urdu', 'Swahili',
+];
+
 export default function ChatSettingsPanel({ conversationId, onClose, onNavigateToChat }: ChatSettingsPanelProps) {
   const [loading, setLoading] = useState(true);
   const [chatInfo, setChatInfo] = useState<any>(null);
@@ -66,6 +74,7 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
   const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
   const [showNotificationSound, setShowNotificationSound] = useState(false);
   const [showSaveMedia, setShowSaveMedia] = useState(false);
+  const [showTranslateSettings, setShowTranslateSettings] = useState(false);
   const [showLockChat, setShowLockChat] = useState(false);
   const [lockPin, setLockPin] = useState('');
   const [lockPinConfirm, setLockPinConfirm] = useState('');
@@ -506,6 +515,107 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
   }
 
   // ============================================
+  // Auto-Translate Settings Sub-page
+  // ============================================
+  if (showTranslateSettings) {
+    return (
+      <div className="absolute inset-0 z-30 md:relative md:inset-auto md:z-auto w-full md:w-80 md:border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex flex-col h-full">
+        <div className="flex items-center gap-2 p-4 border-b border-slate-200 dark:border-surface-700">
+          <button onClick={() => setShowTranslateSettings(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-surface-700 rounded">
+            <ChevronRight size={18} className="rotate-180 text-slate-600 dark:text-slate-400" />
+          </button>
+          <Languages size={18} className="text-blue-500" />
+          <h3 className="font-semibold text-slate-900 dark:text-white">Auto-Translate</h3>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-5">
+          {/* Master Toggle */}
+          <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-surface-800 rounded-xl">
+            <div>
+              <p className="text-sm font-medium text-slate-800 dark:text-slate-200">Enable Auto-Translate</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                {settings.autoTranslate ? 'Translation is active' : 'Translation is off'}
+              </p>
+            </div>
+            <ToggleSwitch
+              value={settings.autoTranslate}
+              onChange={(v) => {
+                updateSetting('autoTranslate', v);
+                if (v && !settings.translateLang) {
+                  updateSetting('translateLang', 'English');
+                }
+              }}
+            />
+          </div>
+
+          {settings.autoTranslate && (
+            <>
+              {/* Show all messages in language */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-2">
+                  Show me all messages in
+                </label>
+                <select
+                  value={settings.translateLang || 'English'}
+                  onChange={(e) => updateSetting('translateLang', e.target.value)}
+                  className="w-full px-3 py-2.5 bg-white dark:bg-surface-800 border border-slate-200 dark:border-surface-600 rounded-xl text-sm text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                >
+                  {LANGUAGES.map((lang) => (
+                    <option key={lang} value={lang}>{lang}</option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1.5">
+                  Incoming messages will be translated to this language
+                </p>
+              </div>
+
+              {/* Translate my messages (optional) */}
+              <div className="border-t border-slate-200 dark:border-surface-700 pt-4">
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-2">
+                  Translate my messages (optional)
+                </label>
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-3">
+                  If enabled, your outgoing messages will be translated before sending. Leave "from" as "All Languages" for auto-detection.
+                </p>
+                <div className="space-y-3">
+                  <div>
+                    <span className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">From</span>
+                    <select
+                      value={settings.translateMyFrom || ''}
+                      onChange={(e) => updateSetting('translateMyFrom', e.target.value || null)}
+                      className="w-full px-3 py-2.5 bg-white dark:bg-surface-800 border border-slate-200 dark:border-surface-600 rounded-xl text-sm text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                    >
+                      <option value="">Don't translate my messages</option>
+                      <option value="all">All Languages (auto-detect)</option>
+                      {LANGUAGES.map((lang) => (
+                        <option key={lang} value={lang}>{lang}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {settings.translateMyFrom && (
+                    <div>
+                      <span className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">To</span>
+                      <select
+                        value={settings.translateMyTo || ''}
+                        onChange={(e) => updateSetting('translateMyTo', e.target.value || null)}
+                        className="w-full px-3 py-2.5 bg-white dark:bg-surface-800 border border-slate-200 dark:border-surface-600 rounded-xl text-sm text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                      >
+                        <option value="">Select language...</option>
+                        {LANGUAGES.map((lang) => (
+                          <option key={lang} value={lang}>{lang}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================
   // Main settings panel
   // ============================================
   return (
@@ -621,18 +731,7 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
             icon={<Languages size={18} className={settings.autoTranslate ? 'text-blue-500' : 'text-slate-500'} />}
             label="Auto-Translate"
             subtitle={settings.autoTranslate ? `Translating to ${settings.translateLang || 'English'}` : 'Off'}
-            trailing={
-              <ToggleSwitch
-                value={settings.autoTranslate}
-                onChange={(v) => {
-                  updateSetting('autoTranslate', v);
-                  if (v && !settings.translateLang) {
-                    const lang = prompt('Translate messages to which language?', 'English');
-                    if (lang) updateSetting('translateLang', lang);
-                  }
-                }}
-              />
-            }
+            onClick={() => setShowTranslateSettings(true)}
           />
 
           {/* Disappearing Messages */}

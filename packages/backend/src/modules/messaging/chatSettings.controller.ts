@@ -35,6 +35,8 @@ export class ChatSettingsController {
         isFavorite: member.isFavorite,
         autoTranslate: member.autoTranslate,
         translateLang: member.translateLang,
+        translateMyFrom: member.translateMyFrom,
+        translateMyTo: member.translateMyTo,
         customNotificationSound: member.customNotificationSound,
         chatWallpaper: member.chatWallpaper,
         saveMedia: member.saveMedia,
@@ -53,8 +55,8 @@ export class ChatSettingsController {
       const { conversationId } = req.params;
       const {
         isMuted, muteUntil, isPinned, isLocked, isFavorite,
-        autoTranslate, translateLang, customNotificationSound,
-        chatWallpaper, saveMedia,
+        autoTranslate, translateLang, translateMyFrom, translateMyTo,
+        customNotificationSound, chatWallpaper, saveMedia,
       } = req.body;
 
       const member = await prisma.conversationMember.findUnique({
@@ -73,6 +75,8 @@ export class ChatSettingsController {
       if (isFavorite !== undefined) data.isFavorite = isFavorite;
       if (autoTranslate !== undefined) data.autoTranslate = autoTranslate;
       if (translateLang !== undefined) data.translateLang = translateLang;
+      if (translateMyFrom !== undefined) data.translateMyFrom = translateMyFrom;
+      if (translateMyTo !== undefined) data.translateMyTo = translateMyTo;
       if (customNotificationSound !== undefined) data.customNotificationSound = customNotificationSound;
       if (chatWallpaper !== undefined) data.chatWallpaper = chatWallpaper;
       if (saveMedia !== undefined) data.saveMedia = saveMedia;
@@ -599,6 +603,8 @@ export class ChatSettingsController {
           isFavorite: member.isFavorite,
           autoTranslate: member.autoTranslate,
           translateLang: member.translateLang,
+          translateMyFrom: member.translateMyFrom,
+          translateMyTo: member.translateMyTo,
           customNotificationSound: member.customNotificationSound,
           chatWallpaper: member.chatWallpaper,
           saveMedia: member.saveMedia,
