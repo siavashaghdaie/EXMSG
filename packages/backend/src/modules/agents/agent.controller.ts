@@ -21,9 +21,10 @@ export class AgentController {
   // GET /agents/hired — list agents hired by the current org
   async getHiredAgents(req: Request, res: Response) {
     try {
-      const orgId = (req as any).organizationId;
+      const orgId = (req as any).orgId;
       if (!orgId) {
-        return res.status(400).json({ error: 'Organization context required' });
+        // No org context — return empty array instead of error
+        return res.json([]);
       }
 
       const orgAgents = await prisma.orgAgent.findMany({
@@ -45,8 +46,8 @@ export class AgentController {
   async hireAgent(req: Request, res: Response) {
     try {
       const { agentId } = req.params;
-      const orgId = (req as any).organizationId;
-      const userId = (req as any).userId;
+      const orgId = (req as any).orgId;
+      const userId = req.user?.userId;
 
       if (!orgId) {
         return res.status(400).json({ error: 'Organization context required' });
@@ -87,7 +88,7 @@ export class AgentController {
   async fireAgent(req: Request, res: Response) {
     try {
       const { agentId } = req.params;
-      const orgId = (req as any).organizationId;
+      const orgId = (req as any).orgId;
 
       if (!orgId) {
         return res.status(400).json({ error: 'Organization context required' });
@@ -121,7 +122,7 @@ export class AgentController {
   async updateSettings(req: Request, res: Response) {
     try {
       const { agentId } = req.params;
-      const orgId = (req as any).organizationId;
+      const orgId = (req as any).orgId;
       const { isEnabled, settings } = req.body;
 
       if (!orgId) {

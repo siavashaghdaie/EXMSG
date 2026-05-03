@@ -88,20 +88,33 @@ export default function AgentsPage({ onClose, isEmbedded = false, initialAgentSl
 
   const loadData = async () => {
     try {
-      const [catalogData, hiredData] = await Promise.all([
+      // Load catalog and hired agents independently so one failure doesn't block the other
+      const [catalogResult, hiredResult] = await Promise.allSettled([
         api.getAgentCatalog(),
         api.getHiredAgents(),
       ]);
-      setCatalog(catalogData);
-      setHiredAgents(hiredData);
-      // Initialize settings from hired agents
-      const settings: Record<string, any> = {};
-      hiredData.forEach((ha: OrgAgentData) => {
-        if (ha.settings) {
-          settings[ha.agentId] = ha.settings;
-        }
-      });
-      setAgentSettings(settings);
+
+      if (catalogResult.status === 'fulfilled') {
+        setCatalog(catalogResult.value);
+      } else {
+        console.error('Failed to load agent catalog:', catalogResult.reason);
+      }
+
+      if (hiredResult.status === 'fulfilled') {
+        const hiredData = hiredResult.value;
+        setHiredAgents(Array.isArray(hiredData) ? hiredData : []);
+        // Initialize settings from hired agents
+        const settings: Record<string, any> = {};
+        (Array.isArray(hiredData) ? hiredData : []).forEach((ha: OrgAgentData) => {
+          if (ha.settings) {
+            settings[ha.agentId] = ha.settings;
+          }
+        });
+        setAgentSettings(settings);
+      } else {
+        console.error('Failed to load hired agents:', hiredResult.reason);
+        setHiredAgents([]);
+      }
     } catch (err) {
       console.error('Failed to load agents:', err);
     } finally {
