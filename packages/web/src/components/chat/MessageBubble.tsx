@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { format } from 'date-fns';
-import { Check, CheckCheck, Volume2 } from 'lucide-react';
+import { Check, CheckCheck, Volume2, Globe } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { MessageResponse } from '@/services/api';
@@ -359,10 +359,11 @@ export default function MessageBubble({
                   <>
                     <div className="flex items-end gap-1">
                       <div className="flex-1">
-                        <div className="break-words text-[13px] leading-snug">
-                          {message.sender?.username === 'linda'
-                            ? formatMarkdown(message.content)
-                            : linkifyText(message.content).map((part, i) =>
+                        {/* Translated content (shown first when available) */}
+                        {message.translatedContent && (
+                          <>
+                            <div className="break-words text-[13px] leading-snug">
+                              {linkifyText(message.translatedContent).map((part, i) =>
                                 typeof part === 'string'
                                   ? part
                                   : (
@@ -380,9 +381,53 @@ export default function MessageBubble({
                                       {part.url}
                                     </a>
                                   )
-                              )
-                          }
-                        </div>
+                              )}
+                            </div>
+                            {/* Language badge + original text */}
+                            <div className={`flex items-center gap-1 mt-1 pt-1 border-t ${
+                              isOwnMessage ? 'border-blue-400/30' : 'border-slate-200 dark:border-slate-600'
+                            }`}>
+                              <Globe size={10} className={isOwnMessage ? 'text-blue-200/60' : 'text-emerald-500/60'} />
+                              <span className={`text-[10px] uppercase font-medium ${
+                                isOwnMessage ? 'text-blue-200/60' : 'text-emerald-500/60'
+                              }`}>
+                                {message.translatedFrom || 'auto'}
+                              </span>
+                            </div>
+                            <div className={`break-words text-[11px] leading-snug mt-0.5 ${
+                              isOwnMessage ? 'text-blue-100/50' : 'text-slate-400 dark:text-slate-500'
+                            }`}>
+                              {message.content}
+                            </div>
+                          </>
+                        )}
+                        {/* Original content (shown when no translation) */}
+                        {!message.translatedContent && (
+                          <div className="break-words text-[13px] leading-snug">
+                            {message.sender?.username === 'linda'
+                              ? formatMarkdown(message.content)
+                              : linkifyText(message.content).map((part, i) =>
+                                  typeof part === 'string'
+                                    ? part
+                                    : (
+                                      <a
+                                        key={i}
+                                        href={part.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className={`underline transition ${
+                                          isOwnMessage
+                                            ? 'text-blue-100 hover:text-white'
+                                            : 'text-blue-500 hover:text-blue-600'
+                                        }`}
+                                      >
+                                        {part.url}
+                                      </a>
+                                    )
+                                )
+                            }
+                          </div>
+                        )}
                       </div>
                       {/* Voice button for Linda's messages */}
                       {message.sender?.username === 'linda' && message.content && (

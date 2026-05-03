@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { format, isToday, isYesterday } from 'date-fns';
-import { ArrowDown, ChevronLeft, Phone, Video, Eye, SlidersHorizontal, MessageSquare, ClipboardList, Megaphone, ArrowUpDown, RefreshCw, CheckCircle2, XCircle, Sparkles, Bot, X, Settings2 } from 'lucide-react';
-import { useChatStore } from '@/store/chatStore';
+import { ArrowDown, ChevronLeft, Phone, Video, Eye, SlidersHorizontal, MessageSquare, ClipboardList, Megaphone, ArrowUpDown, RefreshCw, CheckCircle2, XCircle, Sparkles, Bot, X, Settings2, Globe } from 'lucide-react';
+import { useChatStore, setTranslationSettings } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { MessageResponse, ConversationResponse, api, UserStatusGroup, LindaActivity } from '@/services/api';
 import MessageBubble from './MessageBubble';
@@ -53,6 +53,10 @@ export default function ChatView() {
 
   // Chat settings panel
   const [showChatSettings, setShowChatSettings] = useState(false);
+
+  // Translation active indicator
+  const [translationActive, setTranslationActive] = useState(false);
+  const [translateLangName, setTranslateLangName] = useState('');
 
   // Contact stories for header story ring
   const [contactStories, setContactStories] = useState<UserStatusGroup[]>([]);
@@ -174,6 +178,20 @@ export default function ChatView() {
       if (conv) {
         setActiveConversation(conv);
       }
+      // Preload translation settings for real-time message translation
+      api.getChatSettings(conversationId).then((settings: any) => {
+        if (settings) {
+          setTranslationSettings(
+            conversationId,
+            settings.autoTranslate,
+            settings.translateLang,
+            settings.translateMyFrom,
+            settings.translateMyTo,
+          );
+          setTranslationActive(settings.autoTranslate === true && !!settings.translateLang);
+          setTranslateLangName(settings.translateLang || '');
+        }
+      }).catch(() => {/* ignore — settings not available yet */});
     }
   }, [conversationId, fetchMessages, conversations, setActiveConversation]);
 
@@ -465,6 +483,18 @@ export default function ChatView() {
               conversationId={conversationId}
               onBuzz={sendBuzz}
             />
+            {/* TransGuy translation indicator */}
+            {translationActive && (
+              <div
+                className="flex items-center gap-1 px-2 py-1 bg-emerald-50 dark:bg-emerald-900/30 rounded-lg border border-emerald-200 dark:border-emerald-700/50"
+                title={`TransGuy is translating to ${translateLangName.toUpperCase()}`}
+              >
+                <Globe size={14} className="text-emerald-500" />
+                <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase hidden sm:inline">
+                  {translateLangName}
+                </span>
+              </div>
+            )}
             <button
               onClick={() => {
                 if (conversation) {
@@ -782,6 +812,11 @@ export default function ChatView() {
           onNavigateToChat={(id) => {
             setShowChatSettings(false);
             navigate(`/chat/${id}`);
+          }}
+          onNavigateToAgents={(agentSlug) => {
+            setShowChatSettings(false);
+            // Dispatch custom event that ChatLayout listens for
+            window.dispatchEvent(new CustomEvent('navigate-to-agent', { detail: { agentSlug } }));
           }}
         />
       )}

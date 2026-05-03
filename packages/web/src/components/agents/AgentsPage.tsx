@@ -5,6 +5,7 @@ import {
   UserPlus, UserMinus,
 } from 'lucide-react';
 import { api } from '../../services/api';
+import AgentHiringPage from './AgentHiringPage';
 
 interface AgentData {
   id: string;
@@ -36,6 +37,7 @@ interface OrgAgentData {
 interface AgentsPageProps {
   onClose?: () => void;
   isEmbedded?: boolean;
+  initialAgentSlug?: string; // Navigate directly to this agent's hiring page
 }
 
 const ICON_MAP: Record<string, React.ReactNode> = {
@@ -57,13 +59,14 @@ const CATEGORIES = [
   { id: 'security', label: 'Security' },
 ];
 
-export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPageProps) {
+export default function AgentsPage({ onClose, isEmbedded = false, initialAgentSlug }: AgentsPageProps) {
   const [catalog, setCatalog] = useState<AgentData[]>([]);
   const [hiredAgents, setHiredAgents] = useState<OrgAgentData[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+  const [expandedAgent] = useState<string | null>(null);
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [tuningAgent, setTuningAgent] = useState<string | null>(null);
   const [agentSettings, setAgentSettings] = useState<Record<string, { responsiveness: number; creativity: number; verbosity: number }>>({});
   const [isMobile] = useState(window.innerWidth < 768);
@@ -72,6 +75,16 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
   useEffect(() => {
     loadData();
   }, []);
+
+  // Navigate to specific agent when initialAgentSlug is provided
+  useEffect(() => {
+    if (initialAgentSlug && catalog.length > 0) {
+      const agent = catalog.find(a => a.slug === initialAgentSlug);
+      if (agent) {
+        setSelectedAgent(agent.id);
+      }
+    }
+  }, [initialAgentSlug, catalog]);
 
   const loadData = async () => {
     try {
@@ -161,6 +174,29 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
     return matchesCategory && matchesSearch;
   });
 
+  // Show hiring page if agent selected
+  const selectedAgentData = selectedAgent ? catalog.find(a => a.id === selectedAgent) : null;
+  if (selectedAgentData) {
+    const hired = hiredMap.has(selectedAgentData.id);
+    const hiringPage = (
+      <AgentHiringPage
+        agent={selectedAgentData}
+        isHired={hired}
+        onHire={async (agentId) => {
+          await handleHire(agentId);
+        }}
+        onFire={async (agentId) => {
+          await handleFire(agentId);
+        }}
+        onBack={() => setSelectedAgent(null)}
+      />
+    );
+    if (isEmbedded) {
+      return <div className="max-w-2xl h-full">{hiringPage}</div>;
+    }
+    return <div className="flex flex-col h-full bg-white dark:bg-surface-900 overflow-hidden">{hiringPage}</div>;
+  }
+
   const content = (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
@@ -249,7 +285,7 @@ export default function AgentsPage({ onClose, isEmbedded = false }: AgentsPagePr
               {/* Agent Card Header */}
               <div
                 className="flex items-center gap-2.5 p-3 cursor-pointer"
-                onClick={() => setExpandedAgent(isExpanded ? null : agent.id)}
+                onClick={() => setSelectedAgent(agent.id)}
               >
                 <div
                   className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"

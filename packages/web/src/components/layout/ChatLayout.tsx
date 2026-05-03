@@ -36,6 +36,7 @@ export const ChatLayout: React.FC = () => {
   const [showAdminDashboard, setShowAdminDashboard] = useState(false);
   const [showAnnouncements, setShowAnnouncements] = useState(false);
   const [showAgents, setShowAgents] = useState(false);
+  const [agentSlugToOpen, setAgentSlugToOpen] = useState<string | undefined>(undefined);
   const [showOrgDashboard, setShowOrgDashboard] = useState(false);
   const [showInterPanel, setShowInterPanel] = useState(false);
   const [showProjects, setShowProjects] = useState(false);
@@ -73,6 +74,20 @@ export const ChatLayout: React.FC = () => {
     setShowPlanner(false);
     setShowOffice(false);
   };
+
+  // Listen for 'navigate-to-agent' custom events dispatched from ChatView/ChatSettingsPanel
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const slug = detail?.agentSlug as string | undefined;
+      closeAllSubPages();
+      setAgentSlugToOpen(slug);
+      setShowAgents(true);
+      if (isMobile) setShowSidebar(false);
+    };
+    window.addEventListener('navigate-to-agent', handler);
+    return () => window.removeEventListener('navigate-to-agent', handler);
+  }, [isMobile]);
 
   // Check whether to show the welcome wizard on first login (ALL users)
   useEffect(() => {
@@ -405,12 +420,16 @@ export const ChatLayout: React.FC = () => {
                 }
               }} />
             ) : showAgents ? (
-              <AgentsPage onClose={() => {
-                setShowAgents(false);
-                if (isMobile) {
-                  setShowSidebar(true);
-                }
-              }} />
+              <AgentsPage
+                initialAgentSlug={agentSlugToOpen}
+                onClose={() => {
+                  setShowAgents(false);
+                  setAgentSlugToOpen(undefined);
+                  if (isMobile) {
+                    setShowSidebar(true);
+                  }
+                }}
+              />
             ) : showCalls ? (
               <CallsPage onClose={() => {
                 setShowCalls(false);

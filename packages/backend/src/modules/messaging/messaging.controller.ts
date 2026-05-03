@@ -7,6 +7,7 @@ import { prisma } from '../../config/database';
 import { emitToConversation } from '../../services/socket';
 import { handleLindaAutoReply } from '../linda/linda.controller';
 import { getOrgMemberIds } from '../../middleware/orgScope';
+import { translateText, translateTexts, isTranslationAvailable } from '../../services/translationService';
 
 const execFileAsync = promisify(execFile);
 
@@ -385,8 +386,75 @@ export class MessagingController {
         },
       });
 
+      const reversed = messages.reverse();
+
+      // ── Auto-translate if enabled for this user in this chat ──
+      const member = membership as any; // Prisma generated type may lag behind schema
+      const autoTranslate = member.autoTranslate === true;
+      const translateLang: string | null = member.translateLang ?? null;
+      const translateMyFrom: string | null = member.translateMyFrom ?? null;
+      const translateMyTo: string | null = member.translateMyTo ?? null;
+
+      if (autoTranslate && isTranslationAvailable() && translateLang) {
+        // Collect text messages that need translation
+        const toTranslate: { idx: number; text: string; isOwn: boolean }[] = [];
+        for (let i = 0; i < reversed.length; i++) {
+          const msg = reversed[i];
+          if (msg.type === 'TEXT' && msg.content?.trim()) {
+            const isOwn = msg.senderId === userId;
+            // Others' messages → translate to translateLang
+            // Own messages → translate using translateMyFrom → translateMyTo (if set)
+            if (!isOwn) {
+              toTranslate.push({ idx: i, text: msg.content, isOwn: false });
+            } else if (translateMyFrom && translateMyTo) {
+              toTranslate.push({ idx: i, text: msg.content, isOwn: true });
+            }
+          }
+        }
+
+        if (toTranslate.length > 0) {
+          try {
+            // Batch: others first, then own
+            const othersItems = toTranslate.filter(t => !t.isOwn);
+            const ownItems = toTranslate.filter(t => t.isOwn);
+
+            const [othersResults, ownResults] = await Promise.all([
+              othersItems.length > 0
+                ? translateTexts(othersItems.map(t => t.text), translateLang)
+                : Promise.resolve([]),
+              ownItems.length > 0 && translateMyTo
+                ? translateTexts(ownItems.map(t => t.text), translateMyTo, translateMyFrom || undefined)
+                : Promise.resolve([]),
+            ]);
+
+            // Attach translations
+            for (let i = 0; i < othersItems.length; i++) {
+              const msg = reversed[othersItems[i].idx] as any;
+              const result = othersResults[i];
+              if (result && result.translatedText !== msg.content) {
+                msg.translatedContent = result.translatedText;
+                msg.translatedFrom = result.detectedSourceLanguage || null;
+                msg.translatedTo = translateLang;
+              }
+            }
+            for (let i = 0; i < ownItems.length; i++) {
+              const msg = reversed[ownItems[i].idx] as any;
+              const result = (ownResults as any[])[i];
+              if (result && result.translatedText !== msg.content) {
+                msg.translatedContent = result.translatedText;
+                msg.translatedFrom = translateMyFrom;
+                msg.translatedTo = translateMyTo;
+              }
+            }
+          } catch (err) {
+            console.error('[Translation] batch translate error in getMessages:', err);
+            // Non-fatal — messages returned without translation
+          }
+        }
+      }
+
       res.json({
-        messages: messages.reverse(),
+        messages: reversed,
         nextCursor: messages.length > 0 ? messages[0].id : null,
       });
     } catch (error) {
@@ -979,6 +1047,38 @@ export class MessagingController {
     } catch (error) {
       console.error('Forward message error:', error);
       res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // POST /api/translate
+  // Body: { text: string, targetLang: string, sourceLang?: string }
+  //    OR { texts: string[], targetLang: string, sourceLang?: string }
+  async translateMessage(req: Request, res: Response): Promise<void> {
+    try {
+      if (!isTranslationAvailable()) {
+        res.status(503).json({ error: 'Translation service not configured' });
+        return;
+      }
+
+      const { text, texts, targetLang, sourceLang } = req.body;
+
+      if (!targetLang) {
+        res.status(400).json({ error: 'targetLang is required' });
+        return;
+      }
+
+      if (texts && Array.isArray(texts)) {
+        const results = await translateTexts(texts, targetLang, sourceLang);
+        res.json({ translations: results });
+      } else if (text) {
+        const result = await translateText(text, targetLang, sourceLang);
+        res.json({ translation: result });
+      } else {
+        res.status(400).json({ error: 'text or texts[] is required' });
+      }
+    } catch (error) {
+      console.error('Translate error:', error);
+      res.status(500).json({ error: 'Translation failed' });
     }
   }
 }

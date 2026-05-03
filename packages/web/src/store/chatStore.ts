@@ -81,6 +81,9 @@ interface ChatState {
   pinMessage: (conversationId: string, messageId: string) => Promise<void>;
   unpinMessage: (conversationId: string, messageId: string) => Promise<void>;
 
+  // Translation
+  updateMessageTranslation: (conversationId: string, messageId: string, translatedContent: string, translatedFrom?: string, translatedTo?: string) => void;
+
   // Utility Actions
   clearError: () => void;
   resetChat: () => void;
@@ -604,6 +607,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ replyingTo: data });
   },
 
+  // Translation
+  updateMessageTranslation: (conversationId: string, messageId: string, translatedContent: string, translatedFrom?: string, translatedTo?: string) => {
+    set((state) => {
+      const messages = new Map(state.messages);
+      const conversationMessages = messages.get(conversationId);
+      if (!conversationMessages) return state;
+      const updated = conversationMessages.map((msg) =>
+        msg.id === messageId
+          ? { ...msg, translatedContent, translatedFrom, translatedTo }
+          : msg
+      );
+      messages.set(conversationId, updated);
+      return { messages };
+    });
+  },
+
   // Utility Actions
   clearError: () => {
     set({ error: null });
@@ -643,6 +662,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 }));
 
+// Cache of per-conversation translation settings for real-time messages
+const translationSettingsCache = new Map<string, { translateLang: string; translateMyFrom?: string; translateMyTo?: string }>();
+
+/**
+ * Call this whenever chat settings are fetched/updated so real-time messages
+ * can be translated without a round-trip to fetch settings each time.
+ */
+export function setTranslationSettings(conversationId: string, autoTranslate: boolean, translateLang?: string | null, translateMyFrom?: string | null, translateMyTo?: string | null) {
+  if (autoTranslate && translateLang) {
+    translationSettingsCache.set(conversationId, {
+      translateLang,
+      translateMyFrom: translateMyFrom || undefined,
+      translateMyTo: translateMyTo || undefined,
+    });
+  } else {
+    translationSettingsCache.delete(conversationId);
+  }
+}
+
 // Setup socket event listeners
 export function setupChatSocketListeners() {
   const unsubscribe: (() => void)[] = [];
@@ -650,6 +688,27 @@ export function setupChatSocketListeners() {
   unsubscribe.push(
     socket.on<MessageEvent>('message:new', (message) => {
       useChatStore.getState().handleNewMessage(message);
+
+      // Auto-translate real-time messages from others
+      const currentUserId = useAuthStore.getState().user?.id;
+      if (message.senderId !== currentUserId && message.content?.trim()) {
+        const settings = translationSettingsCache.get(message.conversationId);
+        if (settings) {
+          api.translateText(message.content, settings.translateLang).then((result) => {
+            if (result.translatedText !== message.content) {
+              useChatStore.getState().updateMessageTranslation(
+                message.conversationId,
+                message.id,
+                result.translatedText,
+                result.detectedSourceLanguage,
+                settings.translateLang,
+              );
+            }
+          }).catch((err) => {
+            console.error('[Translation] real-time translate error:', err);
+          });
+        }
+      }
     })
   );
 

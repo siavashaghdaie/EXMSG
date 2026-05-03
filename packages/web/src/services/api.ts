@@ -119,6 +119,10 @@ interface MessageResponse {
       displayName: string;
     };
   };
+  // Translation fields (set by backend when autoTranslate is enabled)
+  translatedContent?: string;
+  translatedFrom?: string;
+  translatedTo?: string;
 }
 
 interface ConversationResponse {
@@ -1531,6 +1535,17 @@ class APIClient {
   async updateAgentSettings(agentId: string, data: { isEnabled?: boolean; settings?: any }): Promise<any> {
     const res = await this.client.patch(`/agents/${agentId}/settings`, data);
     return res.data;
+  }
+
+  // ── Translation ──
+  async translateText(text: string, targetLang: string, sourceLang?: string): Promise<{ translatedText: string; detectedSourceLanguage?: string }> {
+    const res = await this.client.post('/translate', { text, targetLang, sourceLang });
+    return res.data.translation;
+  }
+
+  async translateTexts(texts: string[], targetLang: string, sourceLang?: string): Promise<Array<{ translatedText: string; detectedSourceLanguage?: string }>> {
+    const res = await this.client.post('/translate', { texts, targetLang, sourceLang });
+    return res.data.translations;
   }
 }
 

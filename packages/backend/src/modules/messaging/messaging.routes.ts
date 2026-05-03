@@ -47,6 +47,9 @@ router.delete('/messages/:messageId', controller.deleteMessage);
 // File upload
 router.post('/conversations/:conversationId/upload', upload.single('file'), controller.uploadFile);
 
+// Translation
+router.post('/translate', controller.translateMessage.bind(controller));
+
 // Reactions
 router.post('/messages/:messageId/reactions', controller.addReaction);
 router.delete('/messages/:messageId/reactions/:emoji', controller.removeReaction);

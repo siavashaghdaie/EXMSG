@@ -3,17 +3,18 @@ import {
   X, Bell, BellOff, Clock, Lock, Star, Image, FileText,
   Download, Shield, UserPlus, Heart, Languages,
   ChevronRight, Volume2, Palette, Save, Ban, Flag, MessageSquareOff,
-  Check
+  Check, Globe, Sparkles
 } from 'lucide-react';
 import { api } from '@/services/api';
 import Avatar from '@/components/common/Avatar';
 import PresenceIndicator from '@/components/common/PresenceIndicator';
-import { useChatStore } from '@/store/chatStore';
+import { useChatStore, setTranslationSettings } from '@/store/chatStore';
 
 interface ChatSettingsPanelProps {
   conversationId: string;
   onClose: () => void;
   onNavigateToChat?: (conversationId: string) => void;
+  onNavigateToAgents?: (agentSlug?: string) => void;
 }
 
 type MediaTab = 'media' | 'docs' | 'links';
@@ -59,7 +60,7 @@ const LANGUAGES = [
   'Norwegian', 'Ukrainian', 'Persian', 'Bengali', 'Urdu', 'Swahili',
 ];
 
-export default function ChatSettingsPanel({ conversationId, onClose, onNavigateToChat }: ChatSettingsPanelProps) {
+export default function ChatSettingsPanel({ conversationId, onClose, onNavigateToChat, onNavigateToAgents }: ChatSettingsPanelProps) {
   const [loading, setLoading] = useState(true);
   const [chatInfo, setChatInfo] = useState<any>(null);
   const [activeMediaTab, setActiveMediaTab] = useState<MediaTab>('media');
@@ -75,6 +76,9 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
   const [showNotificationSound, setShowNotificationSound] = useState(false);
   const [showSaveMedia, setShowSaveMedia] = useState(false);
   const [showTranslateSettings, setShowTranslateSettings] = useState(false);
+  const [showTransGuyWizard, setShowTransGuyWizard] = useState(false);
+  const [isTransGuyHired, setIsTransGuyHired] = useState(false);
+
   const [showLockChat, setShowLockChat] = useState(false);
   const [lockPin, setLockPin] = useState('');
   const [lockPinConfirm, setLockPinConfirm] = useState('');
@@ -92,8 +96,24 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
   const loadChatInfo = async () => {
     try {
       setLoading(true);
-      const info = await api.getChatInfo(conversationId);
+      const [info, hiredAgents] = await Promise.all([
+        api.getChatInfo(conversationId),
+        api.getHiredAgents().catch(() => []),
+      ]);
       setChatInfo(info);
+      // Check if TransGuy is hired
+      const transGuyHired = hiredAgents.some((ha: any) => ha.agent?.slug === 'transguy' && ha.isEnabled);
+      setIsTransGuyHired(transGuyHired);
+      // Cache translation settings for real-time message translation
+      if (info?.settings) {
+        setTranslationSettings(
+          conversationId,
+          info.settings.autoTranslate,
+          info.settings.translateLang,
+          info.settings.translateMyFrom,
+          info.settings.translateMyTo,
+        );
+      }
     } catch (err) {
       console.error('Failed to load chat info:', err);
     } finally {
@@ -122,13 +142,24 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
   const updateSetting = async (key: string, value: any) => {
     try {
       await api.updateChatSettings(conversationId, { [key]: value });
+      const newSettings = { ...chatInfo?.settings, [key]: value };
       setChatInfo((prev: any) => ({
         ...prev,
-        settings: { ...prev.settings, [key]: value },
+        settings: newSettings,
       }));
       // Refresh sidebar conversations when favorite/mute/pin changes
       if (key === 'isFavorite' || key === 'isMuted' || key === 'isPinned') {
         fetchConversations();
+      }
+      // Update translation cache when translation settings change
+      if (['autoTranslate', 'translateLang', 'translateMyFrom', 'translateMyTo'].includes(key)) {
+        setTranslationSettings(
+          conversationId,
+          newSettings.autoTranslate,
+          newSettings.translateLang,
+          newSettings.translateMyFrom,
+          newSettings.translateMyTo,
+        );
       }
     } catch (err) {
       console.error('Failed to update setting:', err);
@@ -539,6 +570,11 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
             <ToggleSwitch
               value={settings.autoTranslate}
               onChange={(v) => {
+                if (v && !isTransGuyHired) {
+                  // Show wizard when trying to enable without TransGuy hired
+                  setShowTransGuyWizard(true);
+                  return;
+                }
                 updateSetting('autoTranslate', v);
                 if (v && !settings.translateLang) {
                   updateSetting('translateLang', 'English');
@@ -546,6 +582,61 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
               }}
             />
           </div>
+
+          {/* TransGuy Hiring Wizard Modal */}
+          {showTransGuyWizard && (
+            <div className="rounded-xl border-2 border-emerald-200 dark:border-emerald-800 bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 p-5 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg, #10B981, #059669)' }}>
+                  <Globe size={24} className="text-white" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">Meet TransGuy!</h4>
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400">Your AI Translation Agent</p>
+                </div>
+              </div>
+              <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+                To use Auto-Translate, you need to hire <strong>TransGuy</strong> — an AI Agent who speaks all living
+                (and even some dead!) languages. He&apos;ll translate your messages in real-time across 50+ languages.
+              </p>
+              <div className="flex items-center gap-2 p-2.5 bg-white/60 dark:bg-surface-800/60 rounded-lg">
+                <Sparkles size={14} className="text-amber-500 flex-shrink-0" />
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  TransGuy offers a <strong>free one-day trial</strong> so you can test his abilities!
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setShowTransGuyWizard(false);
+                    if (onNavigateToAgents) {
+                      onNavigateToAgents('transguy');
+                    }
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-semibold transition shadow-sm"
+                >
+                  <Globe size={16} />
+                  Meet TransGuy
+                </button>
+                <button
+                  onClick={() => setShowTransGuyWizard(false)}
+                  className="px-4 py-2.5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-surface-700 rounded-xl text-sm transition"
+                >
+                  Later
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Requires Agent Notice (when not hired) */}
+          {!isTransGuyHired && !showTransGuyWizard && (
+            <div className="flex items-center gap-2 p-2.5 bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 rounded-lg">
+              <Globe size={14} className="text-amber-500 flex-shrink-0" />
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                Requires <strong>TransGuy</strong> agent hiring
+              </p>
+            </div>
+          )}
 
           {settings.autoTranslate && (
             <>
@@ -730,7 +821,13 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
           <SettingRow
             icon={<Languages size={18} className={settings.autoTranslate ? 'text-blue-500' : 'text-slate-500'} />}
             label="Auto-Translate"
-            subtitle={settings.autoTranslate ? `Translating to ${settings.translateLang || 'English'}` : 'Off'}
+            subtitle={
+              settings.autoTranslate
+                ? `Translating to ${settings.translateLang || 'English'}`
+                : !isTransGuyHired
+                ? 'Requires Translation Agent'
+                : 'Off'
+            }
             onClick={() => setShowTranslateSettings(true)}
           />
 
