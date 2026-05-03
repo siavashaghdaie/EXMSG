@@ -478,7 +478,7 @@ export class AuthController {
 
       // Block unverified users — resend registration OTP
       if (!user.emailVerified && isEmailConfigured()) {
-        await createAndSendOtp(email, 'register', user.id);
+        await createAndSendOtp(user.email, 'register', user.id);
         res.status(403).json({
           error: 'Please verify your email before logging in. A new code has been sent.',
           requiresVerification: true,
@@ -495,7 +495,7 @@ export class AuthController {
       // them to complete the flow by calling /auth/verify-login. Only the
       // follow-up call returns access+refresh tokens.
       if (isEmailConfigured()) {
-        const otpResult = await createAndSendOtp(email, 'login', user.id);
+        const otpResult = await createAndSendOtp(user.email, 'login', user.id);
         if (!otpResult.success) {
           console.error('[Auth] Failed to send login OTP:', otpResult.error);
           res.status(500).json({ error: otpResult.error || 'Failed to send verification code' });
