@@ -82,6 +82,7 @@ interface ChatState {
   unpinMessage: (conversationId: string, messageId: string) => Promise<void>;
 
   // Translation
+  updateMessageMetadata: (conversationId: string, messageId: string, metadata: Record<string, any>) => void;
   updateMessageTranslation: (conversationId: string, messageId: string, translatedContent: string, translatedFrom?: string, translatedTo?: string) => void;
 
   // Utility Actions
@@ -626,6 +627,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ replyingTo: data });
   },
 
+  // Update message metadata (e.g. voiceTranscript)
+  updateMessageMetadata: (conversationId: string, messageId: string, metadata: Record<string, any>) => {
+    set((state) => {
+      const messages = new Map(state.messages);
+      const conversationMessages = messages.get(conversationId);
+      if (!conversationMessages) return state;
+      const updated = conversationMessages.map((msg) =>
+        msg.id === messageId
+          ? { ...msg, ...metadata }
+          : msg
+      );
+      messages.set(conversationId, updated);
+      return { messages };
+    });
+  },
+
   // Translation
   updateMessageTranslation: (conversationId: string, messageId: string, translatedContent: string, translatedFrom?: string, translatedTo?: string) => {
     set((state) => {
@@ -727,6 +744,33 @@ export function setupChatSocketListeners() {
             console.error('[Translation] real-time translate error:', err);
           });
         }
+      }
+    })
+  );
+
+  // Voice transcription complete — translate if auto-translate is on
+  unsubscribe.push(
+    socket.on<any>('message:voiceTranscribed', (data: { id: string; conversationId: string; voiceTranscript: string }) => {
+      // Update message metadata with voice transcript
+      useChatStore.getState().updateMessageMetadata(data.conversationId, data.id, { voiceTranscript: data.voiceTranscript });
+
+      // Auto-translate the voice transcript if enabled
+      const currentUserId = useAuthStore.getState().user?.id;
+      const settings = translationSettingsCache.get(data.conversationId);
+      if (settings && data.voiceTranscript) {
+        api.translateText(data.voiceTranscript, settings.translateLang).then((result) => {
+          if (result.translatedText !== data.voiceTranscript) {
+            useChatStore.getState().updateMessageTranslation(
+              data.conversationId,
+              data.id,
+              result.translatedText,
+              result.detectedSourceLanguage,
+              settings.translateLang,
+            );
+          }
+        }).catch((err) => {
+          console.error('[Translation] voice translate error:', err);
+        });
       }
     })
   );

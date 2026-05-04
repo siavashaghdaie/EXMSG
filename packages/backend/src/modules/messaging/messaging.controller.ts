@@ -8,6 +8,7 @@ import { emitToConversation } from '../../services/socket';
 import { handleLindaAutoReply } from '../linda/linda.controller';
 import { getOrgMemberIds } from '../../middleware/orgScope';
 import { translateText, translateTexts, isTranslationAvailable } from '../../services/translationService';
+import { transcribeAudio } from '../linda/voiceService';
 
 const execFileAsync = promisify(execFile);
 
@@ -396,18 +397,29 @@ export class MessagingController {
       const translateMyTo: string | null = member.translateMyTo ?? null;
 
       if (autoTranslate && isTranslationAvailable() && translateLang) {
-        // Collect text messages that need translation
-        const toTranslate: { idx: number; text: string; isOwn: boolean }[] = [];
+        // Collect text messages AND voice messages that need translation
+        const toTranslate: { idx: number; text: string; isOwn: boolean; isVoice?: boolean }[] = [];
         for (let i = 0; i < reversed.length; i++) {
-          const msg = reversed[i];
+          const msg = reversed[i] as any;
+          const isOwn = msg.senderId === userId;
+
           if (msg.type === 'TEXT' && msg.content?.trim()) {
-            const isOwn = msg.senderId === userId;
-            // Others' messages → translate to translateLang
-            // Own messages → translate using translateMyFrom → translateMyTo (if set)
+            // Text messages
             if (!isOwn) {
               toTranslate.push({ idx: i, text: msg.content, isOwn: false });
             } else if (translateMyFrom && translateMyTo) {
               toTranslate.push({ idx: i, text: msg.content, isOwn: true });
+            }
+          } else if (msg.type === 'FILE' && msg.attachments?.some((a: any) => a.mimeType?.startsWith('audio/'))) {
+            // Voice/audio messages — check for transcript in metadata
+            let voiceTranscript: string | null = null;
+            try {
+              const meta = typeof msg.metadata === 'string' ? JSON.parse(msg.metadata) : msg.metadata;
+              voiceTranscript = meta?.voiceTranscript || null;
+            } catch { /* ignore parse errors */ }
+
+            if (voiceTranscript && !isOwn) {
+              toTranslate.push({ idx: i, text: voiceTranscript, isOwn: false, isVoice: true });
             }
           }
         }
@@ -429,12 +441,17 @@ export class MessagingController {
 
             // Attach translations
             for (let i = 0; i < othersItems.length; i++) {
-              const msg = reversed[othersItems[i].idx] as any;
+              const item = othersItems[i];
+              const msg = reversed[item.idx] as any;
               const result = othersResults[i];
-              if (result && result.translatedText !== msg.content) {
+              if (result && result.translatedText !== item.text) {
                 msg.translatedContent = result.translatedText;
                 msg.translatedFrom = result.detectedSourceLanguage || null;
                 msg.translatedTo = translateLang;
+                // For voice messages, also expose the original transcript
+                if (item.isVoice) {
+                  msg.voiceTranscript = item.text;
+                }
               }
             }
             for (let i = 0; i < ownItems.length; i++) {
@@ -868,6 +885,33 @@ export class MessagingController {
       }).catch((err) => {
         console.error('[Linda] Auto-reply hook error (file):', err);
       });
+
+      // ── Voice transcription for TransGuy translation ──
+      // Async: transcribe audio messages so they can be translated
+      if (finalMimeType.startsWith('audio/')) {
+        (async () => {
+          try {
+            const transcript = await transcribeAudio(finalFilePath, finalOriginalName);
+            if (transcript) {
+              // Store transcript in message metadata
+              await prisma.message.update({
+                where: { id: message.id },
+                data: { metadata: JSON.stringify({ voiceTranscript: transcript }) },
+              });
+              console.log(`[TransGuy] Voice transcribed for message ${message.id}: "${transcript.slice(0, 80)}..."`);
+
+              // Emit event so frontend can translate in real-time
+              emitToConversation(conversationId, 'message:voiceTranscribed', {
+                id: message.id,
+                conversationId,
+                voiceTranscript: transcript,
+              });
+            }
+          } catch (err) {
+            console.error('[TransGuy] Voice transcription error:', err);
+          }
+        })();
+      }
     } catch (error) {
       console.error('Upload file error:', error);
       res.status(500).json({ error: 'Internal server error' });

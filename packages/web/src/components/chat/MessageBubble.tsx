@@ -313,6 +313,31 @@ export default function MessageBubble({
                     url={attachment.url}
                   />
                 ))}
+                {/* Voice translation — translated transcript shown below voice player */}
+                {message.translatedContent && (
+                  <div className="mt-1.5">
+                    <div className="break-words text-[12px] leading-snug">
+                      {message.translatedContent}
+                    </div>
+                    <div className={`flex items-center gap-1 mt-1 pt-1 border-t ${
+                      isOwnMessage ? 'border-blue-400/30' : 'border-slate-200 dark:border-slate-600'
+                    }`}>
+                      <Globe size={10} className={isOwnMessage ? 'text-blue-200/60' : 'text-emerald-500/60'} />
+                      <span className={`text-[10px] uppercase font-medium ${
+                        isOwnMessage ? 'text-blue-200/60' : 'text-emerald-500/60'
+                      }`}>
+                        {message.translatedFrom || 'auto'} → {message.translatedTo || ''}
+                      </span>
+                    </div>
+                    {(message as any).voiceTranscript && (
+                      <div className={`break-words text-[10px] leading-snug mt-0.5 italic ${
+                        isOwnMessage ? 'text-blue-100/40' : 'text-slate-400/60 dark:text-slate-500/60'
+                      }`}>
+                        {(message as any).voiceTranscript}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

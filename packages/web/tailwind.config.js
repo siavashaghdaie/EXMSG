@@ -32,6 +32,21 @@ export default {
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
       },
+      animation: {
+        'glow-pulse': 'glow-pulse 2.5s ease-in-out infinite',
+      },
+      keyframes: {
+        'glow-pulse': {
+          '0%, 100%': {
+            boxShadow: '0 0 4px 0px rgba(59, 130, 246, 0.3), inset 0 0 4px 0px rgba(59, 130, 246, 0.05)',
+            backgroundColor: 'rgba(59, 130, 246, 0.03)',
+          },
+          '50%': {
+            boxShadow: '0 0 12px 2px rgba(59, 130, 246, 0.5), inset 0 0 8px 0px rgba(59, 130, 246, 0.1)',
+            backgroundColor: 'rgba(59, 130, 246, 0.08)',
+          },
+        },
+      },
     },
   },
   plugins: [],

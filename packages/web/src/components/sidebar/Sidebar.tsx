@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Search, Settings, Plus, Bell, Clipboard, LayoutDashboard, FolderKanban, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Search, Settings, Plus, Bell, ClipboardList, LayoutDashboard, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { usePresenceStore } from '@/store/presenceStore';
@@ -19,9 +19,8 @@ interface SidebarProps {
   onDashboardClick?: () => void;
   onClose?: () => void;
   onAnnouncementsClick?: () => void;
-  onTasksClick?: () => void;
+  onPlannerClick?: () => void;
   onInterPanelClick?: () => void;
-  onProjectsClick?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -33,9 +32,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onDashboardClick,
   onClose,
   onAnnouncementsClick,
-  onTasksClick,
+  onPlannerClick,
   onInterPanelClick,
-  onProjectsClick,
 }) => {
   const navigate = useNavigate();
   const { conversationId } = useParams<{ conversationId?: string }>();
@@ -332,27 +330,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </button>
 
-          {/* Tasks */}
+          {/* Planner (Tasks + Projects) */}
           <button
-            onClick={onTasksClick}
+            onClick={() => onPlannerClick?.()}
             className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative"
-            title="Tasks"
+            title="Planner"
           >
-            <Clipboard className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            <ClipboardList className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             {taskCount > 0 && (
               <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] flex items-center justify-center bg-red-500 text-white text-[9px] font-bold rounded-full px-1 leading-none shadow-sm border-2 border-white dark:border-surface-900">
                 {taskCount > 9 ? '9+' : taskCount}
               </span>
             )}
-          </button>
-
-          {/* Projects */}
-          <button
-            onClick={() => onProjectsClick?.()}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors"
-            title="Projects"
-          >
-            <FolderKanban className="w-5 h-5 text-gray-500 dark:text-gray-400" />
           </button>
 
           {/* Search — opens full sidebar */}
@@ -503,23 +492,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     )}
                   </button>
                   <button
-                    onClick={onTasksClick}
+                    onClick={() => onPlannerClick?.()}
                     className="p-1.5 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative"
-                    title="Tasks"
+                    title="Planner"
                   >
-                    <Clipboard className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                    <ClipboardList className="w-4 h-4 text-gray-600 dark:text-gray-400" />
                     {taskCount > 0 && (
                       <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center bg-red-500 text-white text-[8px] font-bold rounded-full px-0.5 leading-none shadow-sm border border-white dark:border-surface-900">
                         {taskCount > 9 ? '9+' : taskCount}
                       </span>
                     )}
-                  </button>
-                  <button
-                    onClick={() => onProjectsClick?.()}
-                    className="p-1.5 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors"
-                    title="Projects"
-                  >
-                    <FolderKanban className="w-4 h-4 text-gray-600 dark:text-gray-400" />
                   </button>
                   <button
                     onClick={handleSettingsClick}

@@ -343,19 +343,14 @@ export const ChatLayout: React.FC = () => {
               setShowAnnouncements(true);
               if (isMobile) setShowSidebar(false);
             }}
-            onTasksClick={() => {
+            onPlannerClick={() => {
               closeAllSubPages();
-              setShowTaskWall(true);
+              setShowPlanner(true);
               if (isMobile) setShowSidebar(false);
             }}
             onInterPanelClick={() => {
               closeAllSubPages();
               setShowInterPanel(true);
-              if (isMobile) setShowSidebar(false);
-            }}
-            onProjectsClick={() => {
-              closeAllSubPages();
-              setShowProjects(true);
               if (isMobile) setShowSidebar(false);
             }}
           />

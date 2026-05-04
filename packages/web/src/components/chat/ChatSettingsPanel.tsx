@@ -817,7 +817,7 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
             onClick={() => setShowSaveMedia(true)}
           />
 
-          {/* Auto-Translate */}
+          {/* Auto-Translate — glow animation to attract attention */}
           <SettingRow
             icon={<Languages size={18} className={settings.autoTranslate ? 'text-blue-500' : 'text-slate-500'} />}
             label="Auto-Translate"
@@ -829,6 +829,7 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
                 : 'Off'
             }
             onClick={() => setShowTranslateSettings(true)}
+            className="relative overflow-hidden animate-glow-pulse"
           />
 
           {/* Disappearing Messages */}
@@ -1128,7 +1129,7 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
 // ============================================
 
 function SettingRow({
-  icon, label, subtitle, trailing, onClick, labelClass,
+  icon, label, subtitle, trailing, onClick, labelClass, className,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -1136,11 +1137,12 @@ function SettingRow({
   trailing?: React.ReactNode;
   onClick?: () => void;
   labelClass?: string;
+  className?: string;
 }) {
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-surface-800 transition text-left"
+      className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-surface-800 transition text-left ${className || ''}`}
     >
       <div className="flex-shrink-0">{icon}</div>
       <div className="flex-1 min-w-0">
