@@ -755,7 +755,6 @@ export function setupChatSocketListeners() {
       useChatStore.getState().updateMessageMetadata(data.conversationId, data.id, { voiceTranscript: data.voiceTranscript });
 
       // Auto-translate the voice transcript if enabled
-      const currentUserId = useAuthStore.getState().user?.id;
       const settings = translationSettingsCache.get(data.conversationId);
       if (settings && data.voiceTranscript) {
         api.translateText(data.voiceTranscript, settings.translateLang).then((result) => {
