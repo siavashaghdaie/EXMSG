@@ -631,6 +631,11 @@ class APIClient {
         createdAt: m.createdAt,
         sender: m.sender,
         replyTo: m.replyTo,
+        // Translation fields (added by backend auto-translate)
+        translatedContent: m.translatedContent,
+        translatedFrom: m.translatedFrom,
+        translatedTo: m.translatedTo,
+        voiceTranscript: m.voiceTranscript,
       };
     });
     return {
