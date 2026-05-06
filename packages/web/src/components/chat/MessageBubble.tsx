@@ -50,6 +50,7 @@ export default function MessageBubble({
   const [showForwardModal, setShowForwardModal] = useState(false);
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuPos, setContextMenuPos] = useState({ x: 0, y: 0 });
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
   const { editMessage, deleteMessage, addReaction } = useChatStore();
@@ -88,18 +89,29 @@ export default function MessageBubble({
     setShowContextMenu(false);
   };
 
+  const showFeedback = (text: string) => {
+    setActionFeedback(text);
+    setTimeout(() => setActionFeedback(null), 2000);
+  };
+
   const handlePin = () => {
     const { pinMessage } = useChatStore.getState();
-    pinMessage(message.conversationId, message.id).catch((error) => {
-      console.error('Failed to pin message:', error);
-    });
+    pinMessage(message.conversationId, message.id)
+      .then(() => showFeedback('📌 Pinned'))
+      .catch((error) => {
+        console.error('Failed to pin message:', error);
+        showFeedback('Failed to pin');
+      });
     setShowContextMenu(false);
   };
 
   const handleStar = () => {
-    api.starMessage(message.conversationId, message.id).catch((error) => {
-      console.error('Failed to star message:', error);
-    });
+    api.starMessage(message.conversationId, message.id)
+      .then(() => showFeedback('⭐ Starred'))
+      .catch((error) => {
+        console.error('Failed to star message:', error);
+        showFeedback('Failed to star');
+      });
     setShowContextMenu(false);
   };
 
@@ -520,6 +532,15 @@ export default function MessageBubble({
               url={attachment.url}
             />
           ))}
+        </div>
+      )}
+
+      {/* Action Feedback Toast */}
+      {actionFeedback && (
+        <div className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'} mt-1`}>
+          <div className="px-2.5 py-1 bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-800 text-xs font-medium rounded-full shadow-lg animate-pulse">
+            {actionFeedback}
+          </div>
         </div>
       )}
 

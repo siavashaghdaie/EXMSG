@@ -142,29 +142,32 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
 
   const updateSetting = async (key: string, value: any) => {
     try {
-      await api.updateChatSettings(conversationId, { [key]: value });
-      const newSettings = { ...chatInfo?.settings, [key]: value };
+      // Optimistically update local state FIRST so user sees immediate feedback
       setChatInfo((prev: any) => ({
         ...prev,
-        settings: newSettings,
+        settings: { ...prev?.settings, [key]: value },
       }));
+      // Notify parent immediately for wallpaper changes
+      if (key === 'chatWallpaper') {
+        onWallpaperChange?.(value);
+      }
+      await api.updateChatSettings(conversationId, { [key]: value });
       // Refresh sidebar conversations when favorite/mute/pin changes
       if (key === 'isFavorite' || key === 'isMuted' || key === 'isPinned') {
         fetchConversations();
       }
       // Update translation cache when translation settings change
       if (['autoTranslate', 'translateLang', 'translateMyFrom', 'translateMyTo'].includes(key)) {
+        // Read fresh state for translation settings
+        const freshInfo = chatInfo;
+        const merged = { ...freshInfo?.settings, [key]: value };
         setTranslationSettings(
           conversationId,
-          newSettings.autoTranslate,
-          newSettings.translateLang,
-          newSettings.translateMyFrom,
-          newSettings.translateMyTo,
+          merged.autoTranslate,
+          merged.translateLang,
+          merged.translateMyFrom,
+          merged.translateMyTo,
         );
-      }
-      // Notify parent when wallpaper changes
-      if (key === 'chatWallpaper') {
-        onWallpaperChange?.(value);
       }
     } catch (err) {
       console.error('Failed to update setting:', err);

@@ -241,15 +241,27 @@ export class ChatSettingsController {
       let where: any = { conversationId, isDeleted: false };
 
       if (type === 'media') {
-        // Images, videos, and voice/audio messages
+        // Images, videos, voice/audio — including those stored as type FILE
         where.OR = [
           { type: { in: ['IMAGE', 'VIDEO', 'VOICE'] } },
           { type: 'FILE', attachments: { some: { mimeType: { startsWith: 'audio/' } } } },
+          { type: 'FILE', attachments: { some: { mimeType: { startsWith: 'image/' } } } },
+          { type: 'FILE', attachments: { some: { mimeType: { startsWith: 'video/' } } } },
         ];
       } else if (type === 'docs') {
-        // Files that are NOT audio (actual documents)
+        // Files that are NOT images, videos, or audio (actual documents)
         where.type = 'FILE';
-        where.NOT = { attachments: { some: { mimeType: { startsWith: 'audio/' } } } };
+        where.NOT = {
+          attachments: {
+            some: {
+              OR: [
+                { mimeType: { startsWith: 'audio/' } },
+                { mimeType: { startsWith: 'image/' } },
+                { mimeType: { startsWith: 'video/' } },
+              ],
+            },
+          },
+        };
       } else if (type === 'links') {
         where.content = { contains: 'http' };
         where.type = 'TEXT';
@@ -273,13 +285,25 @@ export class ChatSettingsController {
             OR: [
               { type: { in: ['IMAGE', 'VIDEO', 'VOICE'] } },
               { type: 'FILE', attachments: { some: { mimeType: { startsWith: 'audio/' } } } },
+              { type: 'FILE', attachments: { some: { mimeType: { startsWith: 'image/' } } } },
+              { type: 'FILE', attachments: { some: { mimeType: { startsWith: 'video/' } } } },
             ],
           },
         }),
         prisma.message.count({
           where: {
             conversationId, isDeleted: false, type: 'FILE',
-            NOT: { attachments: { some: { mimeType: { startsWith: 'audio/' } } } },
+            NOT: {
+              attachments: {
+                some: {
+                  OR: [
+                    { mimeType: { startsWith: 'audio/' } },
+                    { mimeType: { startsWith: 'image/' } },
+                    { mimeType: { startsWith: 'video/' } },
+                  ],
+                },
+              },
+            },
           },
         }),
         prisma.message.count({ where: { conversationId, isDeleted: false, type: 'TEXT', content: { contains: 'http' } } }),
@@ -568,13 +592,25 @@ export class ChatSettingsController {
             OR: [
               { type: { in: ['IMAGE', 'VIDEO', 'VOICE'] } },
               { type: 'FILE', attachments: { some: { mimeType: { startsWith: 'audio/' } } } },
+              { type: 'FILE', attachments: { some: { mimeType: { startsWith: 'image/' } } } },
+              { type: 'FILE', attachments: { some: { mimeType: { startsWith: 'video/' } } } },
             ],
           },
         }),
         prisma.message.count({
           where: {
             conversationId, isDeleted: false, type: 'FILE',
-            NOT: { attachments: { some: { mimeType: { startsWith: 'audio/' } } } },
+            NOT: {
+              attachments: {
+                some: {
+                  OR: [
+                    { mimeType: { startsWith: 'audio/' } },
+                    { mimeType: { startsWith: 'image/' } },
+                    { mimeType: { startsWith: 'video/' } },
+                  ],
+                },
+              },
+            },
           },
         }),
         prisma.message.count({ where: { conversationId, isDeleted: false, type: 'TEXT', content: { contains: 'http' } } }),

@@ -976,9 +976,11 @@ export class MessagingController {
         return;
       }
 
-      // Create pin
-      const pin = await prisma.pinnedMessage.create({
-        data: { messageId, conversationId },
+      // Create or find existing pin (upsert to avoid duplicate errors)
+      const pin = await prisma.pinnedMessage.upsert({
+        where: { messageId_conversationId: { messageId, conversationId } },
+        create: { messageId, conversationId },
+        update: {},
         include: {
           message: {
             include: {

@@ -107,6 +107,11 @@ export default function MessageContextMenu({
       },
     },
     {
+      icon: <Pin size={18} />,
+      label: 'Pin',
+      action: onPin,
+    },
+    {
       icon: <Star size={18} />,
       label: 'Star',
       action: onStar,
@@ -122,11 +127,6 @@ export default function MessageContextMenu({
   ];
 
   const moreItems: MenuItem[] = [
-    {
-      icon: <Pin size={18} />,
-      label: 'Pin',
-      action: onPin,
-    },
     {
       icon: <Languages size={18} />,
       label: 'Translate',

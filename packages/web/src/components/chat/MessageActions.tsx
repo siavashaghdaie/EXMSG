@@ -1,3 +1,5 @@
+import { useRef, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Reply, Smile, Pencil, Trash2, Pin, Share2 } from 'lucide-react';
 import EmojiPicker from './EmojiPicker';
 
@@ -26,6 +28,19 @@ export default function MessageActions({
   onPin,
   onForward,
 }: MessageActionsProps) {
+  const reactBtnRef = useRef<HTMLButtonElement>(null);
+  const [pickerPos, setPickerPos] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
+    if (showEmojiPicker && reactBtnRef.current) {
+      const rect = reactBtnRef.current.getBoundingClientRect();
+      // Position picker above the react button, right-aligned
+      const left = Math.max(8, Math.min(rect.right - 320, window.innerWidth - 328));
+      const top = Math.max(8, rect.top - 340);
+      setPickerPos({ top, left });
+    }
+  }, [showEmojiPicker]);
+
   return (
     <div className="absolute -top-10 right-0 flex items-center gap-0.5 bg-white dark:bg-slate-800 rounded-full shadow-lg border border-slate-200 dark:border-slate-700 px-1.5 py-1 z-50">
       {/* Reply */}
@@ -40,16 +55,18 @@ export default function MessageActions({
       {/* React */}
       <div className="relative">
         <button
+          ref={reactBtnRef}
           onClick={onReact}
           className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition"
           title="React"
         >
           <Smile size={16} className="text-slate-600 dark:text-slate-300" />
         </button>
-        {showEmojiPicker && (
-          <div className="absolute bottom-full right-0 mb-2 z-50">
-            <EmojiPicker onSelect={onAddReaction} onClose={() => {}} />
-          </div>
+        {showEmojiPicker && pickerPos && createPortal(
+          <div className="fixed z-[200]" style={{ top: pickerPos.top, left: pickerPos.left }}>
+            <EmojiPicker onSelect={onAddReaction} onClose={onReact} />
+          </div>,
+          document.body
         )}
       </div>
 
