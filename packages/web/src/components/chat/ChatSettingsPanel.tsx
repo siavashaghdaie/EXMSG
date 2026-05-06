@@ -86,6 +86,7 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
   const [lockStep, setLockStep] = useState<'set' | 'confirm' | 'unlock'>('set');
   const [lockError, setLockError] = useState('');
   const [customColor, setCustomColor] = useState('#e3f2fd');
+  const [wallpaperSaved, setWallpaperSaved] = useState(false);
   const [reportReason, setReportReason] = useState('');
   const [reportDetails, setReportDetails] = useState('');
   const { fetchConversations } = useChatStore();
@@ -102,6 +103,10 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
         api.getHiredAgents().catch(() => []),
       ]);
       setChatInfo(info);
+      // Initialize custom color picker from current wallpaper
+      if (info?.settings?.chatWallpaper) {
+        setCustomColor(info.settings.chatWallpaper);
+      }
       // Check if TransGuy is hired
       const transGuyHired = hiredAgents.some((ha: any) => ha.agent?.slug === 'transguy' && ha.isEnabled);
       setIsTransGuyHired(transGuyHired);
@@ -375,12 +380,6 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
                         <span className="absolute bottom-1 right-1 text-[10px] text-white bg-black/50 px-1 rounded">Video</span>
                       </div>
                     )}
-                    {att && mime.startsWith('audio/') && (
-                      <div className="flex flex-col items-center justify-center gap-1">
-                        <span className="text-2xl">🎤</span>
-                        <span className="text-[10px] text-slate-500 dark:text-slate-400">Voice</span>
-                      </div>
-                    )}
                   </div>
                 );
               })}
@@ -409,34 +408,50 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
   // Wallpaper Picker Sub-panel
   // ============================================
   if (showWallpaperPicker) {
+    const handleWallpaperSelect = (color: string | null) => {
+      updateSetting('chatWallpaper', color);
+      if (color) setCustomColor(color);
+      setWallpaperSaved(true);
+      setTimeout(() => setWallpaperSaved(false), 1500);
+    };
     return (
       <div className="absolute inset-0 z-30 md:relative md:inset-auto md:z-auto w-full md:w-80 md:border-l border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 flex flex-col h-full">
         <div className="flex items-center gap-2 p-4 border-b border-slate-200 dark:border-surface-700">
           <button onClick={() => setShowWallpaperPicker(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-surface-700 rounded">
             <ChevronRight size={18} className="rotate-180 text-slate-600 dark:text-slate-400" />
           </button>
-          <h3 className="font-semibold text-slate-900 dark:text-white">Chat Wallpaper</h3>
+          <h3 className="font-semibold text-slate-900 dark:text-white flex-1">Chat Wallpaper</h3>
+          {wallpaperSaved && (
+            <span className="text-xs font-medium text-green-600 dark:text-green-400 flex items-center gap-1">
+              <Check size={12} /> Saved
+            </span>
+          )}
         </div>
         <div className="flex-1 overflow-y-auto p-4">
           {/* Preview */}
           <div
-            className="w-full h-32 rounded-xl mb-4 border-2 border-slate-200 dark:border-surface-600 flex items-center justify-center overflow-hidden"
+            className="w-full h-32 rounded-xl mb-4 border-2 border-slate-200 dark:border-surface-600 flex items-end justify-center overflow-hidden p-3"
             style={{ backgroundColor: settings.chatWallpaper || '#ffffff' }}
           >
-            <div className="bg-white/80 dark:bg-surface-800/80 backdrop-blur-sm rounded-lg px-3 py-2 shadow-sm">
-              <p className="text-xs text-slate-600 dark:text-slate-300">Preview</p>
+            <div className="flex flex-col gap-1.5 w-full">
+              <div className="self-start bg-slate-100 dark:bg-surface-700 rounded-2xl rounded-bl-none px-3 py-1.5 shadow-sm">
+                <p className="text-[10px] text-slate-600 dark:text-slate-300">Hello!</p>
+              </div>
+              <div className="self-end bg-blue-500 rounded-2xl rounded-br-none px-3 py-1.5 shadow-sm">
+                <p className="text-[10px] text-white">Hi there!</p>
+              </div>
             </div>
           </div>
 
-          {/* Preset Colors Grid */}
-          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-3">Preset Colors</p>
+          {/* Preset Colors Grid — tapping auto-saves immediately */}
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-3">Tap a color to apply</p>
           <div className="grid grid-cols-6 gap-2 mb-5">
             {WALLPAPER_PRESETS.map((preset) => {
               const isActive = (preset.value === null && !settings.chatWallpaper) || settings.chatWallpaper === preset.value;
               return (
                 <button
                   key={preset.name}
-                  onClick={() => updateSetting('chatWallpaper', preset.value)}
+                  onClick={() => handleWallpaperSelect(preset.value)}
                   className={`relative w-10 h-10 rounded-lg border-2 transition-all ${
                     isActive
                       ? 'border-primary-500 ring-2 ring-primary-200 dark:ring-primary-800 scale-110'
@@ -467,7 +482,7 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
             />
             <span className="text-sm text-slate-600 dark:text-slate-400 font-mono">{customColor}</span>
             <button
-              onClick={() => updateSetting('chatWallpaper', customColor)}
+              onClick={() => handleWallpaperSelect(customColor)}
               className="px-3 py-1.5 text-xs font-medium bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition"
             >
               Apply
@@ -476,7 +491,7 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
 
           {/* Reset */}
           <button
-            onClick={() => updateSetting('chatWallpaper', null)}
+            onClick={() => handleWallpaperSelect(null)}
             className="w-full py-2.5 text-sm text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-surface-800 rounded-lg hover:bg-slate-100 dark:hover:bg-surface-700 transition"
           >
             Reset to Default

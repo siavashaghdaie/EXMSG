@@ -241,21 +241,19 @@ export class ChatSettingsController {
       let where: any = { conversationId, isDeleted: false };
 
       if (type === 'media') {
-        // Images, videos, voice/audio — including those stored as type FILE
+        // Images and videos ONLY — voice notes are excluded
         where.OR = [
-          { type: { in: ['IMAGE', 'VIDEO', 'VOICE'] } },
-          { type: 'FILE', attachments: { some: { mimeType: { startsWith: 'audio/' } } } },
+          { type: { in: ['IMAGE', 'VIDEO'] } },
           { type: 'FILE', attachments: { some: { mimeType: { startsWith: 'image/' } } } },
           { type: 'FILE', attachments: { some: { mimeType: { startsWith: 'video/' } } } },
         ];
       } else if (type === 'docs') {
-        // Files that are NOT images, videos, or audio (actual documents)
+        // Files that are NOT images or videos (actual documents, excludes voice too)
         where.type = 'FILE';
         where.NOT = {
           attachments: {
             some: {
               OR: [
-                { mimeType: { startsWith: 'audio/' } },
                 { mimeType: { startsWith: 'image/' } },
                 { mimeType: { startsWith: 'video/' } },
               ],
@@ -277,14 +275,13 @@ export class ChatSettingsController {
         take: 100,
       });
 
-      // Count total by each type
+      // Count total by each type (voice notes excluded from media)
       const mediaCounts = await Promise.all([
         prisma.message.count({
           where: {
             conversationId, isDeleted: false,
             OR: [
-              { type: { in: ['IMAGE', 'VIDEO', 'VOICE'] } },
-              { type: 'FILE', attachments: { some: { mimeType: { startsWith: 'audio/' } } } },
+              { type: { in: ['IMAGE', 'VIDEO'] } },
               { type: 'FILE', attachments: { some: { mimeType: { startsWith: 'image/' } } } },
               { type: 'FILE', attachments: { some: { mimeType: { startsWith: 'video/' } } } },
             ],
@@ -297,7 +294,6 @@ export class ChatSettingsController {
               attachments: {
                 some: {
                   OR: [
-                    { mimeType: { startsWith: 'audio/' } },
                     { mimeType: { startsWith: 'image/' } },
                     { mimeType: { startsWith: 'video/' } },
                   ],
@@ -584,14 +580,13 @@ export class ChatSettingsController {
         },
       });
 
-      // Get media counts (media includes images, videos, and audio/voice files)
+      // Get media counts (images and videos only — voice notes excluded)
       const [mediaCount, docCount, linkCount] = await Promise.all([
         prisma.message.count({
           where: {
             conversationId, isDeleted: false,
             OR: [
-              { type: { in: ['IMAGE', 'VIDEO', 'VOICE'] } },
-              { type: 'FILE', attachments: { some: { mimeType: { startsWith: 'audio/' } } } },
+              { type: { in: ['IMAGE', 'VIDEO'] } },
               { type: 'FILE', attachments: { some: { mimeType: { startsWith: 'image/' } } } },
               { type: 'FILE', attachments: { some: { mimeType: { startsWith: 'video/' } } } },
             ],
@@ -604,7 +599,6 @@ export class ChatSettingsController {
               attachments: {
                 some: {
                   OR: [
-                    { mimeType: { startsWith: 'audio/' } },
                     { mimeType: { startsWith: 'image/' } },
                     { mimeType: { startsWith: 'video/' } },
                   ],

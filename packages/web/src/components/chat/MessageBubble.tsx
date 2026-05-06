@@ -235,6 +235,7 @@ export default function MessageBubble({
 
   return (
     <div
+      id={`msg-${message.id}`}
       ref={bubbleRef}
       className="group relative flex flex-col"
       onMouseEnter={() => !isMobile && setShowActions(true)}

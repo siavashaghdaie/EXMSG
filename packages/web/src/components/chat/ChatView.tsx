@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { format, isToday, isYesterday } from 'date-fns';
-import { ArrowDown, ChevronLeft, Phone, Video, Eye, SlidersHorizontal, MessageSquare, ClipboardList, Megaphone, ArrowUpDown, RefreshCw, CheckCircle2, XCircle, Sparkles, Bot, X, Settings2, Globe } from 'lucide-react';
+import { ArrowDown, ChevronLeft, Phone, Video, Eye, SlidersHorizontal, MessageSquare, ClipboardList, Megaphone, ArrowUpDown, RefreshCw, CheckCircle2, XCircle, Sparkles, Bot, X, Settings2, Globe, Pin } from 'lucide-react';
 import { useChatStore, setTranslationSettings } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { MessageResponse, ConversationResponse, api, UserStatusGroup, LindaActivity } from '@/services/api';
@@ -26,6 +26,8 @@ export default function ChatView() {
     activeConversation,
     setActiveConversation,
     fetchMessages,
+    fetchPinnedMessages,
+    pinnedMessages,
     typingIndicators,
     buzzActive,
     sendBuzz,
@@ -60,6 +62,9 @@ export default function ChatView() {
 
   // Chat wallpaper
   const [chatWallpaper, setChatWallpaper] = useState<string | null>(null);
+
+  // Pinned messages banner
+  const [pinnedIndex, setPinnedIndex] = useState(0);
 
   // Contact stories for header story ring
   const [contactStories, setContactStories] = useState<UserStatusGroup[]>([]);
@@ -176,6 +181,7 @@ export default function ChatView() {
   useEffect(() => {
     if (conversationId) {
       fetchMessages(conversationId);
+      fetchPinnedMessages(conversationId);
       // Preload translation settings for real-time message translation
       api.getChatSettings(conversationId).then((settings: any) => {
         if (settings) {
@@ -749,6 +755,62 @@ export default function ChatView() {
           </div>
         </div>
       )}
+
+      {/* Pinned Messages Banner (WhatsApp-style) */}
+      {(() => {
+        const pins = conversationId ? pinnedMessages.get(conversationId) : undefined;
+        if (!pins || pins.length === 0) return null;
+        const currentPin = pins[pinnedIndex % pins.length];
+        const pinSender = currentPin?.sender?.displayName || currentPin?.sender?.username || 'Unknown';
+        return (
+          <div className="flex-shrink-0 border-b border-slate-200 dark:border-surface-700 bg-white dark:bg-surface-900 z-10">
+            <button
+              className="w-full flex items-center gap-2.5 px-4 py-2 hover:bg-slate-50 dark:hover:bg-surface-800 transition text-left"
+              onClick={() => {
+                // Scroll to the pinned message
+                const el = document.getElementById(`msg-${currentPin.id}`);
+                if (el) {
+                  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  el.classList.add('animate-pulse');
+                  setTimeout(() => el.classList.remove('animate-pulse'), 2000);
+                }
+                // If multiple pins, cycle through them
+                if (pins.length > 1) {
+                  setPinnedIndex((prev) => (prev + 1) % pins.length);
+                }
+              }}
+            >
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <Pin size={14} className="text-green-600 dark:text-green-400" style={{ transform: 'rotate(45deg)' }} />
+                {pins.length > 1 && (
+                  <div className="flex flex-col items-center">
+                    {pins.map((_, i) => (
+                      <div
+                        key={i}
+                        className={`w-[3px] rounded-full ${
+                          i === pinnedIndex % pins.length
+                            ? 'h-2.5 bg-green-500'
+                            : 'h-1.5 bg-slate-300 dark:bg-slate-600'
+                        }`}
+                        style={{ marginTop: i > 0 ? 1 : 0 }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="flex-1 min-w-0 border-l-2 border-green-500 pl-2.5">
+                <p className="text-[11px] font-semibold text-green-700 dark:text-green-400 leading-none mb-0.5">{pinSender}</p>
+                <p className="text-xs text-slate-600 dark:text-slate-400 truncate leading-tight">
+                  {currentPin.content || (currentPin.attachments?.length ? 'Media' : 'Pinned message')}
+                </p>
+              </div>
+              {pins.length > 1 && (
+                <span className="text-[10px] text-slate-400 flex-shrink-0">{(pinnedIndex % pins.length) + 1}/{pins.length}</span>
+              )}
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Messages Container */}
       <div
