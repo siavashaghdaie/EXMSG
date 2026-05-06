@@ -51,7 +51,21 @@ const getLastMessagePreview = (conversation: ConversationResponse): string => {
   if (!conversation.lastMessage) {
     return 'No messages yet';
   }
-  return (conversation.lastMessage.content || '').slice(0, 50) || 'Attachment';
+  const msg = conversation.lastMessage as any;
+  if (msg.content?.trim()) {
+    return msg.content.slice(0, 50);
+  }
+  // Check attachments for specific preview labels
+  const attachments = msg.attachments || [];
+  if (attachments.length > 0) {
+    const first = attachments[0];
+    const mime = first.mimeType || '';
+    if (mime.startsWith('audio/')) return '🎤 Voice message';
+    if (mime.startsWith('image/')) return '📷 Photo';
+    if (mime.startsWith('video/')) return '🎥 Video';
+    return '📎 ' + (first.fileName || 'File');
+  }
+  return 'Attachment';
 };
 
 const getLastMessageTime = (conversation: ConversationResponse): string => {

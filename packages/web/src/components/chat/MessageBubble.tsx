@@ -3,7 +3,7 @@ import { format } from 'date-fns';
 import { Check, CheckCheck, Volume2, Globe } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
-import { MessageResponse } from '@/services/api';
+import { MessageResponse, api } from '@/services/api';
 import MessageActions from './MessageActions';
 import MessageContextMenu from './MessageContextMenu';
 import FileCard from './FileCard';
@@ -92,6 +92,13 @@ export default function MessageBubble({
     const { pinMessage } = useChatStore.getState();
     pinMessage(message.conversationId, message.id).catch((error) => {
       console.error('Failed to pin message:', error);
+    });
+    setShowContextMenu(false);
+  };
+
+  const handleStar = () => {
+    api.starMessage(message.conversationId, message.id).catch((error) => {
+      console.error('Failed to star message:', error);
     });
     setShowContextMenu(false);
   };
@@ -582,6 +589,7 @@ export default function MessageBubble({
           }}
           onCopy={handleCopy}
           onPin={handlePin}
+          onStar={handleStar}
           onDelete={() => {
             handleDelete();
             setShowContextMenu(false);

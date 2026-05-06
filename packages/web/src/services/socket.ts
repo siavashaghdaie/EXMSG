@@ -12,7 +12,9 @@ interface MessageEvent {
   conversationId: string;
   senderId: string;
   content: string;
+  type?: string;
   reactions: Record<string, string[]>;
+  attachments?: Array<{ id: string; fileName: string; mimeType: string; fileSize: number; url: string }>;
   createdAt: string;
 }
 

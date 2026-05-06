@@ -15,6 +15,7 @@ interface ChatSettingsPanelProps {
   onClose: () => void;
   onNavigateToChat?: (conversationId: string) => void;
   onNavigateToAgents?: (agentSlug?: string) => void;
+  onWallpaperChange?: (color: string | null) => void;
 }
 
 type MediaTab = 'media' | 'docs' | 'links';
@@ -60,7 +61,7 @@ const LANGUAGES = [
   'Norwegian', 'Ukrainian', 'Persian', 'Bengali', 'Urdu', 'Swahili',
 ];
 
-export default function ChatSettingsPanel({ conversationId, onClose, onNavigateToChat, onNavigateToAgents }: ChatSettingsPanelProps) {
+export default function ChatSettingsPanel({ conversationId, onClose, onNavigateToChat, onNavigateToAgents, onWallpaperChange }: ChatSettingsPanelProps) {
   const [loading, setLoading] = useState(true);
   const [chatInfo, setChatInfo] = useState<any>(null);
   const [activeMediaTab, setActiveMediaTab] = useState<MediaTab>('media');
@@ -160,6 +161,10 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
           newSettings.translateMyFrom,
           newSettings.translateMyTo,
         );
+      }
+      // Notify parent when wallpaper changes
+      if (key === 'chatWallpaper') {
+        onWallpaperChange?.(value);
       }
     } catch (err) {
       console.error('Failed to update setting:', err);
@@ -353,13 +358,29 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
         <div className="flex-1 overflow-y-auto p-3">
           {activeMediaTab === 'media' ? (
             <div className="grid grid-cols-3 gap-1">
-              {mediaMessages.map((msg: any) => (
-                <div key={msg.id} className="aspect-square bg-slate-100 dark:bg-surface-800 rounded overflow-hidden">
-                  {msg.attachments?.[0] && (
-                    <img src={msg.attachments[0].url} alt="" className="w-full h-full object-cover" />
-                  )}
-                </div>
-              ))}
+              {mediaMessages.map((msg: any) => {
+                const att = msg.attachments?.[0];
+                const mime = att?.mimeType || '';
+                return (
+                  <div key={msg.id} className="aspect-square bg-slate-100 dark:bg-surface-800 rounded overflow-hidden flex items-center justify-center">
+                    {att && mime.startsWith('image/') && (
+                      <img src={att.url} alt="" className="w-full h-full object-cover" />
+                    )}
+                    {att && mime.startsWith('video/') && (
+                      <div className="relative w-full h-full flex items-center justify-center bg-slate-900">
+                        <span className="text-2xl">🎥</span>
+                        <span className="absolute bottom-1 right-1 text-[10px] text-white bg-black/50 px-1 rounded">Video</span>
+                      </div>
+                    )}
+                    {att && mime.startsWith('audio/') && (
+                      <div className="flex flex-col items-center justify-center gap-1">
+                        <span className="text-2xl">🎤</span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400">Voice</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="space-y-2">

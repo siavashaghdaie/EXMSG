@@ -138,6 +138,9 @@ interface ConversationResponse {
   }>;
   lastMessage?: MessageResponse;
   unreadCount: number;
+  isFavorite?: boolean;
+  isMuted?: boolean;
+  isPinned?: boolean;
   linkedTask?: { id: string; title: string; archived?: boolean; deleted?: boolean } | null;
   linkedProject?: { id: string; name: string } | null;
   createdAt: string;
@@ -543,6 +546,8 @@ class APIClient {
       conversationId: conv.id,
       createdAt: lastMsg.createdAt,
       reactions: {},
+      type: lastMsg.type,
+      attachments: lastMsg.attachments,
     } : undefined;
 
     return {
@@ -552,6 +557,9 @@ class APIClient {
       participants,
       lastMessage,
       unreadCount: conv.unreadCount || 0,
+      isFavorite: conv.isFavorite || false,
+      isMuted: conv.isMuted || false,
+      isPinned: conv.isPinned || false,
       linkedTask: conv.linkedTask || null,
       linkedProject: conv.linkedProject || null,
       createdAt: conv.createdAt,
@@ -616,6 +624,19 @@ class APIClient {
           readBy[r.userId] = r.readAt;
         });
       }
+      // Transform reactions array to grouped map: { emoji: [userId1, userId2] }
+      const reactions: Record<string, string[]> = {};
+      if (Array.isArray(m.reactions)) {
+        m.reactions.forEach((r: any) => {
+          if (!reactions[r.emoji]) reactions[r.emoji] = [];
+          const uid = r.userId || r.user?.id;
+          if (uid && !reactions[r.emoji].includes(uid)) {
+            reactions[r.emoji].push(uid);
+          }
+        });
+      } else if (m.reactions && typeof m.reactions === 'object') {
+        Object.assign(reactions, m.reactions);
+      }
       return {
         id: m.id,
         conversationId: m.conversationId || conversationId,
@@ -624,7 +645,7 @@ class APIClient {
         type: m.type,
         metadata: m.metadata,
         attachments: m.attachments,
-        reactions: m.reactions || {},
+        reactions,
         readBy: Object.keys(readBy).length > 0 ? readBy : undefined,
         deliveredAt: m.deliveredAt,
         editedAt: m.editedAt,

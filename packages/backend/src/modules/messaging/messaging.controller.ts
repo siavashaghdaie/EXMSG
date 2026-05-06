@@ -93,6 +93,7 @@ export class MessagingController {
               type: true,
               createdAt: true,
               sender: { select: { id: true, displayName: true } },
+              attachments: { select: { id: true, fileName: true, mimeType: true } },
             },
           },
           linkedTask: {
@@ -642,6 +643,21 @@ export class MessagingController {
         update: {},
       });
 
+      // Get the message to find its conversationId for socket emission
+      const message = await prisma.message.findUnique({
+        where: { id: messageId },
+        select: { conversationId: true },
+      });
+
+      if (message) {
+        emitToConversation(message.conversationId, 'reaction:added', {
+          userId,
+          conversationId: message.conversationId,
+          messageId,
+          emoji,
+        });
+      }
+
       res.status(201).json({ reaction });
     } catch (error) {
       console.error('Add reaction error:', error);
@@ -655,9 +671,24 @@ export class MessagingController {
       const { messageId, emoji } = req.params;
       const userId = req.user!.userId;
 
+      // Get the message to find its conversationId for socket emission
+      const message = await prisma.message.findUnique({
+        where: { id: messageId },
+        select: { conversationId: true },
+      });
+
       await prisma.messageReaction.delete({
         where: { messageId_userId_emoji: { messageId, userId, emoji } },
       });
+
+      if (message) {
+        emitToConversation(message.conversationId, 'reaction:removed', {
+          userId,
+          conversationId: message.conversationId,
+          messageId,
+          emoji,
+        });
+      }
 
       res.json({ message: 'Reaction removed' });
     } catch (error) {

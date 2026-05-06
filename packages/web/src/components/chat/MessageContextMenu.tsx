@@ -23,6 +23,7 @@ interface MessageContextMenuProps {
   onForward: () => void;
   onCopy: () => void;
   onPin: () => void;
+  onStar: () => void;
   onDelete: () => void;
   onClose: () => void;
 }
@@ -45,6 +46,7 @@ export default function MessageContextMenu({
   onForward,
   onCopy,
   onPin,
+  onStar,
   onDelete,
   onClose,
 }: MessageContextMenuProps) {
@@ -107,10 +109,7 @@ export default function MessageContextMenu({
     {
       icon: <Star size={18} />,
       label: 'Star',
-      action: () => {
-        // Star message feature (placeholder)
-        onClose();
-      },
+      action: onStar,
     },
     ...(isOwnMessage
       ? [{

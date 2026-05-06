@@ -58,6 +58,9 @@ export default function ChatView() {
   const [translationActive, setTranslationActive] = useState(false);
   const [translateLangName, setTranslateLangName] = useState('');
 
+  // Chat wallpaper
+  const [chatWallpaper, setChatWallpaper] = useState<string | null>(null);
+
   // Contact stories for header story ring
   const [contactStories, setContactStories] = useState<UserStatusGroup[]>([]);
   const [showStoryViewer, setShowStoryViewer] = useState(false);
@@ -185,6 +188,7 @@ export default function ChatView() {
           );
           setTranslationActive(settings.autoTranslate === true && !!settings.translateLang);
           setTranslateLangName(settings.translateLang || '');
+          setChatWallpaper(settings.chatWallpaper || null);
         }
       }).catch(() => {/* ignore — settings not available yet */});
     }
@@ -751,6 +755,7 @@ export default function ChatView() {
         ref={messagesContainerRef}
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-hide"
+        style={chatWallpaper ? { backgroundColor: chatWallpaper } : undefined}
       >
         <div className="py-4 px-2 sm:px-4 max-w-full overflow-hidden">
           {conversationMessages.length === 0 ? (
@@ -815,6 +820,7 @@ export default function ChatView() {
         <ChatSettingsPanel
           conversationId={conversationId}
           onClose={() => setShowChatSettings(false)}
+          onWallpaperChange={(color) => setChatWallpaper(color)}
           onNavigateToChat={(id) => {
             setShowChatSettings(false);
             navigate(`/chat/${id}`);

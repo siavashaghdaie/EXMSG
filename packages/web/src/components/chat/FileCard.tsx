@@ -100,6 +100,7 @@ export default function FileCard({ fileName, fileSize, mimeType, url }: FileCard
         {getIcon()}
       </div>
       <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{fileName}</p>
         <p className="text-xs text-slate-500">{formatSize(fileSize)}</p>
       </div>
       <a

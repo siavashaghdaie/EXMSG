@@ -241,9 +241,15 @@ export class ChatSettingsController {
       let where: any = { conversationId, isDeleted: false };
 
       if (type === 'media') {
-        where.type = { in: ['IMAGE', 'VIDEO'] };
+        // Images, videos, and voice/audio messages
+        where.OR = [
+          { type: { in: ['IMAGE', 'VIDEO', 'VOICE'] } },
+          { type: 'FILE', attachments: { some: { mimeType: { startsWith: 'audio/' } } } },
+        ];
       } else if (type === 'docs') {
+        // Files that are NOT audio (actual documents)
         where.type = 'FILE';
+        where.NOT = { attachments: { some: { mimeType: { startsWith: 'audio/' } } } };
       } else if (type === 'links') {
         where.content = { contains: 'http' };
         where.type = 'TEXT';
@@ -261,8 +267,21 @@ export class ChatSettingsController {
 
       // Count total by each type
       const mediaCounts = await Promise.all([
-        prisma.message.count({ where: { conversationId, isDeleted: false, type: { in: ['IMAGE', 'VIDEO'] } } }),
-        prisma.message.count({ where: { conversationId, isDeleted: false, type: 'FILE' } }),
+        prisma.message.count({
+          where: {
+            conversationId, isDeleted: false,
+            OR: [
+              { type: { in: ['IMAGE', 'VIDEO', 'VOICE'] } },
+              { type: 'FILE', attachments: { some: { mimeType: { startsWith: 'audio/' } } } },
+            ],
+          },
+        }),
+        prisma.message.count({
+          where: {
+            conversationId, isDeleted: false, type: 'FILE',
+            NOT: { attachments: { some: { mimeType: { startsWith: 'audio/' } } } },
+          },
+        }),
         prisma.message.count({ where: { conversationId, isDeleted: false, type: 'TEXT', content: { contains: 'http' } } }),
       ]);
 
@@ -541,10 +560,23 @@ export class ChatSettingsController {
         },
       });
 
-      // Get media counts
+      // Get media counts (media includes images, videos, and audio/voice files)
       const [mediaCount, docCount, linkCount] = await Promise.all([
-        prisma.message.count({ where: { conversationId, isDeleted: false, type: { in: ['IMAGE', 'VIDEO'] } } }),
-        prisma.message.count({ where: { conversationId, isDeleted: false, type: 'FILE' } }),
+        prisma.message.count({
+          where: {
+            conversationId, isDeleted: false,
+            OR: [
+              { type: { in: ['IMAGE', 'VIDEO', 'VOICE'] } },
+              { type: 'FILE', attachments: { some: { mimeType: { startsWith: 'audio/' } } } },
+            ],
+          },
+        }),
+        prisma.message.count({
+          where: {
+            conversationId, isDeleted: false, type: 'FILE',
+            NOT: { attachments: { some: { mimeType: { startsWith: 'audio/' } } } },
+          },
+        }),
         prisma.message.count({ where: { conversationId, isDeleted: false, type: 'TEXT', content: { contains: 'http' } } }),
       ]);
 

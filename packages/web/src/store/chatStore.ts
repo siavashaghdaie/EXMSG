@@ -260,6 +260,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
             conversationId: message.conversationId,
             createdAt: message.createdAt,
             reactions: {},
+            type: message.type,
+            attachments: message.attachments,
           };
           conv.updatedAt = message.createdAt;
           conversations.splice(convIndex, 1);
@@ -306,9 +308,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // Reaction Actions
   addReaction: async (conversationId: string, messageId: string, emoji: string) => {
     set({ error: null });
+    const currentUserId = useAuthStore.getState().user?.id;
+    // Optimistic update
+    if (currentUserId) {
+      set((state) => {
+        const messages = new Map(state.messages);
+        const conversationMessages = messages.get(conversationId) || [];
+        const updated = conversationMessages.map((msg) => {
+          if (msg.id === messageId) {
+            const reactions = { ...msg.reactions };
+            if (!reactions[emoji]) reactions[emoji] = [];
+            if (!reactions[emoji].includes(currentUserId)) {
+              reactions[emoji] = [...reactions[emoji], currentUserId];
+            }
+            return { ...msg, reactions };
+          }
+          return msg;
+        });
+        messages.set(conversationId, updated);
+        return { messages };
+      });
+    }
     try {
       await api.addReaction(conversationId, messageId, emoji);
-      // Reaction will be updated via socket event
     } catch (error: any) {
       const errorMessage =
         error.response?.data?.message || error.message || 'Failed to add reaction';
@@ -319,9 +341,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   removeReaction: async (conversationId: string, messageId: string, emoji: string) => {
     set({ error: null });
+    const currentUserId = useAuthStore.getState().user?.id;
+    // Optimistic update
+    if (currentUserId) {
+      set((state) => {
+        const messages = new Map(state.messages);
+        const conversationMessages = messages.get(conversationId) || [];
+        const updated = conversationMessages.map((msg) => {
+          if (msg.id === messageId) {
+            const reactions = { ...msg.reactions };
+            if (reactions[emoji]) {
+              reactions[emoji] = reactions[emoji].filter((id: string) => id !== currentUserId);
+              if (reactions[emoji].length === 0) delete reactions[emoji];
+            }
+            return { ...msg, reactions };
+          }
+          return msg;
+        });
+        messages.set(conversationId, updated);
+        return { messages };
+      });
+    }
     try {
       await api.removeReaction(conversationId, messageId, emoji);
-      // Reaction will be updated via socket event
     } catch (error: any) {
       const errorMessage =
         error.response?.data?.message || error.message || 'Failed to remove reaction';
@@ -353,6 +395,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
           conversationId: message.conversationId,
           createdAt: message.createdAt,
           reactions: {},
+          type: message.type,
+          attachments: message.attachments,
         };
         conv.updatedAt = message.createdAt;
         conversations.splice(convIndex, 1);

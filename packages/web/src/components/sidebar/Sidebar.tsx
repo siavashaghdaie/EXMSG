@@ -671,20 +671,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   const conversationWithUnread = { ...conversation, unreadCount: liveUnreadCount };
 
                   return (
-                    <ConversationItem
-                      key={conversation.id}
-                      conversation={conversationWithUnread}
-                      isActive={isConversationActive(conversation.id)}
-                      isOnline={conversation.participants.length === 2 ? isOnline : undefined}
-                      onNavigate={handleNavigateChat}
-                      typingUsers={typingUserNames.length > 0 ? typingUserNames : undefined}
-                      hasStory={!!otherUserStory}
-                      hasUnviewedStory={otherUserStory?.hasUnviewed}
-                      onStoryClick={otherUserStory ? () => {
-                        setStoryViewUserId(otherUserId!);
-                        setShowStoryViewer(true);
-                      } : undefined}
-                    />
+                    <React.Fragment key={conversation.id}>
+                      <ConversationItem
+                        conversation={conversationWithUnread}
+                        isActive={isConversationActive(conversation.id)}
+                        isOnline={conversation.participants.length === 2 ? isOnline : undefined}
+                        onNavigate={handleNavigateChat}
+                        typingUsers={typingUserNames.length > 0 ? typingUserNames : undefined}
+                        hasStory={!!otherUserStory}
+                        hasUnviewedStory={otherUserStory?.hasUnviewed}
+                        onStoryClick={otherUserStory ? () => {
+                          setStoryViewUserId(otherUserId!);
+                          setShowStoryViewer(true);
+                        } : undefined}
+                      />
+                      <div className="mx-3 border-b border-gray-100 dark:border-surface-700/50" />
+                    </React.Fragment>
                   );
                 })
               )}
