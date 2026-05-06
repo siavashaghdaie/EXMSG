@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Eye, Settings2, Bot, X, BarChart3, UserPlus, Check } from 'lucide-react';
+import { Eye, Settings2, Bot, X, BarChart3, UserPlus } from 'lucide-react';
 import { api } from '@/services/api';
 
 interface AgentPanelProps {
@@ -118,7 +118,6 @@ export default function AgentPanel({ agentParticipants, conversationId, onClose,
         ) : (
           hiredAgents.map((ha) => {
             const isInChat = agentParticipantSlugs.has(ha.agent.slug);
-            const participant = agentParticipants.find(p => p.username === ha.agent.slug);
 
             return (
               <div

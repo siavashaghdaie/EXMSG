@@ -259,8 +259,6 @@ export default function ChatView() {
   const agentParticipants = (conversation?.participants || []).filter(
     (p) => p.id !== user?.id && (p.email?.endsWith('@omnilink.system') || false)
   );
-  const hasAgents = agentParticipants.length > 0;
-
   // Group messages by sender and time
   const groupedMessages = conversationMessages.reduce<Array<{ messages: MessageResponse[] }>>(
     (groups, message) => {

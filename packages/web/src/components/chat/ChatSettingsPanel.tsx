@@ -77,7 +77,6 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
   const [showNotificationSound, setShowNotificationSound] = useState(false);
   const [showSaveMedia, setShowSaveMedia] = useState(false);
   const [showTranslateSettings, setShowTranslateSettings] = useState(false);
-  const [showTransGuyWizard, setShowTransGuyWizard] = useState(false);
   const [isTransGuyHired, setIsTransGuyHired] = useState(false);
 
   const [showLockChat, setShowLockChat] = useState(false);
@@ -691,8 +690,7 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
               value={settings.autoTranslate}
               onChange={(v) => {
                 if (v && !isTransGuyHired) {
-                  // Show wizard when trying to enable without TransGuy hired
-                  setShowTransGuyWizard(true);
+                  // Can't enable without TransGuy hired — card is shown below
                   return;
                 }
                 updateSetting('autoTranslate', v);
@@ -727,7 +725,6 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
               </div>
               <button
                 onClick={() => {
-                  setShowTransGuyWizard(false);
                   if (onNavigateToAgents) {
                     onNavigateToAgents('transguy');
                   }
