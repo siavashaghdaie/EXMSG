@@ -56,9 +56,10 @@ export default function MessageBubble({
   const [expiresIn, setExpiresIn] = useState<string | null>(null);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
-  const { editMessage, deleteMessage, addReaction } = useChatStore();
+  const { editMessage, deleteMessage, addReaction, pinnedMessages } = useChatStore();
   const { user } = useAuthStore();
   const [isMobile] = useState(window.innerWidth < 768);
+  const isPinned = (pinnedMessages.get(message.conversationId) || []).some(p => p.id === message.id);
 
   // Disappearing message countdown timer
   useEffect(() => {
@@ -145,13 +146,25 @@ export default function MessageBubble({
   };
 
   const handlePin = () => {
-    const { pinMessage } = useChatStore.getState();
-    pinMessage(message.conversationId, message.id)
-      .then(() => showFeedback('📌 Pinned'))
-      .catch((error) => {
-        console.error('Failed to pin message:', error);
-        showFeedback('Failed to pin');
-      });
+    const { pinMessage, unpinMessage, pinnedMessages } = useChatStore.getState();
+    const pins = pinnedMessages.get(message.conversationId) || [];
+    const isPinned = pins.some(p => p.id === message.id);
+
+    if (isPinned) {
+      unpinMessage(message.conversationId, message.id)
+        .then(() => showFeedback('Unpinned'))
+        .catch((error) => {
+          console.error('Failed to unpin message:', error);
+          showFeedback('Failed to unpin');
+        });
+    } else {
+      pinMessage(message.conversationId, message.id)
+        .then(() => showFeedback('📌 Pinned'))
+        .catch((error) => {
+          console.error('Failed to pin message:', error);
+          showFeedback('Failed to pin');
+        });
+    }
     setShowContextMenu(false);
   };
 
@@ -678,6 +691,7 @@ export default function MessageBubble({
         <MessageActions
           message={message}
           isOwnMessage={isOwnMessage}
+          isPinned={isPinned}
           onReply={handleReply}
           onEdit={() => {
             if (isEditable()) {

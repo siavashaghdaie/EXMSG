@@ -484,21 +484,19 @@ export default function ChatView() {
             })()}
           </div>
           <div className="flex items-center gap-0.5 sm:gap-2 flex-shrink-0">
-            {/* Agent robot button — shown when any agent is in the chat */}
-            {hasAgents && (
-              <button
-                onClick={() => setShowAgentPanel(!showAgentPanel)}
-                className={`p-1.5 sm:p-2 rounded-lg transition relative ${showAgentPanel ? 'bg-violet-100 dark:bg-violet-900/30' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-                title={`${agentParticipants.length} agent${agentParticipants.length > 1 ? 's' : ''} in chat`}
-              >
-                <Bot size={18} className={showAgentPanel ? 'text-violet-500' : 'text-slate-600 dark:text-slate-400'} />
-                {agentParticipants.length > 1 && (
-                  <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-violet-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
-                    {agentParticipants.length}
-                  </span>
-                )}
-              </button>
-            )}
+            {/* Agent robot button — always shown */}
+            <button
+              onClick={() => setShowAgentPanel(!showAgentPanel)}
+              className={`p-1.5 sm:p-2 rounded-lg transition relative ${showAgentPanel ? 'bg-violet-100 dark:bg-violet-900/30' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+              title="AI Agents"
+            >
+              <Bot size={18} className={showAgentPanel ? 'text-violet-500' : 'text-slate-600 dark:text-slate-400'} />
+              {agentParticipants.length > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-violet-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                  {agentParticipants.length}
+                </span>
+              )}
+            </button>
             {isLindaConversation && (
               <button
                 onClick={() => {
@@ -577,10 +575,10 @@ export default function ChatView() {
                   }
                 }
               }}
-              className="p-1.5 sm:p-2 hover:bg-slate-100 rounded-lg transition"
+              className="p-1.5 sm:p-2 hover:bg-slate-100 dark:hover:bg-surface-700 rounded-lg transition"
               title="Video call"
             >
-              <Video size={18} className="text-slate-600" />
+              <Video size={18} className="text-slate-600 dark:text-slate-300" />
             </button>
             <button
               onClick={() => setShowChatSettings(!showChatSettings)}
@@ -594,9 +592,10 @@ export default function ChatView() {
       </div>
 
       {/* Agent Panel */}
-      {showAgentPanel && hasAgents && conversationId && (
+      {showAgentPanel && conversationId && (
         <AgentPanel
           agentParticipants={agentParticipants}
+          conversationId={conversationId}
           onClose={() => setShowAgentPanel(false)}
           onViewActivities={(username) => {
             setShowAgentPanel(false);

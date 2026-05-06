@@ -62,6 +62,11 @@ async function bootstrap() {
   // Serve uploaded files statically
   app.use('/uploads', express.static(uploadsDir));
 
+  // Redirect /upload/ (singular) → /uploads/ (plural) as safety net
+  app.use('/upload', (req, res) => {
+    res.redirect(301, `/uploads${req.url}`);
+  });
+
   // Health check
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });

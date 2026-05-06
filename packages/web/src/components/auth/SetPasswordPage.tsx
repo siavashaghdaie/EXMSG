@@ -52,6 +52,7 @@ export const SetPasswordPage: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [agreeToTerms, setAgreeToTerms] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
 
@@ -103,7 +104,7 @@ export const SetPasswordPage: React.FC = () => {
     return null;
   }, [password, confirmPassword]);
 
-  const canSubmit = password.length >= 8 && !passwordError && !confirmError && confirmPassword === password;
+  const canSubmit = password.length >= 8 && !passwordError && !confirmError && confirmPassword === password && agreeToTerms;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -271,6 +272,26 @@ export const SetPasswordPage: React.FC = () => {
             </p>
           )}
         </div>
+
+        {/* Terms Agreement */}
+        <label className="flex items-start gap-2 text-sm text-gray-600 dark:text-gray-400 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={agreeToTerms}
+            onChange={(e) => setAgreeToTerms(e.target.checked)}
+            className="mt-0.5 rounded border-gray-300 dark:border-surface-600 text-primary-600 focus:ring-primary-500"
+          />
+          <span>
+            I agree to the{' '}
+            <a href="/terms" target="_blank" className="text-primary-600 hover:underline">
+              Terms of Service
+            </a>{' '}
+            and{' '}
+            <a href="/privacy" target="_blank" className="text-primary-600 hover:underline">
+              Privacy Policy
+            </a>
+          </span>
+        </label>
 
         <Button
           type="submit"

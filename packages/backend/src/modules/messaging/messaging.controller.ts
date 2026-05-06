@@ -179,14 +179,23 @@ export class MessagingController {
 
       const allMemberIds = [userId, ...memberIds.filter((id: string) => id !== userId)];
 
-      // Org-scoping: verify all participants belong to the same organization
+      // Org-scoping: verify all participants belong to the same organization (agent system users are exempt)
       const orgId = req.orgId ?? null;
       if (orgId) {
         const orgMemberIds = await getOrgMemberIds(req);
         const nonOrgParticipants = allMemberIds.filter((id: string) => !orgMemberIds.includes(id));
         if (nonOrgParticipants.length > 0) {
-          res.status(403).json({ error: 'All participants must belong to the same organization' });
-          return;
+          // Check if non-org participants are agent system users (allowed)
+          const agentUsers = await prisma.user.findMany({
+            where: { id: { in: nonOrgParticipants }, email: { endsWith: '@omnilink.system' } },
+            select: { id: true },
+          });
+          const agentUserIds = new Set(agentUsers.map(u => u.id));
+          const realNonOrg = nonOrgParticipants.filter((id: string) => !agentUserIds.has(id));
+          if (realNonOrg.length > 0) {
+            res.status(403).json({ error: 'All participants must belong to the same organization' });
+            return;
+          }
         }
       }
 
@@ -217,6 +226,63 @@ export class MessagingController {
       res.status(201).json({ conversation });
     } catch (error) {
       console.error('Create conversation error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // POST /api/conversations/:conversationId/members — add a member (agent) to a conversation
+  async addMember(req: Request, res: Response): Promise<void> {
+    try {
+      const { conversationId } = req.params;
+      const { userId: memberUserId } = req.body;
+      const requestingUserId = req.user!.userId;
+
+      if (!memberUserId) {
+        res.status(400).json({ error: 'userId is required' });
+        return;
+      }
+
+      // Check conversation exists and requesting user is a member
+      const conv = await prisma.conversation.findFirst({
+        where: { id: conversationId, members: { some: { userId: requestingUserId } } },
+      });
+      if (!conv) {
+        res.status(404).json({ error: 'Conversation not found' });
+        return;
+      }
+
+      // Check if user is already a member
+      const existing = await prisma.conversationMember.findFirst({
+        where: { conversationId, userId: memberUserId },
+      });
+      if (existing) {
+        res.json({ success: true, alreadyMember: true });
+        return;
+      }
+
+      // Add as member
+      await prisma.conversationMember.create({
+        data: { conversationId, userId: memberUserId, role: 'MEMBER' },
+      });
+
+      // Fetch updated conversation
+      const updated = await prisma.conversation.findUnique({
+        where: { id: conversationId },
+        include: {
+          members: {
+            include: {
+              user: { select: { id: true, username: true, displayName: true, avatarUrl: true, email: true } },
+            },
+          },
+        },
+      });
+
+      // Notify via socket
+      emitToConversation(conversationId, 'conversation_updated', updated);
+
+      res.json({ success: true, conversation: updated });
+    } catch (error) {
+      console.error('Add member error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }

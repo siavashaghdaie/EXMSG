@@ -111,7 +111,33 @@ export class AgentController {
         where: { id: existing.id },
       });
 
-      res.json({ success: true });
+      // Auto-disable dependent features when an agent is removed
+      if (agent?.slug === 'transguy') {
+        // Disable auto-translate for all conversations in this org
+        try {
+          const orgMembers = await prisma.organizationMember.findMany({
+            where: { organizationId: orgId },
+            select: { userId: true },
+          });
+          const orgUserIds = orgMembers.map(m => m.userId);
+          if (orgUserIds.length > 0) {
+            await prisma.conversationMember.updateMany({
+              where: {
+                userId: { in: orgUserIds },
+                autoTranslate: true,
+              },
+              data: {
+                autoTranslate: false,
+              },
+            });
+            console.log(`[Agents] TransGuy fired from org ${orgId} — disabled auto-translate for all org members`);
+          }
+        } catch (err) {
+          console.error('[Agents] Failed to disable auto-translate after TransGuy removal:', err);
+        }
+      }
+
+      res.json({ success: true, disabledFeatures: agent?.slug === 'transguy' ? ['autoTranslate'] : [] });
     } catch (error) {
       console.error('Error firing agent:', error);
       res.status(500).json({ error: 'Failed to fire agent' });
@@ -169,7 +195,7 @@ export async function seedAgents() {
       name: 'Linda',
       role: 'AI Secretary & Manager',
       tagline: 'Your intelligent office assistant',
-      description: 'Linda manages your tasks, announcements, and team coordination. She responds to messages and voice notes, creates documents, and keeps your workspace organized. Linda is always learning your preferences to serve you better.',
+      description: 'Linda manages your tasks, announcements, and team coordination. Linda responds to messages and voice notes, creates documents, and keeps your workspace organized. Linda is always learning your preferences to serve you better.',
       category: 'productivity',
       capabilities: ['Task management', 'Document creation', 'Voice understanding', 'Smart replies', 'Meeting scheduling', 'Team coordination'],
       gradientFrom: '#8B5CF6',
@@ -185,7 +211,7 @@ export async function seedAgents() {
       name: 'TransGuy',
       role: 'Real-Time Translator',
       tagline: 'Break language barriers instantly',
-      description: 'TransGuy provides real-time message translation across 50+ languages. He auto-detects the language of incoming messages and translates them seamlessly in your chat. Perfect for international teams and cross-border collaboration.',
+      description: 'TransGuy provides real-time message translation across 50+ languages. It auto-detects the language of incoming messages and translates them seamlessly in your chat. Perfect for international teams and cross-border collaboration.',
       category: 'communication',
       capabilities: ['Real-time translation', 'Language detection', '50+ languages', 'Context-aware accuracy', 'Voice translation', 'Cultural adaptation'],
       gradientFrom: '#10B981',
@@ -233,7 +259,7 @@ export async function seedAgents() {
       name: 'Guardian',
       role: 'Security Monitor',
       tagline: 'Protect your conversations',
-      description: 'Guardian monitors for sensitive data leaks, phishing attempts, and suspicious activity in messages. He alerts admins about potential security threats and helps maintain compliance standards across your organization.',
+      description: 'Guardian monitors for sensitive data leaks, phishing attempts, and suspicious activity in messages. It alerts admins about potential security threats and helps maintain compliance standards across your organization.',
       category: 'security',
       capabilities: ['DLP monitoring', 'Phishing detection', 'Compliance checks', 'Threat alerts', 'Audit logging', 'Policy enforcement'],
       gradientFrom: '#EF4444',
@@ -249,7 +275,7 @@ export async function seedAgents() {
       name: 'QuickReply',
       role: 'Smart Auto-Responder',
       tagline: 'Reply faster, sound better',
-      description: 'QuickReply drafts context-aware reply suggestions to help you respond faster in busy conversations. He learns your communication style and can adjust tone from casual to formal as needed.',
+      description: 'QuickReply drafts context-aware reply suggestions to help you respond faster in busy conversations. It learns your communication style and can adjust tone from casual to formal as needed.',
       category: 'communication',
       capabilities: ['Smart suggestions', 'Tone adjustment', 'Template responses', 'Priority detection', 'Style learning', 'Multi-language replies'],
       gradientFrom: '#EAB308',
@@ -265,7 +291,7 @@ export async function seedAgents() {
       name: 'NoteTaker',
       role: 'Meeting & Chat Summarizer',
       tagline: 'Never miss a detail',
-      description: 'NoteTaker automatically summarizes long conversations, extracts action items, and creates meeting notes. He can identify key decisions, deadlines, and follow-ups from any chat thread.',
+      description: 'NoteTaker automatically summarizes long conversations, extracts action items, and creates meeting notes. It can identify key decisions, deadlines, and follow-ups from any chat thread.',
       category: 'productivity',
       capabilities: ['Chat summarization', 'Action item extraction', 'Meeting notes', 'Decision tracking', 'Deadline detection', 'Weekly digests'],
       gradientFrom: '#8B5CF6',
@@ -301,6 +327,35 @@ export async function seedAgents() {
   }
 
   console.log(`[Agents] Seeded ${presetAgents.length} preset agents`);
+
+  // Ensure every agent has a corresponding system user account (so they appear in search/contacts)
+  const bcrypt = await import('bcryptjs');
+  for (const agentData of presetAgents) {
+    const agentEmail = `${agentData.slug}@omnilink.system`;
+    const existingUser = await prisma.user.findFirst({ where: { email: agentEmail } });
+    if (!existingUser) {
+      try {
+        const hash = await bcrypt.hash(`agent-${agentData.slug}-${Date.now()}-${Math.random()}`, 10);
+        await prisma.user.create({
+          data: {
+            email: agentEmail,
+            username: agentData.slug,
+            displayName: agentData.name,
+            passwordHash: hash,
+            bio: agentData.tagline || `I'm ${agentData.name}, an AI agent.`,
+            isOnline: true,
+            status: agentData.role,
+            emailVerified: true,
+          },
+        });
+        console.log(`[Agents] Created system user for ${agentData.name} (${agentEmail})`);
+      } catch (err: any) {
+        if (err.code !== 'P2002') { // Ignore unique constraint (race condition)
+          console.error(`[Agents] Failed to create system user for ${agentData.name}:`, err);
+        }
+      }
+    }
+  }
 
   // One-time cleanup: un-hire non-mandatory agents that lack a hiredBy (were auto-hired by system, not by a user)
   const nonMandatoryAgents = await prisma.agent.findMany({ where: { isMandatory: false } });

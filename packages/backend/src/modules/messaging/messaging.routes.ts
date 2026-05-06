@@ -37,6 +37,9 @@ router.post('/conversations', controller.createConversation);
 router.get('/conversations/:conversationId', controller.getConversation);
 router.delete('/conversations/:conversationId', controller.deleteConversation.bind(controller));
 
+// Add member to conversation
+router.post('/conversations/:conversationId/members', controller.addMember.bind(controller));
+
 // Messages
 router.get('/conversations/:conversationId/messages', controller.getMessages);
 router.post('/conversations/:conversationId/messages', controller.sendMessage);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Search, Settings, Plus, Bell, ClipboardList, LayoutDashboard, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Search, Settings, Plus, Bell, ClipboardList, LayoutDashboard, PanelLeftClose, PanelLeftOpen, MessageSquare } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { usePresenceStore } from '@/store/presenceStore';
@@ -417,9 +417,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="flex items-center justify-between mb-4">
             {isMobile ? (
               <>
-                <h1 className="text-xl font-bold text-gray-900 dark:text-white">
-                  OMNILINK
-                </h1>
+                {/* Mobile: no logo text, just action buttons */}
+                <div className="flex items-center gap-1">
+                  <div className="w-7 h-7 bg-gradient-to-br from-primary-500 to-primary-700 rounded-lg flex items-center justify-center">
+                    <MessageSquare className="w-4 h-4 text-white" />
+                  </div>
+                </div>
                 <div className="flex items-center gap-0.5">
                   {isOrgAdmin && (
                     <button
@@ -524,53 +527,86 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
 
-          {/* User profile mini with story ring and add button */}
-          <div
-            onClick={handleAvatarClick}
-            className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors group ${
-              isMobile ? '' : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-surface-800'
-            }`}
-          >
-            <div className="relative flex-shrink-0 w-[58px] h-[58px] flex items-center justify-center">
-              {/* Story dashed ring - SVG for guaranteed visibility */}
-              {hasActiveStory && (
-                <svg
-                  className="absolute inset-0 w-[58px] h-[58px] animate-spin pointer-events-none"
-                  style={{ animationDuration: '12s' }}
-                  viewBox="0 0 58 58"
+          {/* Instagram-style horizontal story bar (mobile) / Profile row (desktop) */}
+          {isMobile ? (
+            <div className="flex gap-3 overflow-x-auto py-2 px-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+              {/* My Story — Instagram-style circle with + badge */}
+              <div className="flex flex-col items-center gap-1 flex-shrink-0" onClick={(e) => { e.stopPropagation(); handleAddStory(e); }}>
+                <div className="relative">
+                  <div className={`w-[52px] h-[52px] rounded-full p-[2px] ${hasActiveStory ? 'bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600' : 'bg-gray-200 dark:bg-surface-600'}`}>
+                    <div className="w-full h-full rounded-full bg-white dark:bg-surface-900 p-[2px]">
+                      <Avatar src={user.avatar || (user as any).avatarUrl} name={user.displayName || user.username || user.email || 'User'} username={user.username || user.email || 'User'} size="md" />
+                    </div>
+                  </div>
+                  <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-primary-500 rounded-full border-2 border-white dark:border-surface-900 flex items-center justify-center">
+                    <Plus className="w-3 h-3 text-white" />
+                  </div>
+                </div>
+                <span className="text-[10px] text-gray-500 dark:text-gray-400 truncate w-14 text-center">My Story</span>
+              </div>
+
+              {/* Contact Stories */}
+              {contactStories.map((cs) => (
+                <div
+                  key={cs.userId}
+                  className="flex flex-col items-center gap-1 flex-shrink-0 cursor-pointer"
+                  onClick={() => { setStoryViewUserId(cs.userId); setShowStoryViewer(true); }}
                 >
-                  <circle
-                    cx="29"
-                    cy="29"
-                    r="26.5"
-                    fill="none"
-                    stroke="#f59e0b"
-                    strokeWidth="3"
-                    strokeDasharray="6 4"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              )}
-              <Avatar src={user.avatar || (user as any).avatarUrl} name={user.displayName || user.username || user.email || 'User'} username={user.username || user.email || 'User'} size="lg" />
+                  <div className="w-[52px] h-[52px] rounded-full p-[2px] bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600">
+                    <div className="w-full h-full rounded-full bg-white dark:bg-surface-900 p-[2px]">
+                      <Avatar src={cs.avatarUrl} name={cs.displayName || cs.username} username={cs.username} size="md" />
+                    </div>
+                  </div>
+                  <span className="text-[10px] text-gray-500 dark:text-gray-400 truncate w-14 text-center">{(cs.displayName || cs.username || '').split(' ')[0]}</span>
+                </div>
+              ))}
             </div>
-            <div className="flex-1 text-left min-w-0">
-              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                {user.displayName || user.username || user.email?.split('@')[0] || 'User'}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                {user.email || ''}
-              </p>
-            </div>
-            <button
-              onClick={handleAddStory}
-              className="flex-shrink-0 w-10 h-10 flex items-center justify-center bg-primary-600 dark:bg-primary-500 text-white rounded-full hover:bg-primary-700 dark:hover:bg-primary-600 transition-colors shadow-md relative"
-              title="Add story"
-              style={{ outline: 'none' }}
+          ) : (
+            <div
+              onClick={handleAvatarClick}
+              className="w-full flex items-center gap-3 p-2 rounded-lg transition-colors group cursor-pointer hover:bg-gray-100 dark:hover:bg-surface-800"
             >
-              <div className="absolute inset-[-3px] rounded-full border-2 border-dashed border-primary-400 dark:border-primary-300 animate-spin" style={{ animationDuration: '8s' }} />
-              <Plus className="w-4 h-4 relative z-10" />
-            </button>
-          </div>
+              <div className="relative flex-shrink-0 w-[58px] h-[58px] flex items-center justify-center">
+                {/* Story dashed ring - SVG for guaranteed visibility */}
+                {hasActiveStory && (
+                  <svg
+                    className="absolute inset-0 w-[58px] h-[58px] animate-spin pointer-events-none"
+                    style={{ animationDuration: '12s' }}
+                    viewBox="0 0 58 58"
+                  >
+                    <circle
+                      cx="29"
+                      cy="29"
+                      r="26.5"
+                      fill="none"
+                      stroke="#f59e0b"
+                      strokeWidth="3"
+                      strokeDasharray="6 4"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                )}
+                <Avatar src={user.avatar || (user as any).avatarUrl} name={user.displayName || user.username || user.email || 'User'} username={user.username || user.email || 'User'} size="lg" />
+              </div>
+              <div className="flex-1 text-left min-w-0">
+                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                  {user.displayName || user.username || user.email?.split('@')[0] || 'User'}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                  {user.email || ''}
+                </p>
+              </div>
+              <button
+                onClick={handleAddStory}
+                className="flex-shrink-0 w-10 h-10 flex items-center justify-center bg-primary-600 dark:bg-primary-500 text-white rounded-full hover:bg-primary-700 dark:hover:bg-primary-600 transition-colors shadow-md relative"
+                title="Add story"
+                style={{ outline: 'none' }}
+              >
+                <div className="absolute inset-[-3px] rounded-full border-2 border-dashed border-primary-400 dark:border-primary-300 animate-spin" style={{ animationDuration: '8s' }} />
+                <Plus className="w-4 h-4 relative z-10" />
+              </button>
+            </div>
+          )}
 
         </div>
 

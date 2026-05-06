@@ -611,6 +611,7 @@ model LindaMessage {
   content        String
   hasAttachment  Boolean  @default(false) @map("has_attachment")
   attachmentName String?  @map("attachment_name")
+  attachmentUrl  String?  @map("attachment_url")
   createdAt      DateTime @default(now()) @map("created_at")
 
   conversation LindaConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)

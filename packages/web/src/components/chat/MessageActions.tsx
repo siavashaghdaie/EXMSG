@@ -6,6 +6,7 @@ import EmojiPicker from './EmojiPicker';
 interface MessageActionsProps {
   message: { id: string; createdAt?: string };
   isOwnMessage: boolean;
+  isPinned?: boolean;
   onReply: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -19,6 +20,7 @@ interface MessageActionsProps {
 export default function MessageActions({
   message: _message,
   isOwnMessage,
+  isPinned = false,
   onReply,
   onEdit,
   onDelete,
@@ -81,13 +83,13 @@ export default function MessageActions({
         </button>
       )}
 
-      {/* Pin */}
+      {/* Pin / Unpin */}
       <button
         onClick={onPin}
-        className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition"
-        title="Pin"
+        className={`p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition ${isPinned ? 'text-amber-500' : ''}`}
+        title={isPinned ? 'Unpin' : 'Pin'}
       >
-        <Pin size={16} className="text-slate-600 dark:text-slate-300" />
+        <Pin size={16} className={isPinned ? 'text-amber-500' : 'text-slate-600 dark:text-slate-300'} />
       </button>
 
       {/* Edit (own messages only) */}

@@ -153,7 +153,7 @@ export default function LindaChat({ onClose }: LindaChatProps) {
         sender: m.role === 'user' ? 'user' : 'linda',
         timestamp: new Date(m.createdAt),
         attachment: m.hasAttachment && m.attachmentName
-          ? { name: m.attachmentName, type: '', size: 0 }
+          ? { name: m.attachmentName, type: m.attachmentUrl?.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i) ? `image/${(m.attachmentUrl.match(/\.(\w+)$/)?.[1] || 'png').toLowerCase()}` : '', size: 0, url: m.attachmentUrl || undefined }
           : undefined,
       })));
     } catch {

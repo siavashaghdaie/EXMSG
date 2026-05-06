@@ -202,6 +202,7 @@ interface LindaMessageData {
   content: string;
   hasAttachment?: boolean;
   attachmentName?: string;
+  attachmentUrl?: string | null;
   createdAt: string;
 }
 
@@ -1564,6 +1565,11 @@ class APIClient {
 
   async getHiredAgents(): Promise<any[]> {
     const res = await this.client.get('/agents/hired');
+    return res.data;
+  }
+
+  async addMemberToConversation(conversationId: string, userId: string): Promise<any> {
+    const res = await this.client.post(`/conversations/${conversationId}/members`, { userId });
     return res.data;
   }
 

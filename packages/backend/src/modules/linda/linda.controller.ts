@@ -322,17 +322,6 @@ export class LindaController {
       // Save CLEAN response to history and DB (prevents poisoning)
       addToHistory(userId, 'assistant', cleanResponse);
 
-      if (useDb && lindaConvId) {
-        try {
-          await db.lindaMessage.create({ data: { conversationId: lindaConvId, role: 'assistant', content: cleanResponse } });
-          await db.lindaConversation.update({ where: { id: lindaConvId }, data: { updatedAt: new Date() } });
-          this.detectAndTagMentionedUsers(lindaConvId, cleanResponse, userId).catch(() => {});
-        } catch { /* ignore */ }
-      }
-
-      // Fire-and-forget memory extraction
-      extractAndSaveMemories(userId, message, cleanResponse).catch(() => {});
-
       // Extract generated files from actions
       const generatedFiles = actions
         .filter((a: any) => a.type === 'create_file' && a.status === 'created' && a.url)
@@ -342,6 +331,21 @@ export class LindaController {
           mimeType: a.mimeType,
           url: a.url,
         }));
+
+      if (useDb && lindaConvId) {
+        try {
+          const firstFile = generatedFiles.length > 0 ? generatedFiles[0] : null;
+          await db.lindaMessage.create({ data: {
+            conversationId: lindaConvId, role: 'assistant', content: cleanResponse,
+            ...(firstFile ? { hasAttachment: true, attachmentName: firstFile.fileName, attachmentUrl: firstFile.url } : {}),
+          } });
+          await db.lindaConversation.update({ where: { id: lindaConvId }, data: { updatedAt: new Date() } });
+          this.detectAndTagMentionedUsers(lindaConvId, cleanResponse, userId).catch(() => {});
+        } catch { /* ignore */ }
+      }
+
+      // Fire-and-forget memory extraction
+      extractAndSaveMemories(userId, message, cleanResponse).catch(() => {});
 
       res.json({
         response: cleanResponse,
@@ -473,12 +477,6 @@ export class LindaController {
       const cleanResponse = stripActionBlocks(responseText);
 
       addToHistory(userId, 'assistant', cleanResponse);
-      if (useDb && lindaConvId) {
-        try {
-          await db.lindaMessage.create({ data: { conversationId: lindaConvId, role: 'assistant', content: cleanResponse } });
-          await db.lindaConversation.update({ where: { id: lindaConvId }, data: { updatedAt: new Date() } });
-        } catch { /* ignore */ }
-      }
 
       // Extract generated files from actions
       const generatedFiles = actions
@@ -489,6 +487,17 @@ export class LindaController {
           mimeType: a.mimeType,
           url: a.url,
         }));
+
+      if (useDb && lindaConvId) {
+        try {
+          const firstFile = generatedFiles.length > 0 ? generatedFiles[0] : null;
+          await db.lindaMessage.create({ data: {
+            conversationId: lindaConvId, role: 'assistant', content: cleanResponse,
+            ...(firstFile ? { hasAttachment: true, attachmentName: firstFile.fileName, attachmentUrl: firstFile.url } : {}),
+          } });
+          await db.lindaConversation.update({ where: { id: lindaConvId }, data: { updatedAt: new Date() } });
+        } catch { /* ignore */ }
+      }
 
       res.json({
         response: cleanResponse,
@@ -671,6 +680,7 @@ export class LindaController {
           content: m.content,
           hasAttachment: m.hasAttachment,
           attachmentName: m.attachmentName,
+          attachmentUrl: m.attachmentUrl || null,
           createdAt: m.createdAt,
         })),
       });

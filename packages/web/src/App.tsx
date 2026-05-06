@@ -45,6 +45,22 @@ function App() {
     hasCheckedAuth: hasCheckedSuperAdminAuth,
   } = useSuperAdminStore();
 
+  // Apply saved theme on app startup (prevents flash when opening Settings)
+  useEffect(() => {
+    const saved = localStorage.getItem('theme') as 'light' | 'dark' | 'system' | null;
+    const themeValue = saved || 'system';
+    const root = document.documentElement;
+    if (themeValue === 'dark') {
+      root.classList.add('dark');
+    } else if (themeValue === 'light') {
+      root.classList.remove('dark');
+    } else {
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (prefersDark) root.classList.add('dark');
+      else root.classList.remove('dark');
+    }
+  }, []);
+
   // Check auth status on app startup
   useEffect(() => {
     checkAuth();
