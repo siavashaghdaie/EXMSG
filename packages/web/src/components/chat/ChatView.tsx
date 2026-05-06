@@ -596,7 +596,6 @@ export default function ChatView() {
       {/* Agent Panel */}
       {showAgentPanel && hasAgents && conversationId && (
         <AgentPanel
-          conversationId={conversationId}
           agentParticipants={agentParticipants}
           onClose={() => setShowAgentPanel(false)}
           onViewActivities={(username) => {

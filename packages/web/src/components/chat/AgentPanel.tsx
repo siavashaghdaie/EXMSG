@@ -1,9 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { Eye, Settings2, Power, Bot, X, BarChart3 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Eye, Settings2, Bot, X, BarChart3 } from 'lucide-react';
 import { api } from '@/services/api';
 
 interface AgentPanelProps {
-  conversationId: string;
   agentParticipants: Array<{ id: string; username: string; displayName?: string; avatar?: string; email: string }>;
   onClose: () => void;
   onViewActivities?: (agentUsername: string) => void;
@@ -30,7 +29,7 @@ interface HiredAgentInfo {
   };
 }
 
-export default function AgentPanel({ conversationId, agentParticipants, onClose, onViewActivities, onOpenSettings }: AgentPanelProps) {
+export default function AgentPanel({ agentParticipants, onClose, onViewActivities, onOpenSettings }: AgentPanelProps) {
   const [hiredAgents, setHiredAgents] = useState<HiredAgentInfo[]>([]);
   const [loading, setLoading] = useState(true);
 

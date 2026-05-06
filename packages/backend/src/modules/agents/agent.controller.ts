@@ -302,6 +302,21 @@ export async function seedAgents() {
 
   console.log(`[Agents] Seeded ${presetAgents.length} preset agents`);
 
+  // One-time cleanup: un-hire non-mandatory agents that lack a hiredBy (were auto-hired by system, not by a user)
+  const nonMandatoryAgents = await prisma.agent.findMany({ where: { isMandatory: false } });
+  if (nonMandatoryAgents.length > 0) {
+    const nonMandatoryIds = nonMandatoryAgents.map(a => a.id);
+    const removed = await prisma.orgAgent.deleteMany({
+      where: {
+        agentId: { in: nonMandatoryIds },
+        hiredBy: null, // Only remove agents that were NOT intentionally hired by a user
+      },
+    });
+    if (removed.count > 0) {
+      console.log(`[Agents] Cleaned up ${removed.count} non-mandatory auto-hired agent(s)`);
+    }
+  }
+
   // Auto-hire mandatory agents for all existing organizations
   const mandatoryAgents = await prisma.agent.findMany({ where: { isMandatory: true } });
   if (mandatoryAgents.length > 0) {
