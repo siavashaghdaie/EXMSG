@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Alert,
   Pressable,
+  Image,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -106,8 +107,9 @@ export default function ChatScreen() {
   const [inputText, setInputText] = useState('');
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [lindaThinking, setLindaThinking] = useState(false);
-  const [rightButtonMode, setRightButtonMode] = useState<'mic' | 'camera'>('mic');
   const [attachedFile, setAttachedFile] = useState<any>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -183,7 +185,7 @@ export default function ChatScreen() {
     }
   };
 
-  // Attachment (paperclip) handler
+  // Document picker (paperclip)
   const handleAttachment = useCallback(async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -204,43 +206,73 @@ export default function ChatScreen() {
     }
   }, []);
 
-  // Right button press: toggle between mic and camera
-  const handleRightButtonPress = useCallback(() => {
-    setRightButtonMode((prev) => (prev === 'mic' ? 'camera' : 'mic'));
+  // Camera button tap — launch device camera
+  const handleCameraPress = useCallback(async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Please grant access to the camera.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images', 'videos'],
+        quality: 0.8,
+        allowsEditing: false,
+        videoMaxDuration: 60,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        const fileName = asset.uri.split('/').pop() || 'capture';
+        setAttachedFile({
+          uri: asset.uri,
+          name: fileName,
+          mimeType: asset.type === 'video' ? 'video/mp4' : 'image/jpeg',
+          size: asset.fileSize,
+        });
+      }
+    } catch (err) {
+      console.error('[ChatScreen] Camera error:', err);
+    }
   }, []);
 
-  // Right button long press: activate mic or camera mode
-  const handleRightButtonLongPress = useCallback(async () => {
-    if (rightButtonMode === 'camera') {
-      try {
-        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== 'granted') {
-          Alert.alert('Permission needed', 'Please grant access to your photo library.');
-          return;
-        }
-        const result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ['images', 'videos'],
-          quality: 0.8,
-          allowsEditing: false,
-        });
-        if (!result.canceled && result.assets && result.assets.length > 0) {
-          const asset = result.assets[0];
-          const fileName = asset.uri.split('/').pop() || 'media';
-          setAttachedFile({
-            uri: asset.uri,
-            name: fileName,
-            mimeType: asset.type === 'video' ? 'video/mp4' : 'image/jpeg',
-            size: asset.fileSize,
-          });
-        }
-      } catch (err) {
-        console.error('[ChatScreen] Image picker error:', err);
+  // Camera button long press — open photo/video gallery (WhatsApp-style)
+  const handleGalleryPress = useCallback(async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Please grant access to your photo library.');
+        return;
       }
-    } else {
-      // Mic mode - placeholder for voice recording
-      Alert.alert('Voice Message', 'Voice recording coming soon. Long press to record.');
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images', 'videos'],
+        quality: 0.8,
+        allowsEditing: false,
+        allowsMultipleSelection: false,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        const fileName = asset.uri.split('/').pop() || 'media';
+        setAttachedFile({
+          uri: asset.uri,
+          name: fileName,
+          mimeType: asset.type === 'video' ? 'video/mp4' : 'image/jpeg',
+          size: asset.fileSize,
+        });
+      }
+    } catch (err) {
+      console.error('[ChatScreen] Gallery picker error:', err);
     }
-  }, [rightButtonMode]);
+  }, []);
+
+  // Show attachment options action sheet
+  const handleAttachmentMenu = useCallback(() => {
+    Alert.alert('Attach', 'Choose an option', [
+      { text: 'Camera', onPress: handleCameraPress },
+      { text: 'Photo & Video Library', onPress: handleGalleryPress },
+      { text: 'Document', onPress: handleAttachment },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }, [handleCameraPress, handleGalleryPress, handleAttachment]);
 
   const handleRemoveAttachment = useCallback(() => {
     setAttachedFile(null);
@@ -248,7 +280,10 @@ export default function ChatScreen() {
 
   const handleSend = async () => {
     const text = inputText.trim();
-    if (!text) return;
+    const fileToSend = attachedFile;
+
+    // Need either text or a file to send
+    if (!text && !fileToSend) return;
 
     setInputText('');
     setAttachedFile(null);
@@ -257,6 +292,37 @@ export default function ChatScreen() {
     }
 
     try {
+      // If there's a file attachment (not editing, not Linda), upload it first
+      if (fileToSend && !editingMessageId && !isLinda) {
+        setIsUploading(true);
+        setUploadProgress(0);
+        try {
+          await api.uploadFile(
+            conversationId,
+            {
+              uri: fileToSend.uri,
+              name: fileToSend.name,
+              type: fileToSend.mimeType,
+            } as any,
+            (progress) => setUploadProgress(progress),
+          );
+          // If there's also text, send it as a separate message
+          if (text) {
+            await sendMessage(conversationId, text, replyingTo?.messageId);
+            setReplyingTo(null);
+          }
+        } catch (uploadErr) {
+          console.error('[ChatScreen] Upload error:', uploadErr);
+          Alert.alert('Upload Failed', 'Could not send the file. Please try again.');
+        } finally {
+          setIsUploading(false);
+          setUploadProgress(0);
+        }
+        return;
+      }
+
+      if (!text) return;
+
       if (editingMessageId) {
         await editMessage(conversationId, editingMessageId, text);
         setEditingMessageId(null);
@@ -753,25 +819,43 @@ export default function ChatScreen() {
         {/* Attached file preview */}
         {attachedFile && (
           <View style={styles.attachmentPreview}>
-            <Text style={styles.attachmentPreviewIcon}>
-              {attachedFile.mimeType?.startsWith('image/') ? '\uD83D\uDDBC' :
-               attachedFile.mimeType?.startsWith('video/') ? '\uD83C\uDFA5' :
-               attachedFile.mimeType?.startsWith('audio/') ? '\uD83C\uDFA4' : '\uD83D\uDCCE'}
-            </Text>
+            {attachedFile.mimeType?.startsWith('image/') ? (
+              <Image source={{ uri: attachedFile.uri }} style={styles.attachmentThumbnail} />
+            ) : (
+              <Text style={styles.attachmentPreviewIcon}>
+                {attachedFile.mimeType?.startsWith('video/') ? '\uD83C\uDFA5' :
+                 attachedFile.mimeType?.startsWith('audio/') ? '\uD83C\uDFA4' : '\uD83D\uDCCE'}
+              </Text>
+            )}
             <Text style={styles.attachmentPreviewName} numberOfLines={1}>{attachedFile.name}</Text>
+            {attachedFile.size && (
+              <Text style={styles.attachmentSizeText}>
+                {attachedFile.size > 1024 * 1024
+                  ? `${(attachedFile.size / (1024 * 1024)).toFixed(1)} MB`
+                  : `${(attachedFile.size / 1024).toFixed(0)} KB`}
+              </Text>
+            )}
             <TouchableOpacity onPress={handleRemoveAttachment} style={styles.attachmentPreviewClose}>
               <Text style={styles.attachmentPreviewCloseText}>{'\u2715'}</Text>
             </TouchableOpacity>
           </View>
         )}
 
+        {/* Upload progress bar */}
+        {isUploading && (
+          <View style={styles.uploadProgressContainer}>
+            <View style={[styles.uploadProgressBar, { width: `${uploadProgress}%` }]} />
+            <Text style={styles.uploadProgressText}>Uploading... {uploadProgress}%</Text>
+          </View>
+        )}
+
         {/* Composer */}
         <View style={styles.composerContainer}>
           <View style={styles.composer}>
-            {/* Attachment (paperclip) button */}
+            {/* Attachment menu button (paperclip) */}
             <TouchableOpacity
               style={styles.composerActionButton}
-              onPress={handleAttachment}
+              onPress={handleAttachmentMenu}
               activeOpacity={0.6}
             >
               <Text style={styles.composerActionIcon}>{'\uD83D\uDCCE'}</Text>
@@ -787,15 +871,15 @@ export default function ChatScreen() {
               maxLength={10000}
             />
 
-            {/* Right side: Send button (when text/file present) or Mic/Camera toggle */}
+            {/* Right side: Send button (when text/file present) or Camera button */}
             {(inputText.trim() || attachedFile) ? (
               <TouchableOpacity
                 style={[styles.sendButton]}
                 onPress={handleSend}
-                disabled={isSending || lindaThinking}
+                disabled={isSending || lindaThinking || isUploading}
                 activeOpacity={0.7}
               >
-                {(isSending || lindaThinking) ? (
+                {(isSending || lindaThinking || isUploading) ? (
                   <ActivityIndicator size="small" color={COLORS.white} />
                 ) : (
                   <Text style={styles.sendIcon}>{'\u25B6'}</Text>
@@ -804,13 +888,11 @@ export default function ChatScreen() {
             ) : (
               <Pressable
                 style={styles.composerActionButton}
-                onPress={handleRightButtonPress}
-                onLongPress={handleRightButtonLongPress}
-                delayLongPress={500}
+                onPress={handleCameraPress}
+                onLongPress={handleGalleryPress}
+                delayLongPress={400}
               >
-                <Text style={styles.composerActionIcon}>
-                  {rightButtonMode === 'mic' ? '\uD83C\uDFA4' : '\uD83D\uDCF7'}
-                </Text>
+                <Text style={styles.composerActionIcon}>{'\uD83D\uDCF7'}</Text>
               </Pressable>
             )}
           </View>
@@ -1062,9 +1144,34 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   attachmentPreviewIcon: { fontSize: 18 },
+  attachmentThumbnail: { width: 40, height: 40, borderRadius: 6 },
   attachmentPreviewName: { flex: 1, fontSize: 13, color: COLORS.text },
+  attachmentSizeText: { fontSize: 11, color: COLORS.muted, marginRight: 4 },
   attachmentPreviewClose: { padding: 4 },
   attachmentPreviewCloseText: { fontSize: 16, color: COLORS.muted },
+
+  // Upload progress
+  uploadProgressContainer: {
+    height: 24,
+    backgroundColor: '#F0EAFF',
+    justifyContent: 'center',
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    overflow: 'hidden',
+  },
+  uploadProgressBar: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: COLORS.primary + '30',
+  },
+  uploadProgressText: {
+    fontSize: 11,
+    color: COLORS.primary,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
 
   // Composer
   composerContainer: {

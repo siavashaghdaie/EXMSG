@@ -85,6 +85,20 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
   const [lockPinConfirm, setLockPinConfirm] = useState('');
   const [lockStep, setLockStep] = useState<'set' | 'confirm' | 'unlock'>('set');
   const [lockError, setLockError] = useState('');
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+
+  // Check WebAuthn availability
+  useEffect(() => {
+    const checkBiometric = async () => {
+      if (window.PublicKeyCredential && typeof window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === 'function') {
+        const available = await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+        setBiometricAvailable(available);
+      }
+      setBiometricEnabled(!!localStorage.getItem(`chat_biometric_${conversationId}`));
+    };
+    checkBiometric();
+  }, [conversationId]);
   const [customColor, setCustomColor] = useState('#e3f2fd');
   const [wallpaperSaved, setWallpaperSaved] = useState(false);
   const [reportReason, setReportReason] = useState('');
@@ -260,7 +274,65 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
     }
   };
 
-  const handleLockSubmit = () => {
+  // Register biometric credential for this chat
+  const registerBiometric = async () => {
+    const userId = new TextEncoder().encode(conversationId);
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+
+    const credential = await navigator.credentials.create({
+      publicKey: {
+        challenge,
+        rp: { name: 'OmniLink Messenger', id: window.location.hostname },
+        user: {
+          id: userId,
+          name: `chat-lock-${conversationId.substring(0, 8)}`,
+          displayName: 'Chat Lock',
+        },
+        pubKeyCredParams: [
+          { alg: -7, type: 'public-key' },   // ES256
+          { alg: -257, type: 'public-key' },  // RS256
+        ],
+        authenticatorSelection: {
+          authenticatorAttachment: 'platform',
+          userVerification: 'required',
+          residentKey: 'preferred',
+        },
+        timeout: 60000,
+      },
+    }) as PublicKeyCredential;
+
+    if (credential) {
+      // Store credential ID so we can request it later for authentication
+      const rawId = btoa(String.fromCharCode(...new Uint8Array(credential.rawId)));
+      localStorage.setItem(`chat_biometric_${conversationId}`, rawId);
+    }
+  };
+
+  // Verify biometric for unlocking
+  const verifyBiometric = async (): Promise<boolean> => {
+    const credentialIdB64 = localStorage.getItem(`chat_biometric_${conversationId}`);
+    if (!credentialIdB64) return false;
+
+    try {
+      const credentialId = Uint8Array.from(atob(credentialIdB64), (c) => c.charCodeAt(0));
+      const challenge = crypto.getRandomValues(new Uint8Array(32));
+
+      const assertion = await navigator.credentials.get({
+        publicKey: {
+          challenge,
+          allowCredentials: [{ id: credentialId, type: 'public-key', transports: ['internal'] }],
+          userVerification: 'required',
+          timeout: 60000,
+        },
+      });
+
+      return !!assertion;
+    } catch {
+      return false;
+    }
+  };
+
+  const handleLockSubmit = async () => {
     if (lockStep === 'set') {
       if (lockPin.length < 4) {
         setLockError('PIN must be at least 4 digits');
@@ -278,6 +350,15 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
       // Save the PIN locally and lock the chat
       localStorage.setItem(`chat_lock_${conversationId}`, lockPin);
       updateSetting('isLocked', true);
+      // If biometric available, offer to register
+      if (biometricAvailable) {
+        try {
+          await registerBiometric();
+          setBiometricEnabled(true);
+        } catch {
+          // User declined or error — just continue with PIN only
+        }
+      }
       setShowLockChat(false);
     } else if (lockStep === 'unlock') {
       const savedPin = localStorage.getItem(`chat_lock_${conversationId}`);
@@ -1020,7 +1101,7 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
       {showLockChat && (
         <Modal onClose={() => setShowLockChat(false)} title={settings.isLocked ? 'Unlock Chat' : 'Lock Chat'}>
           <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-            {lockStep === 'set' && 'Set a PIN to lock this chat. You\'ll need it to unlock.'}
+            {lockStep === 'set' && `Set a PIN to lock this chat.${biometricAvailable ? ' Biometric unlock (fingerprint/Face ID) will be enabled automatically.' : ''}`}
             {lockStep === 'confirm' && 'Confirm your PIN to lock this chat.'}
             {lockStep === 'unlock' && 'Enter your PIN to unlock this chat.'}
           </p>
@@ -1069,6 +1150,30 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
           >
             {lockStep === 'set' ? 'Next' : lockStep === 'confirm' ? 'Lock Chat' : 'Unlock Chat'}
           </button>
+          {lockStep === 'unlock' && biometricEnabled && (
+            <button
+              onClick={async () => {
+                const ok = await verifyBiometric();
+                if (ok) {
+                  localStorage.removeItem(`chat_lock_${conversationId}`);
+                  localStorage.removeItem(`chat_biometric_${conversationId}`);
+                  updateSetting('isLocked', false);
+                  setBiometricEnabled(false);
+                  setShowLockChat(false);
+                } else {
+                  setLockError('Biometric verification failed. Use PIN instead.');
+                }
+              }}
+              className="w-full mt-2 px-4 py-2 text-sm bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition flex items-center justify-center gap-2"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 10v4M7.5 7.5C5.5 9 4 11.3 4 14c0 4.4 3.6 8 8 8s8-3.6 8-8c0-2.7-1.5-5-3.5-6.5" />
+                <path d="M12 2a6 6 0 0 1 6 6c0 1.7-.7 3.2-1.8 4.3" />
+                <path d="M6.2 12.3A6 6 0 0 1 12 8" />
+              </svg>
+              Unlock with Biometric
+            </button>
+          )}
         </Modal>
       )}
 

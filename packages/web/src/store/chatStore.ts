@@ -861,6 +861,17 @@ export function setupChatSocketListeners() {
     })
   );
 
+  // Conversation updated — merge new fields (e.g. disappearingSeconds)
+  unsubscribe.push(
+    socket.on<{ conversationId: string; [key: string]: any }>('conversation:updated', (data) => {
+      const state = useChatStore.getState();
+      const conversations = state.conversations.map(c =>
+        c.id === data.conversationId ? { ...c, ...data, id: c.id } : c
+      );
+      useChatStore.setState({ conversations });
+    })
+  );
+
   unsubscribe.push(
     socket.on<TypingEvent>('typing:start', (typing) => {
       useChatStore.getState().handleTypingStart(typing);

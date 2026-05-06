@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { Trash2, Archive, VolumeX, Pin, Sparkles, ClipboardList, FolderKanban, Users, Lock } from 'lucide-react';
+import { Trash2, Archive, VolumeX, Pin, Sparkles, ClipboardList, FolderKanban, Users, Lock, Timer, Fingerprint } from 'lucide-react';
 import { ConversationResponse } from '@/services/api';
 import Avatar from '@/components/common/Avatar';
 import { useAuthStore } from '@/store/authStore';
@@ -104,6 +104,35 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
 
   // Check if this chat is locked
   const isLockedChat = !!localStorage.getItem(`chat_lock_${conversation.id}`);
+  const hasBiometric = !!localStorage.getItem(`chat_biometric_${conversation.id}`);
+
+  // Biometric unlock via WebAuthn
+  const handleBiometricUnlock = useCallback(async () => {
+    const credentialIdB64 = localStorage.getItem(`chat_biometric_${conversation.id}`);
+    if (!credentialIdB64) return;
+
+    try {
+      const credentialId = Uint8Array.from(atob(credentialIdB64), (c) => c.charCodeAt(0));
+      const challenge = crypto.getRandomValues(new Uint8Array(32));
+
+      const assertion = await navigator.credentials.get({
+        publicKey: {
+          challenge,
+          allowCredentials: [{ id: credentialId, type: 'public-key', transports: ['internal'] }],
+          userVerification: 'required',
+          timeout: 60000,
+        },
+      });
+
+      if (assertion) {
+        setShowLockPrompt(false);
+        navigate(`/chat/${conversation.id}`);
+        onNavigate?.();
+      }
+    } catch {
+      setLockError('Biometric failed. Use PIN instead.');
+    }
+  }, [conversation.id, navigate, onNavigate]);
 
   if (!user) return null;
 
@@ -299,6 +328,9 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
                 {isLockedChat && (
                   <Lock size={12} className="text-amber-500 flex-shrink-0" />
                 )}
+                {conversation.disappearingSeconds && (
+                  <Timer size={12} className="text-emerald-500 flex-shrink-0" />
+                )}
               </div>
               {lastMessageTime && (
                 <span
@@ -403,6 +435,15 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
                 Unlock
               </button>
             </div>
+            {hasBiometric && (
+              <button
+                onClick={handleBiometricUnlock}
+                className="w-full mt-3 px-4 py-2.5 text-sm text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 transition flex items-center justify-center gap-2"
+              >
+                <Fingerprint size={16} />
+                Unlock with Fingerprint / Face ID
+              </button>
+            )}
           </div>
         </div>
       )}

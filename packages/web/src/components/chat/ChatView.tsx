@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { format, isToday, isYesterday } from 'date-fns';
-import { ArrowDown, ChevronLeft, Phone, Video, Eye, SlidersHorizontal, MessageSquare, ClipboardList, Megaphone, ArrowUpDown, RefreshCw, CheckCircle2, XCircle, Sparkles, Bot, X, Settings2, Globe, Pin } from 'lucide-react';
+import { ArrowDown, ChevronLeft, Phone, Video, Eye, SlidersHorizontal, MessageSquare, ClipboardList, Megaphone, ArrowUpDown, RefreshCw, CheckCircle2, XCircle, Sparkles, Bot, X, Settings2, Globe, Pin, Timer, TrendingUp, Zap, Calendar, Camera } from 'lucide-react';
 import { useChatStore, setTranslationSettings } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { MessageResponse, ConversationResponse, api, UserStatusGroup, LindaActivity } from '@/services/api';
@@ -15,6 +15,7 @@ import StoryViewerModal from '@/components/common/StoryViewerModal';
 import PresenceIndicator from '@/components/common/PresenceIndicator';
 import { callService } from '@/services/callService';
 import ChatSettingsPanel from './ChatSettingsPanel';
+import AgentPanel from './AgentPanel';
 
 export default function ChatView() {
   const { conversationId } = useParams<{ conversationId: string }>();
@@ -55,6 +56,7 @@ export default function ChatView() {
 
   // Chat settings panel
   const [showChatSettings, setShowChatSettings] = useState(false);
+  const [showAgentPanel, setShowAgentPanel] = useState(false);
 
   // Translation active indicator
   const [translationActive, setTranslationActive] = useState(false);
@@ -253,6 +255,12 @@ export default function ChatView() {
     (p) => p.id !== user?.id && (p.username === 'linda' || (p.email && p.email === 'linda@omnilink.system'))
   ) ?? false;
 
+  // Detect agent participants (email ending with @omnilink.system)
+  const agentParticipants = (conversation?.participants || []).filter(
+    (p) => p.id !== user?.id && (p.email?.endsWith('@omnilink.system') || false)
+  );
+  const hasAgents = agentParticipants.length > 0;
+
   // Group messages by sender and time
   const groupedMessages = conversationMessages.reduce<Array<{ messages: MessageResponse[] }>>(
     (groups, message) => {
@@ -444,8 +452,13 @@ export default function ChatView() {
                     </div>
                   </div>
                   <div className="flex-1">
-                    <h2 className="font-semibold text-slate-900 dark:text-white">
+                    <h2 className="font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
                       {displayName}
+                      {conversation.disappearingSeconds && (
+                        <span className="text-emerald-500" title={`Disappearing messages: ${conversation.disappearingSeconds >= 86400 ? Math.floor(conversation.disappearingSeconds / 86400) + 'd' : conversation.disappearingSeconds >= 3600 ? Math.floor(conversation.disappearingSeconds / 3600) + 'h' : Math.floor(conversation.disappearingSeconds / 60) + 'm'}`}>
+                          <Timer size={14} />
+                        </span>
+                      )}
                     </h2>
                     <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
                       {isGroup
@@ -471,6 +484,21 @@ export default function ChatView() {
             })()}
           </div>
           <div className="flex items-center gap-0.5 sm:gap-2 flex-shrink-0">
+            {/* Agent robot button — shown when any agent is in the chat */}
+            {hasAgents && (
+              <button
+                onClick={() => setShowAgentPanel(!showAgentPanel)}
+                className={`p-1.5 sm:p-2 rounded-lg transition relative ${showAgentPanel ? 'bg-violet-100 dark:bg-violet-900/30' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                title={`${agentParticipants.length} agent${agentParticipants.length > 1 ? 's' : ''} in chat`}
+              >
+                <Bot size={18} className={showAgentPanel ? 'text-violet-500' : 'text-slate-600 dark:text-slate-400'} />
+                {agentParticipants.length > 1 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-violet-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                    {agentParticipants.length}
+                  </span>
+                )}
+              </button>
+            )}
             {isLindaConversation && (
               <button
                 onClick={() => {
@@ -565,6 +593,28 @@ export default function ChatView() {
         </div>
       </div>
 
+      {/* Agent Panel */}
+      {showAgentPanel && hasAgents && conversationId && (
+        <AgentPanel
+          conversationId={conversationId}
+          agentParticipants={agentParticipants}
+          onClose={() => setShowAgentPanel(false)}
+          onViewActivities={(username) => {
+            setShowAgentPanel(false);
+            if (username === 'linda') {
+              loadLindaActivities();
+              setLindaPanel('activities');
+            }
+          }}
+          onOpenSettings={(username) => {
+            setShowAgentPanel(false);
+            if (username === 'linda') {
+              setLindaPanel('settings');
+            }
+          }}
+        />
+      )}
+
       {/* Linda Activities Panel */}
       {isLindaConversation && lindaPanel === 'activities' && (() => {
         const getActivityIcon = (type: string) => {
@@ -573,6 +623,7 @@ export default function ChatView() {
             case 'assign_task': return <ClipboardList size={16} className="text-amber-500" />;
             case 'create_announcement': return <Megaphone size={16} className="text-purple-500" />;
             case 'update_task': return <ArrowUpDown size={16} className="text-green-500" />;
+            case 'post_story': return <Camera size={16} className="text-pink-500" />;
             default: return <Bot size={16} className="text-slate-400" />;
           }
         };
@@ -582,6 +633,7 @@ export default function ChatView() {
             case 'assign_task': return 'Task Assigned';
             case 'create_announcement': return 'Announcement Created';
             case 'update_task': return 'Task Updated';
+            case 'post_story': return 'Story Posted';
             default: return 'Action';
           }
         };
@@ -595,6 +647,16 @@ export default function ChatView() {
           const days = Math.floor(hours / 24);
           return `${days}d ago`;
         };
+        // Compute stats
+        const totalActions = lindaActivities.length;
+        const completedActions = lindaActivities.filter(a => a.status === 'completed').length;
+        const successRate = totalActions > 0 ? Math.round((completedActions / totalActions) * 100) : 0;
+        const msgCount = lindaActivities.filter(a => a.actionType === 'send_message').length;
+        const taskCount = lindaActivities.filter(a => a.actionType === 'assign_task' || a.actionType === 'update_task').length;
+        const announceCount = lindaActivities.filter(a => a.actionType === 'create_announcement').length;
+        // Unique active days
+        const activeDays = new Set(lindaActivities.map(a => new Date(a.createdAt).toDateString())).size;
+
         return (
           <div className="absolute inset-0 top-[57px] z-20 bg-white dark:bg-surface-900 flex flex-col overflow-hidden">
             <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-slate-50 to-blue-50 dark:from-slate-800 dark:to-blue-900/20 flex-shrink-0">
@@ -638,50 +700,143 @@ export default function ChatView() {
                   </p>
                 </div>
               ) : (
-                <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {lindaActivities.map((activity) => (
-                    <div key={activity.id} className="px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                      <div className="flex items-start gap-3">
-                        <div className="relative flex-shrink-0">
-                          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
-                            <Sparkles size={16} className="text-white" />
-                          </div>
-                          {activity.targetUser && (
-                            <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-600 border-2 border-white dark:border-slate-900 flex items-center justify-center overflow-hidden">
-                              {activity.targetUser.avatarUrl ? (
-                                <img src={activity.targetUser.avatarUrl} alt="" className="w-full h-full object-cover" />
-                              ) : (
-                                <span className="text-[8px] font-bold text-slate-600 dark:text-slate-300">
-                                  {(activity.targetUser.displayName || activity.targetUser.username || '?')[0].toUpperCase()}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-0.5">
-                            {getActivityIcon(activity.actionType)}
-                            <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                              {getActivityLabel(activity.actionType)}
-                            </span>
-                            {activity.status === 'completed' ? (
-                              <CheckCircle2 size={12} className="text-green-500" />
-                            ) : (
-                              <XCircle size={12} className="text-red-500" />
-                            )}
-                          </div>
-                          <p className="text-sm text-slate-800 dark:text-slate-200 leading-snug">{activity.summary}</p>
-                          {activity.details?.message && (
-                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 italic">
-                              "{activity.details.message}"
-                            </p>
-                          )}
-                          <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">{timeAgo(activity.createdAt)}</p>
+                <>
+                  {/* ─── Stats Dashboard ─── */}
+                  <div className="px-4 pt-4 pb-2 space-y-3 border-b border-slate-100 dark:border-slate-800">
+                    {/* Success gauge */}
+                    <div className="flex items-center gap-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl p-3">
+                      <div className="relative w-14 h-14 flex-shrink-0">
+                        <svg viewBox="0 0 36 36" className="w-14 h-14 -rotate-90">
+                          <circle cx="18" cy="18" r="15.5" fill="none" stroke="currentColor" strokeWidth="3" className="text-slate-200 dark:text-slate-700" />
+                          <circle cx="18" cy="18" r="15.5" fill="none" stroke="url(#gaugeGrad)" strokeWidth="3" strokeLinecap="round"
+                            strokeDasharray={`${successRate * 0.975} 100`}
+                          />
+                          <defs>
+                            <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                              <stop offset="0%" stopColor="#3b82f6" />
+                              <stop offset="100%" stopColor="#8b5cf6" />
+                            </linearGradient>
+                          </defs>
+                        </svg>
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <span className="text-xs font-bold text-slate-800 dark:text-white">{successRate}%</span>
                         </div>
                       </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-slate-800 dark:text-white">Success Rate</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          {completedActions} of {totalActions} actions completed
+                        </p>
+                      </div>
+                      <TrendingUp size={18} className="text-green-500 flex-shrink-0" />
                     </div>
-                  ))}
-                </div>
+
+                    {/* Stat cards grid */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 flex flex-col items-center text-center">
+                        <div className="w-8 h-8 bg-blue-100 dark:bg-blue-800/40 rounded-full flex items-center justify-center mb-1.5">
+                          <MessageSquare size={14} className="text-blue-600 dark:text-blue-400" />
+                        </div>
+                        <span className="text-lg font-bold text-blue-700 dark:text-blue-300">{msgCount}</span>
+                        <span className="text-[10px] text-blue-500 dark:text-blue-400 font-medium">Messages Sent</span>
+                      </div>
+                      <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 flex flex-col items-center text-center">
+                        <div className="w-8 h-8 bg-amber-100 dark:bg-amber-800/40 rounded-full flex items-center justify-center mb-1.5">
+                          <ClipboardList size={14} className="text-amber-600 dark:text-amber-400" />
+                        </div>
+                        <span className="text-lg font-bold text-amber-700 dark:text-amber-300">{taskCount}</span>
+                        <span className="text-[10px] text-amber-500 dark:text-amber-400 font-medium">Tasks Managed</span>
+                      </div>
+                      <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-3 flex flex-col items-center text-center">
+                        <div className="w-8 h-8 bg-purple-100 dark:bg-purple-800/40 rounded-full flex items-center justify-center mb-1.5">
+                          <Megaphone size={14} className="text-purple-600 dark:text-purple-400" />
+                        </div>
+                        <span className="text-lg font-bold text-purple-700 dark:text-purple-300">{announceCount}</span>
+                        <span className="text-[10px] text-purple-500 dark:text-purple-400 font-medium">Announcements</span>
+                      </div>
+                      <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-3 flex flex-col items-center text-center">
+                        <div className="w-8 h-8 bg-emerald-100 dark:bg-emerald-800/40 rounded-full flex items-center justify-center mb-1.5">
+                          <Calendar size={14} className="text-emerald-600 dark:text-emerald-400" />
+                        </div>
+                        <span className="text-lg font-bold text-emerald-700 dark:text-emerald-300">{activeDays}</span>
+                        <span className="text-[10px] text-emerald-500 dark:text-emerald-400 font-medium">Active Days</span>
+                      </div>
+                    </div>
+
+                    {/* Streak / badge row */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {totalActions >= 10 && (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-amber-100 to-yellow-100 dark:from-amber-900/30 dark:to-yellow-900/30 rounded-full text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                          <Zap size={10} /> Power User
+                        </span>
+                      )}
+                      {successRate === 100 && totalActions > 0 && (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-green-100 to-emerald-100 dark:from-green-900/30 dark:to-emerald-900/30 rounded-full text-[10px] font-semibold text-green-700 dark:text-green-300">
+                          <CheckCircle2 size={10} /> Perfect Score
+                        </span>
+                      )}
+                      {activeDays >= 7 && (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-blue-100 to-cyan-100 dark:from-blue-900/30 dark:to-cyan-900/30 rounded-full text-[10px] font-semibold text-blue-700 dark:text-blue-300">
+                          <Calendar size={10} /> Week Streak
+                        </span>
+                      )}
+                      {taskCount >= 5 && (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-violet-100 to-purple-100 dark:from-violet-900/30 dark:to-purple-900/30 rounded-full text-[10px] font-semibold text-violet-700 dark:text-violet-300">
+                          <ClipboardList size={10} /> Task Master
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* ─── Activity Timeline ─── */}
+                  <div className="px-4 pt-3 pb-1">
+                    <p className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Recent Activity</p>
+                  </div>
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {lindaActivities.map((activity) => (
+                      <div key={activity.id} className="px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                        <div className="flex items-start gap-3">
+                          <div className="relative flex-shrink-0">
+                            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
+                              <Sparkles size={16} className="text-white" />
+                            </div>
+                            {activity.targetUser && (
+                              <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-600 border-2 border-white dark:border-slate-900 flex items-center justify-center overflow-hidden">
+                                {activity.targetUser.avatarUrl ? (
+                                  <img src={activity.targetUser.avatarUrl} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                  <span className="text-[8px] font-bold text-slate-600 dark:text-slate-300">
+                                    {(activity.targetUser.displayName || activity.targetUser.username || '?')[0].toUpperCase()}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              {getActivityIcon(activity.actionType)}
+                              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                                {getActivityLabel(activity.actionType)}
+                              </span>
+                              {activity.status === 'completed' ? (
+                                <CheckCircle2 size={12} className="text-green-500" />
+                              ) : (
+                                <XCircle size={12} className="text-red-500" />
+                              )}
+                            </div>
+                            <p className="text-sm text-slate-800 dark:text-slate-200 leading-snug">{activity.summary}</p>
+                            {activity.details?.message && (
+                              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 italic">
+                                "{activity.details.message}"
+                              </p>
+                            )}
+                            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">{timeAgo(activity.createdAt)}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
           </div>

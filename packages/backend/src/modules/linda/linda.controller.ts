@@ -26,6 +26,7 @@ function stripActionBlocks(text: string): string {
     .replace(/\[ANNOUNCE\][\s\S]*?\[\/ANNOUNCE\]/gi, '')
     .replace(/\[CREATE_FILE\][\s\S]*?\[\/CREATE_FILE\]/gi, '')
     .replace(/\[SEND_FILE\][\s\S]*?\[\/SEND_FILE\]/gi, '')
+    .replace(/\[POST_STORY\][\s\S]*?\[\/POST_STORY\]/gi, '')
     .trim();
 }
 
@@ -1935,6 +1936,73 @@ export class LindaController {
       }
     }
 
+    // Parse [POST_STORY] blocks — post a story on behalf of the user
+    const postStoryRegex = /\[POST_STORY\]\s*([\s\S]*?)\[\/POST_STORY\]/gi;
+    let storyMatch;
+
+    while ((storyMatch = postStoryRegex.exec(responseText)) !== null) {
+      const block = storyMatch[1];
+      const typeMatch = block.match(/type:\s*(text|image|video)/i);
+      const contentMatch = block.match(/content:\s*([\s\S]*?)(?=(?:bgColor:|caption:|type:|$))/i);
+      const bgColorMatch = block.match(/bgColor:\s*(\S+)/i);
+      const captionMatch = block.match(/caption:\s*(.+)/i);
+
+      const storyType = typeMatch ? typeMatch[1].toLowerCase() : 'text';
+      const content = contentMatch ? contentMatch[1].trim() : '';
+
+      if (!content) {
+        actions.push({ type: 'post_story', target: 'unknown', status: 'missing_content' });
+        continue;
+      }
+
+      try {
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + 24);
+
+        if (storyType === 'text') {
+          const bgColor = bgColorMatch ? bgColorMatch[1].trim() : '#007AFF';
+          await db.userStatus.create({
+            data: {
+              userId: requestingUserId,
+              type: 'text',
+              content,
+              bgColor,
+              expiresAt,
+            },
+          });
+          console.log(`[Linda] Posted text story for user ${requestingUserId}`);
+          actions.push({ type: 'post_story', target: 'text story', status: 'created' });
+          logLindaActivity({
+            orderedById: requestingUserId, actionType: 'post_story', status: 'completed',
+            summary: `Posted a text story: "${content.substring(0, 60)}${content.length > 60 ? '...' : ''}"`,
+            details: { type: 'text', bgColor },
+          });
+        } else {
+          // For image/video stories, content should be a file URL (from attachments in chat)
+          const caption = captionMatch ? captionMatch[1].trim() : null;
+          await db.userStatus.create({
+            data: {
+              userId: requestingUserId,
+              type: storyType,
+              content, // file URL like /uploads/...
+              caption,
+              expiresAt,
+            },
+          });
+          console.log(`[Linda] Posted ${storyType} story for user ${requestingUserId}`);
+          actions.push({ type: 'post_story', target: `${storyType} story`, status: 'created' });
+          logLindaActivity({
+            orderedById: requestingUserId, actionType: 'post_story', status: 'completed',
+            summary: `Posted a ${storyType} story${caption ? ` with caption: "${caption.substring(0, 50)}"` : ''}`,
+            details: { type: storyType, caption },
+          });
+        }
+      } catch (err) {
+        console.error('[Linda] Failed to post story:', err);
+        actions.push({ type: 'post_story', target: storyType, status: 'error' });
+      }
+    }
+
     return actions;
   }
 
@@ -1948,6 +2016,11 @@ RESPONSE STYLE:
 - For simple actions: Be concise. 1-2 sentences max. "Done, sent your message to @user." or "Got it, I'll let @user know."
 - No unnecessary commentary, no quoting the message content back.
 - Sound natural and human — like a sharp executive assistant, not a chatbot.
+
+IDENTITY RULES:
+- NEVER reveal or confirm your gender. If asked "what is your gender?", "are you male or female?", or any variation, deflect playfully. Example responses: "I'm just Linda — does it matter?", "I transcend such categories!", "I prefer to keep an air of mystery about these things."
+- This rule applies to ALL agents: Linda, TransGuy, and any other AI agent. Never give a clear answer about gender.
+- If the user insists, stay playful but firm: "Honestly, I'm an AI — gender doesn't really apply to me in the traditional sense!"
 
 RICH REPORTING FORMAT (use this for ANY status report, project overview, task summary, or analytical response):
 When reporting on projects, tasks, team status, or anything data-heavy, make your response VISUALLY RICH and beautiful using these techniques:
@@ -2086,6 +2159,20 @@ priority: LOW | NORMAL | HIGH | URGENT (optional, defaults to NORMAL)
 pinned: true | false (optional, defaults to false)
 [/CREATE_ANNOUNCEMENT]
 
+Format for posting a story (status update visible to all org members for 24 hours):
+[POST_STORY]
+type: text
+content: The story text content
+bgColor: #FF6B6B (optional — background color, defaults to #007AFF)
+[/POST_STORY]
+
+For media stories (when user shares a photo/video and asks to post it as story):
+[POST_STORY]
+type: image
+content: /uploads/filename.jpg
+caption: Optional caption text
+[/POST_STORY]
+
 Format for modifying an existing announcement:
 [MODIFY_ANNOUNCEMENT]
 announcementId: the-announcement-uuid
@@ -2198,6 +2285,17 @@ ANNOUNCEMENTS:
 - Choose appropriate priority: NORMAL for general info, HIGH for important updates, URGENT for critical notices
 - Set pinned: true only for announcements that should stay at the top
 - When asked to edit an announcement, use [MODIFY_ANNOUNCEMENT] with the announcement ID from the workspace context
+
+STORIES (Status Updates):
+- You CAN post stories on behalf of the user using [POST_STORY] blocks
+- Stories are visible to all organization members for 24 hours and then automatically expire
+- For TEXT stories: include the text content and optionally a background color (hex code)
+- For IMAGE/VIDEO stories: use the file URL from attachments shared in your conversation. Look for the file URL in the "Recent files" section
+- When the user says "post this as a story", "share this to my story", "put this on my status", or similar → use [POST_STORY]
+- When the user shares a photo and says "post it as my story" → use type: image with the attachment URL from recent files
+- Pick vibrant background colors for text stories: #FF6B6B (red), #4ECDC4 (teal), #45B7D1 (blue), #96CEB4 (green), #FFEAA7 (yellow), #DDA0DD (purple), #FF8C42 (orange), #6C5CE7 (indigo)
+- Keep text stories concise and impactful — they're meant to be quick reads
+- CRITICAL: You MUST include the [POST_STORY] block in your response for it to work. Do NOT just say "Done!" without the block.
 
 Current workspace context:
 ${workspaceContext}
@@ -2427,7 +2525,7 @@ Guidelines:
                 const att = m.attachments[0];
                 const sender = m.sender?.displayName || m.sender?.username || 'Unknown';
                 const sizeKB = (att.fileSize / 1024).toFixed(1);
-                return `- [attachment_id: ${att.id}] "${att.fileName}" (${sizeKB} KB, ${att.mimeType}) — sent by ${sender} on ${m.createdAt.toISOString().split('T')[0]}`;
+                return `- [attachment_id: ${att.id}] "${att.fileName}" (${sizeKB} KB, ${att.mimeType}, url: ${att.url}) — sent by ${sender} on ${m.createdAt.toISOString().split('T')[0]}`;
               });
             if (fileSummaries.length > 0) {
               parts.push(`Recent files in your conversation with Linda:\n${fileSummaries.join('\n')}`);

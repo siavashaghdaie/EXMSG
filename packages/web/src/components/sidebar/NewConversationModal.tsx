@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Search, Users } from 'lucide-react';
+import { X, Search, Users, Bot } from 'lucide-react';
 import { api, SearchUsersResponse } from '@/services/api';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
@@ -33,8 +33,37 @@ export const NewConversationModal: React.FC<NewConversationModalProps> = ({
   const [groupName, setGroupName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
 
+  const [agentUsers, setAgentUsers] = useState<SearchUsersResponse[]>([]);
   const createConversation = useChatStore((state) => state.createConversation);
   const currentUser = useAuthStore((state) => state.user);
+
+  // Load hired agents as selectable contacts
+  useEffect(() => {
+    if (!isOpen) return;
+    (async () => {
+      try {
+        const hired = await api.getHiredAgents();
+        // Find agent users by their slug — search for each
+        const agentContacts: SearchUsersResponse[] = [];
+        for (const ha of hired) {
+          if (!ha.isEnabled) continue;
+          try {
+            const results = await api.searchUsers(ha.agent.slug);
+            const agentUser = results.find((u: any) =>
+              u.username === ha.agent.slug || u.email?.endsWith('@omnilink.system')
+            );
+            if (agentUser && agentUser.id !== currentUser?.id) {
+              agentContacts.push({
+                ...agentUser,
+                displayName: ha.agent.name,
+              } as any);
+            }
+          } catch {}
+        }
+        setAgentUsers(agentContacts);
+      } catch {}
+    })();
+  }, [isOpen, currentUser?.id]);
 
   // Search users with debounce
   const searchUsers = useCallback(async (query: string) => {
@@ -291,11 +320,68 @@ export const NewConversationModal: React.FC<NewConversationModalProps> = ({
                 </div>
               )}
 
-              {!isSearching && !searchQuery && searchResults.length === 0 && (
+              {/* AI Agents section — shown when no search query */}
+              {!isSearching && !searchQuery && agentUsers.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <Bot size={12} />
+                    AI Agents
+                  </p>
+                  <div className="space-y-1">
+                    {agentUsers.map((agent) => {
+                      const isSelected = selectedMembers.some((m) => m.id === agent.id);
+                      return (
+                        <button
+                          key={agent.id}
+                          onClick={() => toggleMember(agent)}
+                          className={`w-full flex items-center gap-3 p-3 rounded-lg transition-colors ${
+                            isSelected
+                              ? 'bg-violet-50 dark:bg-violet-900/20'
+                              : 'hover:bg-gray-50 dark:hover:bg-surface-800'
+                          }`}
+                        >
+                          <Avatar src={agent.avatar} name={agent.username} size="md" />
+                          <div className="flex-1 text-left min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <p className="font-medium text-gray-900 dark:text-white truncate">
+                                {(agent as any).displayName || agent.username}
+                              </p>
+                              <span className="text-[10px] px-1.5 py-0.5 bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400 rounded-full font-medium">
+                                AI
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                              {agent.email}
+                            </p>
+                          </div>
+                          {isSelected && (
+                            <div className="flex-shrink-0 w-5 h-5 rounded-full bg-violet-600 flex items-center justify-center">
+                              <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                              </svg>
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="border-t border-gray-200 dark:border-surface-700 my-3" />
+                </div>
+              )}
+
+              {!isSearching && !searchQuery && searchResults.length === 0 && agentUsers.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <Users className="w-8 h-8 text-gray-400 dark:text-gray-600 mb-2" />
                   <p className="text-gray-500 dark:text-gray-400 text-sm">
                     Start typing to search for users
+                  </p>
+                </div>
+              )}
+
+              {!isSearching && !searchQuery && searchResults.length === 0 && agentUsers.length > 0 && (
+                <div className="text-center py-2">
+                  <p className="text-gray-400 dark:text-gray-500 text-xs">
+                    Search above to find more people
                   </p>
                 </div>
               )}

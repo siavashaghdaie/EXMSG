@@ -148,6 +148,7 @@ interface ConversationResponse {
   isPinned?: boolean;
   linkedTask?: { id: string; title: string; archived?: boolean; deleted?: boolean } | null;
   linkedProject?: { id: string; name: string } | null;
+  disappearingSeconds?: number | null;
   createdAt: string;
   updatedAt: string;
 }
