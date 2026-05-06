@@ -6,6 +6,7 @@ import fs from 'fs';
 import { prisma } from '../../config/database';
 import { emitToConversation } from '../../services/socket';
 import { handleLindaAutoReply } from '../linda/linda.controller';
+import { handleTransGuyAutoReply } from '../agents/transguy.controller';
 import { getOrgMemberIds } from '../../middleware/orgScope';
 import { translateText, translateTexts, isTranslationAvailable } from '../../services/translationService';
 import { transcribeAudio } from '../linda/voiceService';
@@ -629,6 +630,11 @@ export class MessagingController {
       handleLindaAutoReply(conversationId, userId, content).catch((err) => {
         console.error('[Linda] Auto-reply hook error:', err);
       });
+
+      // Check if TransGuy is in this conversation and should auto-translate
+      handleTransGuyAutoReply(conversationId, userId, content).catch((err) => {
+        console.error('[TransGuy] Auto-reply hook error:', err);
+      });
     } catch (error) {
       console.error('Send message error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -1014,6 +1020,13 @@ export class MessagingController {
       }).catch((err) => {
         console.error('[Linda] Auto-reply hook error (file):', err);
       });
+
+      // Trigger TransGuy auto-translate if message has text content
+      if (message.content) {
+        handleTransGuyAutoReply(conversationId, userId, message.content).catch((err) => {
+          console.error('[TransGuy] Auto-reply hook error (file):', err);
+        });
+      }
 
       // ── Voice transcription for TransGuy translation ──
       // Async: transcribe audio messages so they can be translated

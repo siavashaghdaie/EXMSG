@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Reply, Smile, Pencil, Trash2, Pin, Share2 } from 'lucide-react';
+import { Reply, Smile, Pencil, Trash2, Pin, PinOff, Share2 } from 'lucide-react';
 import EmojiPicker from './EmojiPicker';
 
 interface MessageActionsProps {
@@ -86,10 +86,13 @@ export default function MessageActions({
       {/* Pin / Unpin */}
       <button
         onClick={onPin}
-        className={`p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition ${isPinned ? 'text-amber-500' : ''}`}
+        className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition"
         title={isPinned ? 'Unpin' : 'Pin'}
       >
-        <Pin size={16} className={isPinned ? 'text-amber-500' : 'text-slate-600 dark:text-slate-300'} />
+        {isPinned
+          ? <PinOff size={16} className="text-slate-600 dark:text-slate-300" />
+          : <Pin size={16} className="text-slate-600 dark:text-slate-300" />
+        }
       </button>
 
       {/* Edit (own messages only) */}

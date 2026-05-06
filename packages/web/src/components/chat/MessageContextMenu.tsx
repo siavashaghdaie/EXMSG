@@ -8,6 +8,7 @@ import {
   Star,
   Trash2,
   Pin,
+  PinOff,
   Languages,
   MoreHorizontal,
 } from 'lucide-react';
@@ -17,6 +18,7 @@ interface MessageContextMenuProps {
   message: MessageResponse;
   isOwnMessage: boolean;
   isEditable: boolean;
+  isPinned?: boolean;
   position: { x: number; y: number };
   onReply: () => void;
   onEdit: () => void;
@@ -40,6 +42,7 @@ export default function MessageContextMenu({
   message: _message,
   isOwnMessage,
   isEditable,
+  isPinned = false,
   position,
   onReply,
   onEdit,
@@ -107,8 +110,8 @@ export default function MessageContextMenu({
       },
     },
     {
-      icon: <Pin size={18} />,
-      label: 'Pin',
+      icon: isPinned ? <PinOff size={18} /> : <Pin size={18} />,
+      label: isPinned ? 'Unpin' : 'Pin',
       action: onPin,
     },
     {

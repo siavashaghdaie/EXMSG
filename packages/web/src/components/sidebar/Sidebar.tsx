@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Search, Settings, Plus, Bell, ClipboardList, LayoutDashboard, PanelLeftClose, PanelLeftOpen, MessageSquare } from 'lucide-react';
+import { Search, Settings, Plus, Bell, ClipboardList, LayoutDashboard, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { usePresenceStore } from '@/store/presenceStore';
@@ -417,12 +417,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="flex items-center justify-between mb-4">
             {isMobile ? (
               <>
-                {/* Mobile: no logo text, just action buttons */}
-                <div className="flex items-center gap-1">
-                  <div className="w-7 h-7 bg-gradient-to-br from-primary-500 to-primary-700 rounded-lg flex items-center justify-center">
-                    <MessageSquare className="w-4 h-4 text-white" />
-                  </div>
-                </div>
+                {/* Mobile: compact OMNILINK text */}
+                <h1 className="text-base font-bold text-gray-900 dark:text-white tracking-tight">
+                  OMNILINK
+                </h1>
                 <div className="flex items-center gap-0.5">
                   {isOrgAdmin && (
                     <button
@@ -532,14 +530,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="flex gap-3 overflow-x-auto py-2 px-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
               {/* My Story — Instagram-style circle with + badge */}
               <div className="flex flex-col items-center gap-1 flex-shrink-0" onClick={(e) => { e.stopPropagation(); handleAddStory(e); }}>
-                <div className="relative">
-                  <div className={`w-[52px] h-[52px] rounded-full p-[2px] ${hasActiveStory ? 'bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600' : 'bg-gray-200 dark:bg-surface-600'}`}>
-                    <div className="w-full h-full rounded-full bg-white dark:bg-surface-900 p-[2px]">
-                      <Avatar src={user.avatar || (user as any).avatarUrl} name={user.displayName || user.username || user.email || 'User'} username={user.username || user.email || 'User'} size="md" />
+                <div className="relative w-[56px] h-[56px]">
+                  <div className={`w-[56px] h-[56px] rounded-full p-[2px] ${hasActiveStory ? 'bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600' : 'bg-gray-200 dark:bg-surface-600'}`}>
+                    <div className="w-full h-full rounded-full bg-white dark:bg-surface-900 flex items-center justify-center overflow-hidden">
+                      <div className="w-[46px] h-[46px] rounded-full overflow-hidden">
+                        <Avatar src={user.avatar || (user as any).avatarUrl} name={user.displayName || user.username || user.email || 'User'} username={user.username || user.email || 'User'} size="md" />
+                      </div>
                     </div>
                   </div>
-                  <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-primary-500 rounded-full border-2 border-white dark:border-surface-900 flex items-center justify-center">
-                    <Plus className="w-3 h-3 text-white" />
+                  <div className="absolute bottom-0 right-0 w-[18px] h-[18px] bg-primary-500 rounded-full border-[1.5px] border-white dark:border-surface-900 flex items-center justify-center">
+                    <Plus className="w-2.5 h-2.5 text-white" />
                   </div>
                 </div>
                 <span className="text-[10px] text-gray-500 dark:text-gray-400 truncate w-14 text-center">My Story</span>
@@ -552,9 +552,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className="flex flex-col items-center gap-1 flex-shrink-0 cursor-pointer"
                   onClick={() => { setStoryViewUserId(cs.userId); setShowStoryViewer(true); }}
                 >
-                  <div className="w-[52px] h-[52px] rounded-full p-[2px] bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600">
-                    <div className="w-full h-full rounded-full bg-white dark:bg-surface-900 p-[2px]">
-                      <Avatar src={cs.avatarUrl} name={cs.displayName || cs.username} username={cs.username} size="md" />
+                  <div className="w-[56px] h-[56px] rounded-full p-[2px] bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600">
+                    <div className="w-full h-full rounded-full bg-white dark:bg-surface-900 flex items-center justify-center overflow-hidden">
+                      <div className="w-[46px] h-[46px] rounded-full overflow-hidden">
+                        <Avatar src={cs.avatarUrl} name={cs.displayName || cs.username} username={cs.username} size="md" />
+                      </div>
                     </div>
                   </div>
                   <span className="text-[10px] text-gray-500 dark:text-gray-400 truncate w-14 text-center">{(cs.displayName || cs.username || '').split(' ')[0]}</span>

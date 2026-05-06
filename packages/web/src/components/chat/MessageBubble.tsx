@@ -715,6 +715,7 @@ export default function MessageBubble({
           message={message}
           isOwnMessage={isOwnMessage}
           isEditable={isEditable()}
+          isPinned={isPinned}
           position={contextMenuPos}
           onReply={handleReply}
           onEdit={() => {
