@@ -22,7 +22,7 @@ type MediaTab = 'media' | 'docs' | 'links';
 
 // Preset wallpaper colors
 const WALLPAPER_PRESETS = [
-  { name: 'Default', value: null, color: '#ffffff' },
+  { name: 'White', value: '#ffffff', color: '#ffffff' },
   { name: 'Soft Blue', value: '#e3f2fd', color: '#e3f2fd' },
   { name: 'Mint', value: '#e8f5e9', color: '#e8f5e9' },
   { name: 'Lavender', value: '#ede7f6', color: '#ede7f6' },
@@ -447,7 +447,7 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
           <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-3">Tap a color to apply</p>
           <div className="grid grid-cols-6 gap-2 mb-5">
             {WALLPAPER_PRESETS.map((preset) => {
-              const isActive = (preset.value === null && !settings.chatWallpaper) || settings.chatWallpaper === preset.value;
+              const isActive = settings.chatWallpaper === preset.value || (!settings.chatWallpaper && preset.value === '#ffffff');
               return (
                 <button
                   key={preset.name}
@@ -491,7 +491,7 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
 
           {/* Reset */}
           <button
-            onClick={() => handleWallpaperSelect(null)}
+            onClick={() => handleWallpaperSelect('#ffffff')}
             className="w-full py-2.5 text-sm text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-surface-800 rounded-lg hover:bg-slate-100 dark:hover:bg-surface-700 transition"
           >
             Reset to Default
