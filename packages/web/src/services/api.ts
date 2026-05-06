@@ -123,6 +123,11 @@ interface MessageResponse {
   translatedContent?: string;
   translatedFrom?: string;
   translatedTo?: string;
+  // Disappearing messages & view-once
+  expiresAt?: string;
+  isViewOnce?: boolean;
+  viewedAt?: string;
+  isDeleted?: boolean;
 }
 
 interface ConversationResponse {
@@ -686,12 +691,16 @@ class APIClient {
       createdAt: raw.createdAt,
       sender: raw.sender,
       replyTo: raw.replyTo,
+      expiresAt: raw.expiresAt,
+      isViewOnce: raw.isViewOnce,
+      viewedAt: raw.viewedAt,
     };
   }
 
-  async uploadFile(conversationId: string, file: File, onProgress?: (progress: number) => void): Promise<MessageResponse> {
+  async uploadFile(conversationId: string, file: File, onProgress?: (progress: number) => void, viewOnce?: boolean): Promise<MessageResponse> {
     const formData = new FormData();
     formData.append('file', file);
+    if (viewOnce) formData.append('viewOnce', 'true');
 
     // Don't set Content-Type manually — axios sets the correct multipart boundary automatically
     const response = await this.client.post(
@@ -719,7 +728,15 @@ class APIClient {
       editedAt: raw.editedAt,
       createdAt: raw.createdAt,
       sender: raw.sender,
+      expiresAt: raw.expiresAt,
+      isViewOnce: raw.isViewOnce,
+      viewedAt: raw.viewedAt,
     };
+  }
+
+  async markViewOnce(messageId: string): Promise<{ alreadyViewed: boolean; viewedAt: string | null }> {
+    const response = await this.client.post(`/messages/${messageId}/view-once`);
+    return response.data;
   }
 
   async editMessage(_conversationId: string, messageId: string, content: string): Promise<MessageResponse> {

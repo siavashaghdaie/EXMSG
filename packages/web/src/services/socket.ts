@@ -83,6 +83,10 @@ class SocketService {
       this.emit('message:deleted', data);
     });
 
+    this.socket.on('message:viewOnceOpened', (data: { messageId: string; viewedAt: string }) => {
+      this.emit('message:viewOnceOpened', data);
+    });
+
     this.socket.on('typing:start', (data: TypingEvent) => {
       this.emit('typing:start', data);
     });

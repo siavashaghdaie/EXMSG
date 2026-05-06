@@ -28,6 +28,7 @@ import { initializePush } from './modules/push/pushService';
 import { initializeLinda } from './modules/linda/linda.controller';
 import { seedAgents } from './modules/agents/agent.controller';
 import { startTaskReminderJob } from './modules/tasks/taskReminder';
+import { startMessageCleanupJob } from './services/messageCleanup';
 import { resolveOrganization } from './middleware/orgScope';
 
 async function bootstrap() {
@@ -117,6 +118,9 @@ async function bootstrap() {
 
   // Start background task reminder job (Linda notifies assignees about ignored tasks)
   startTaskReminderJob();
+
+  // Start message cleanup job (soft-deletes expired disappearing messages)
+  startMessageCleanupJob();
 
   // Start server
   httpServer.listen(env.PORT, () => {

@@ -830,6 +830,25 @@ export function setupChatSocketListeners() {
     })
   );
 
+  // View-once opened — update message viewedAt
+  unsubscribe.push(
+    socket.on<{ messageId: string; viewedAt: string }>('message:viewOnceOpened', (data) => {
+      const state = useChatStore.getState();
+      const msgs = state.messages;
+      for (const [convId, convMsgs] of msgs.entries()) {
+        const idx = convMsgs.findIndex(m => m.id === data.messageId);
+        if (idx >= 0) {
+          const updated = [...convMsgs];
+          updated[idx] = { ...updated[idx], viewedAt: data.viewedAt };
+          const newMessages = new Map(msgs);
+          newMessages.set(convId, updated);
+          useChatStore.setState({ messages: newMessages });
+          break;
+        }
+      }
+    })
+  );
+
   unsubscribe.push(
     socket.on<ReactionEvent>('reaction:added', (reaction) => {
       useChatStore.getState().handleReactionAdded(reaction);

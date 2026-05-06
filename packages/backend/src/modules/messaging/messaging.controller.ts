@@ -366,6 +366,10 @@ export class MessagingController {
           type: true,
           metadata: true,
           isEdited: true,
+          isDeleted: true,
+          expiresAt: true,
+          isViewOnce: true,
+          viewedAt: true,
           createdAt: true,
           updatedAt: true,
           sender: {
@@ -498,6 +502,15 @@ export class MessagingController {
         return;
       }
 
+      // Check if conversation has disappearing messages enabled
+      const conversation = await prisma.conversation.findUnique({
+        where: { id: conversationId },
+        select: { disappearingSeconds: true },
+      });
+      const expiresAt = conversation?.disappearingSeconds
+        ? new Date(Date.now() + conversation.disappearingSeconds * 1000)
+        : undefined;
+
       const message = await prisma.message.create({
         data: {
           conversationId,
@@ -506,6 +519,7 @@ export class MessagingController {
           type,
           replyToId,
           metadata: storyReply ? JSON.stringify(storyReply) : null,
+          ...(expiresAt ? { expiresAt } : {}),
         },
         include: {
           sender: {
@@ -541,6 +555,8 @@ export class MessagingController {
         reactions: {},
         createdAt: message.createdAt,
         sender: message.sender,
+        ...(message.expiresAt ? { expiresAt: message.expiresAt } : {}),
+        ...(message.isViewOnce ? { isViewOnce: true } : {}),
       });
 
       // Check if Linda is in this conversation and should auto-reply
@@ -862,6 +878,18 @@ export class MessagingController {
         }
       }
 
+      // Check for view-once flag from request body (multipart form field)
+      const isViewOnce = req.body.viewOnce === 'true' || req.body.viewOnce === true;
+
+      // Check if conversation has disappearing messages enabled
+      const conv = await prisma.conversation.findUnique({
+        where: { id: conversationId },
+        select: { disappearingSeconds: true },
+      });
+      const fileExpiresAt = conv?.disappearingSeconds
+        ? new Date(Date.now() + conv.disappearingSeconds * 1000)
+        : undefined;
+
       // Create message with file attachment
       const message = await prisma.message.create({
         data: {
@@ -869,6 +897,8 @@ export class MessagingController {
           senderId: userId,
           content: '',
           type: 'FILE',
+          isViewOnce,
+          ...(fileExpiresAt ? { expiresAt: fileExpiresAt } : {}),
           attachments: {
             create: {
               fileName: finalOriginalName,
@@ -905,6 +935,8 @@ export class MessagingController {
         reactions: {},
         createdAt: message.createdAt,
         sender: message.sender,
+        ...(message.expiresAt ? { expiresAt: message.expiresAt } : {}),
+        ...(message.isViewOnce ? { isViewOnce: true } : {}),
       });
 
       // Trigger Linda auto-reply with file context
@@ -946,6 +978,66 @@ export class MessagingController {
     } catch (error) {
       console.error('Upload file error:', error);
       res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // POST /api/messages/:messageId/view-once
+  async markViewOnce(req: Request, res: Response): Promise<void> {
+    try {
+      const { messageId } = req.params;
+      const userId = req.user!.userId;
+
+      const message = await prisma.message.findUnique({
+        where: { id: messageId },
+        select: { id: true, conversationId: true, senderId: true, isViewOnce: true, viewedAt: true },
+      });
+
+      if (!message) {
+        res.status(404).json({ error: 'Message not found' });
+        return;
+      }
+
+      if (!message.isViewOnce) {
+        res.status(400).json({ error: 'Message is not view-once' });
+        return;
+      }
+
+      // Sender can always view their own media
+      if (message.senderId === userId) {
+        res.json({ alreadyViewed: false, viewedAt: null });
+        return;
+      }
+
+      if (message.viewedAt) {
+        res.json({ alreadyViewed: true, viewedAt: message.viewedAt });
+        return;
+      }
+
+      // Verify membership
+      const membership = await prisma.conversationMember.findUnique({
+        where: { conversationId_userId: { conversationId: message.conversationId, userId } },
+      });
+      if (!membership) {
+        res.status(403).json({ error: 'Not a member of this conversation' });
+        return;
+      }
+
+      // Mark as viewed
+      const updated = await prisma.message.update({
+        where: { id: messageId },
+        data: { viewedAt: new Date() },
+      });
+
+      // Notify sender that their view-once media was opened
+      emitToConversation(message.conversationId, 'message:viewOnceOpened', {
+        messageId,
+        viewedAt: updated.viewedAt,
+      });
+
+      res.json({ alreadyViewed: false, viewedAt: updated.viewedAt });
+    } catch (err) {
+      console.error('[ViewOnce] markViewOnce error:', err);
+      res.status(500).json({ error: 'Failed to mark as viewed' });
     }
   }
 

@@ -50,6 +50,9 @@ router.post('/conversations/:conversationId/upload', upload.single('file'), cont
 // Translation
 router.post('/translate', controller.translateMessage.bind(controller));
 
+// View-once media
+router.post('/messages/:messageId/view-once', controller.markViewOnce.bind(controller));
+
 // Reactions
 router.post('/messages/:messageId/reactions', controller.addReaction);
 router.delete('/messages/:messageId/reactions/:emoji', controller.removeReaction);

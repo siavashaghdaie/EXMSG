@@ -252,6 +252,9 @@ model Message {
   isDeleted      Boolean     @default(false) @map("is_deleted")
   scheduledAt    DateTime?   @map("scheduled_at")
   metadata       String?     // JSON for extra data like story reply info
+  expiresAt      DateTime?   @map("expires_at") // disappearing messages: auto-set from conversation.disappearingSeconds
+  isViewOnce     Boolean     @default(false) @map("is_view_once") // view-once media: disappears after first view
+  viewedAt       DateTime?   @map("viewed_at") // when view-once was opened by recipient
   createdAt      DateTime    @default(now()) @map("created_at")
   updatedAt      DateTime    @updatedAt @map("updated_at")
 
@@ -266,6 +269,7 @@ model Message {
   stars        StarredMessage[]
 
   @@index([conversationId, createdAt])
+  @@index([expiresAt])
   @@map("messages")
 }
 

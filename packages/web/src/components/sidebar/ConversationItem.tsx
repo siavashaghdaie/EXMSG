@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { Trash2, Archive, VolumeX, Pin, Sparkles, ClipboardList, FolderKanban, Users } from 'lucide-react';
+import { Trash2, Archive, VolumeX, Pin, Sparkles, ClipboardList, FolderKanban, Users, Lock } from 'lucide-react';
 import { ConversationResponse } from '@/services/api';
 import Avatar from '@/components/common/Avatar';
 import { useAuthStore } from '@/store/authStore';
@@ -96,8 +96,14 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
   const { removeConversation } = useChatStore();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showLockPrompt, setShowLockPrompt] = useState(false);
+  const [lockPinInput, setLockPinInput] = useState('');
+  const [lockError, setLockError] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Check if this chat is locked
+  const isLockedChat = !!localStorage.getItem(`chat_lock_${conversation.id}`);
 
   if (!user) return null;
 
@@ -128,8 +134,27 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
       setContextMenu(null);
       return;
     }
+    // Check if chat is locked — require PIN
+    if (isLockedChat) {
+      setShowLockPrompt(true);
+      setLockPinInput('');
+      setLockError('');
+      return;
+    }
     navigate(`/chat/${conversation.id}`);
     onNavigate?.();
+  };
+
+  const handleLockUnlock = () => {
+    const savedPin = localStorage.getItem(`chat_lock_${conversation.id}`);
+    if (savedPin && lockPinInput === savedPin) {
+      setShowLockPrompt(false);
+      navigate(`/chat/${conversation.id}`);
+      onNavigate?.();
+    } else {
+      setLockError('Incorrect PIN');
+      setLockPinInput('');
+    }
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -271,6 +296,9 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
                     <span className="text-[10px] font-medium text-green-600 dark:text-green-400">Group</span>
                   </div>
                 )}
+                {isLockedChat && (
+                  <Lock size={12} className="text-amber-500 flex-shrink-0" />
+                )}
               </div>
               {lastMessageTime && (
                 <span
@@ -304,7 +332,7 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
                       : 'text-gray-500 dark:text-gray-400'
                   }`}
                 >
-                  {lastMessagePreview}
+                  {isLockedChat ? 'Chat locked' : lastMessagePreview}
                 </p>
               )}
 
@@ -320,6 +348,64 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Lock prompt modal */}
+      {showLockPrompt && (
+        <div
+          className="fixed inset-0 z-[999] flex items-center justify-center bg-black/50"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowLockPrompt(false); }}
+        >
+          <div className="bg-white dark:bg-surface-800 rounded-2xl shadow-xl p-6 w-80 mx-4">
+            <div className="flex flex-col items-center mb-4">
+              <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mb-3">
+                <Lock size={24} className="text-amber-600 dark:text-amber-400" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Chat Locked</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 text-center">Enter PIN to open this chat</p>
+            </div>
+            {/* PIN dots */}
+            <div className="flex justify-center gap-3 mb-4">
+              {[0, 1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className={`w-3 h-3 rounded-full transition ${
+                    lockPinInput.length > i ? 'bg-amber-500' : 'bg-gray-200 dark:bg-surface-600'
+                  }`}
+                />
+              ))}
+            </div>
+            <input
+              type="password"
+              inputMode="numeric"
+              autoFocus
+              value={lockPinInput}
+              onChange={(e) => setLockPinInput(e.target.value.replace(/\D/g, ''))}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleLockUnlock(); }}
+              placeholder="Enter PIN"
+              className="w-full px-4 py-2 text-center text-lg tracking-widest bg-gray-50 dark:bg-surface-700 border border-gray-200 dark:border-surface-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 mb-3"
+              maxLength={8}
+            />
+            {lockError && (
+              <p className="text-xs text-red-500 text-center mb-3">{lockError}</p>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowLockPrompt(false)}
+                className="flex-1 px-4 py-2 text-sm text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-surface-700 rounded-lg hover:bg-gray-200 dark:hover:bg-surface-600"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleLockUnlock}
+                disabled={lockPinInput.length < 4}
+                className="flex-1 px-4 py-2 text-sm text-white bg-amber-500 rounded-lg hover:bg-amber-600 disabled:opacity-50"
+              >
+                Unlock
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Context menu — WhatsApp-style dropdown on right-click / long-press */}
       {contextMenu && (

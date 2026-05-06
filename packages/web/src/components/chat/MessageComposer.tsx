@@ -1,5 +1,5 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
-import { Send, Paperclip, Smile, X, Mic, Camera } from 'lucide-react';
+import { Send, Paperclip, Smile, X, Mic, Camera, Eye } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { socket } from '@/services/socket';
 import { api } from '@/services/api';
@@ -31,6 +31,7 @@ export default function MessageComposer({
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [viewOnce, setViewOnce] = useState(false);
 
   // Handle responsive behavior
   useEffect(() => {
@@ -234,11 +235,12 @@ export default function MessageComposer({
 
       await api.uploadFile(conversationId, fileToUpload, (progress) => {
         setUploadProgress(progress);
-      });
+      }, viewOnce);
 
       // Clear file and reset
       setAttachedFile(null);
       setUploadProgress(0);
+      setViewOnce(false);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -344,10 +346,10 @@ export default function MessageComposer({
 
       {/* File attachment preview */}
       {attachedFile && (
-        <div className="mb-3 flex items-center gap-3 bg-slate-50 px-3 py-2 rounded-lg border border-slate-200">
+        <div className="mb-3 flex items-center gap-3 bg-slate-50 dark:bg-surface-800 px-3 py-2 rounded-lg border border-slate-200 dark:border-surface-600">
           <span className="text-2xl">{getFileIcon(attachedFile.type)}</span>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-slate-700 truncate">{attachedFile.name}</p>
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{attachedFile.name}</p>
             <p className="text-xs text-slate-500">{formatFileSize(attachedFile.size)}</p>
           </div>
           {isUploading ? (
@@ -358,12 +360,29 @@ export default function MessageComposer({
               />
             </div>
           ) : (
-            <button
-              onClick={handleRemoveFile}
-              className="flex-shrink-0 p-1 hover:bg-slate-200 rounded transition"
-            >
-              <X size={16} className="text-slate-500" />
-            </button>
+            <div className="flex items-center gap-1">
+              {/* View-once toggle — only for image/video */}
+              {(attachedFile.type.startsWith('image/') || attachedFile.type.startsWith('video/')) && (
+                <button
+                  onClick={() => setViewOnce(!viewOnce)}
+                  className={`flex-shrink-0 p-1.5 rounded-lg transition text-xs font-medium flex items-center gap-1 ${
+                    viewOnce
+                      ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+                      : 'hover:bg-slate-200 dark:hover:bg-surface-600 text-slate-400'
+                  }`}
+                  title={viewOnce ? 'View once enabled' : 'Enable view once'}
+                >
+                  <Eye size={14} />
+                  {viewOnce && <span>1</span>}
+                </button>
+              )}
+              <button
+                onClick={handleRemoveFile}
+                className="flex-shrink-0 p-1 hover:bg-slate-200 dark:hover:bg-surface-600 rounded transition"
+              >
+                <X size={16} className="text-slate-500" />
+              </button>
+            </div>
           )}
         </div>
       )}

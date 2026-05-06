@@ -309,12 +309,10 @@ export default function ChatView() {
     return (
       <React.Fragment key={`group-${idx}`}>
         {showDateSeparator && (
-          <div className="flex items-center gap-3 my-4 px-4">
-            <div className="flex-1 h-px bg-slate-200" />
-            <span className="text-xs text-slate-500 font-medium">
+          <div className="flex justify-center my-3">
+            <span className="px-3 py-1 bg-white/80 dark:bg-surface-800/80 backdrop-blur-sm text-[11px] text-slate-600 dark:text-slate-400 font-medium rounded-lg shadow-sm">
               {currentDate}
             </span>
-            <div className="flex-1 h-px bg-slate-200" />
           </div>
         )}
         <div
@@ -349,7 +347,10 @@ export default function ChatView() {
             >
               {conversation && conversation.participants.length > 2 &&
                 firstMessage.senderId !== user?.id && (
-                  <span className="text-xs text-slate-500 px-3 pt-1">
+                  <span
+                    className="text-xs font-semibold px-3 pt-1"
+                    style={{ color: `hsl(${Math.abs(firstMessage.senderId.split('').reduce((a, c) => a + c.charCodeAt(0), 0)) % 360}, 60%, 45%)` }}
+                  >
                     {getSenderName(firstMessage.senderId)}
                   </span>
                 )}
@@ -817,7 +818,10 @@ export default function ChatView() {
         ref={messagesContainerRef}
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-hide"
-        style={chatWallpaper ? { backgroundColor: chatWallpaper } : undefined}
+        style={chatWallpaper
+          ? { backgroundColor: chatWallpaper }
+          : { backgroundColor: document.documentElement.classList.contains('dark') ? '#0b141a' : '#efeae2', backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23d5d0c8\' fill-opacity=\'0.08\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }
+        }
       >
         <div className="py-4 px-2 sm:px-4 max-w-full overflow-hidden">
           {conversationMessages.length === 0 ? (
@@ -831,13 +835,13 @@ export default function ChatView() {
         </div>
       </div>
 
-      {/* Scroll to bottom button */}
+      {/* Scroll to bottom button — WhatsApp-style */}
       {showScrollButton && (
         <button
           onClick={scrollToBottom}
-          className="absolute bottom-24 right-6 p-3 bg-blue-500 text-white rounded-full shadow-lg hover:bg-blue-600 transition animate-bounce"
+          className="absolute bottom-24 right-4 w-10 h-10 bg-white dark:bg-surface-800 text-slate-600 dark:text-slate-300 rounded-full shadow-lg hover:shadow-xl transition flex items-center justify-center border border-slate-200 dark:border-surface-600"
         >
-          <ArrowDown size={20} />
+          <ArrowDown size={18} />
         </button>
       )}
 

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { format } from 'date-fns';
-import { Check, CheckCheck, Volume2, Globe } from 'lucide-react';
+import { Check, CheckCheck, Volume2, Globe, Timer, Eye } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { MessageResponse, api } from '@/services/api';
@@ -51,11 +51,61 @@ export default function MessageBubble({
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuPos, setContextMenuPos] = useState({ x: 0, y: 0 });
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+  const [viewOnceRevealed, setViewOnceRevealed] = useState(false);
+  const [viewOnceExpired, setViewOnceExpired] = useState(!!message.viewedAt && !isOwnMessage);
+  const [expiresIn, setExpiresIn] = useState<string | null>(null);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
   const { editMessage, deleteMessage, addReaction } = useChatStore();
   const { user } = useAuthStore();
   const [isMobile] = useState(window.innerWidth < 768);
+
+  // Disappearing message countdown timer
+  useEffect(() => {
+    if (!message.expiresAt) return;
+    const updateTimer = () => {
+      const remaining = new Date(message.expiresAt!).getTime() - Date.now();
+      if (remaining <= 0) {
+        setExpiresIn('expired');
+        return;
+      }
+      const hours = Math.floor(remaining / 3600000);
+      const mins = Math.floor((remaining % 3600000) / 60000);
+      if (hours > 24) {
+        const days = Math.floor(hours / 24);
+        setExpiresIn(`${days}d`);
+      } else if (hours > 0) {
+        setExpiresIn(`${hours}h ${mins}m`);
+      } else {
+        const secs = Math.floor((remaining % 60000) / 1000);
+        setExpiresIn(`${mins}:${secs.toString().padStart(2, '0')}`);
+      }
+    };
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [message.expiresAt]);
+
+  // Handle view-once media click
+  const handleViewOnce = async () => {
+    if (!message.isViewOnce || isOwnMessage) return;
+    if (viewOnceExpired) return;
+    try {
+      const result = await api.markViewOnce(message.id);
+      if (result.alreadyViewed) {
+        setViewOnceExpired(true);
+      } else {
+        setViewOnceRevealed(true);
+        // Auto-hide after 5 seconds
+        setTimeout(() => {
+          setViewOnceRevealed(false);
+          setViewOnceExpired(true);
+        }, 5000);
+      }
+    } catch (err) {
+      console.error('Failed to mark view-once:', err);
+    }
+  };
 
   // Check if message is editable (within 10 minutes)
   const isEditable = useCallback(() => {
@@ -228,6 +278,25 @@ export default function MessageBubble({
       <div className="flex justify-center my-2">
         <div className="px-4 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded-full text-xs font-medium">
           {message.content}
+        </div>
+      </div>
+    );
+  }
+
+  // Render deleted/expired messages
+  if (message.isDeleted || expiresIn === 'expired') {
+    return (
+      <div
+        id={`msg-${message.id}`}
+        className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'} my-0.5`}
+      >
+        <div className={`px-3 py-1.5 rounded-2xl italic text-xs ${
+          isOwnMessage
+            ? 'bg-blue-500/30 text-blue-200 rounded-br-none'
+            : 'bg-slate-100/50 dark:bg-surface-700/50 text-slate-400 dark:text-gray-500 rounded-bl-none'
+        }`}>
+          <Timer size={12} className="inline mr-1" />
+          This message has disappeared
         </div>
       </div>
     );
@@ -502,10 +571,21 @@ export default function MessageBubble({
                   </>
                 )}
 
-                {/* Timestamp + edited + ticks INSIDE the bubble */}
+                {/* Timestamp + edited + disappearing timer + view-once + ticks INSIDE the bubble */}
                 <div className={`flex items-center justify-end gap-1 mt-0.5 -mb-0.5 ${
                   isOwnMessage ? 'text-blue-100/70' : 'text-slate-400 dark:text-gray-500'
                 }`}>
+                  {message.isViewOnce && (
+                    <span className="text-[10px] flex items-center gap-0.5" title="View once">
+                      <Eye size={10} />
+                    </span>
+                  )}
+                  {expiresIn && expiresIn !== 'expired' && (
+                    <span className="text-[10px] flex items-center gap-0.5" title="Disappearing message">
+                      <Timer size={10} />
+                      {expiresIn}
+                    </span>
+                  )}
                   {message.editedAt && (
                     <span className="text-[10px] italic">edited</span>
                   )}
@@ -524,15 +604,39 @@ export default function MessageBubble({
       {/* File attachments (non-audio only — voice messages are rendered inside the bubble) */}
       {message.attachments && message.attachments.filter(a => !a.mimeType.startsWith('audio/')).length > 0 && (
         <div className={`mt-1 flex flex-col gap-2 ${isOwnMessage ? 'items-end' : 'items-start'}`}>
-          {message.attachments.filter(a => !a.mimeType.startsWith('audio/')).map((attachment) => (
-            <FileCard
-              key={attachment.id}
-              fileName={attachment.fileName}
-              fileSize={attachment.fileSize}
-              mimeType={attachment.mimeType}
-              url={attachment.url}
-            />
-          ))}
+          {message.isViewOnce && !isOwnMessage && !viewOnceRevealed ? (
+            // View-once overlay
+            <button
+              onClick={handleViewOnce}
+              className={`relative flex items-center gap-2 px-4 py-3 rounded-xl transition ${
+                viewOnceExpired
+                  ? 'bg-slate-200 dark:bg-surface-700 text-slate-400 dark:text-gray-500 cursor-not-allowed'
+                  : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/50 cursor-pointer'
+              }`}
+              disabled={viewOnceExpired}
+            >
+              <Eye size={20} />
+              <span className="text-sm font-medium">
+                {viewOnceExpired ? 'Opened' : 'View once photo'}
+              </span>
+            </button>
+          ) : (
+            message.attachments.filter(a => !a.mimeType.startsWith('audio/')).map((attachment) => (
+              <FileCard
+                key={attachment.id}
+                fileName={attachment.fileName}
+                fileSize={attachment.fileSize}
+                mimeType={attachment.mimeType}
+                url={attachment.url}
+              />
+            ))
+          )}
+          {/* View-once countdown */}
+          {message.isViewOnce && viewOnceRevealed && (
+            <div className="text-[10px] text-amber-500 dark:text-amber-400 flex items-center gap-1">
+              <Eye size={10} /> Disappears in 5 seconds...
+            </div>
+          )}
         </div>
       )}
 
