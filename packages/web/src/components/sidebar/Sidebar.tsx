@@ -414,47 +414,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className={`relative bg-white dark:bg-surface-900 border-r border-gray-200 dark:border-surface-700 flex flex-col ${isMobile ? 'w-full h-full' : 'w-80 h-screen'}`}>
         {/* Header */}
         <div className="p-4 border-b border-gray-200 dark:border-surface-700 flex-shrink-0">
-          <div className="flex items-center justify-between mb-4">
+          <div className={`flex items-center justify-between ${isMobile ? '' : 'mb-4'}`}>
             {isMobile ? (
-              <>
-                {/* Mobile: compact OMNILINK text */}
-                <h1 className="text-base font-bold text-gray-900 dark:text-white tracking-tight">
-                  OMNILINK
-                </h1>
-                <div className="flex items-center gap-0.5">
-                  {isOrgAdmin && (
-                    <button
-                      onClick={handleDashboardClick}
-                      className={`p-1.5 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative ${dashboardBlink ? 'animate-pulse' : ''}`}
-                      title="Admin Dashboard"
-                    >
-                      <LayoutDashboard className={`w-4 h-4 ${dashboardBlink ? 'text-primary-600 dark:text-primary-400' : 'text-gray-600 dark:text-gray-400'}`} />
-                      {dashboardBlink && (
-                        <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary-500 rounded-full animate-ping" />
-                      )}
-                      {dashboardBlink && (
-                        <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary-500 rounded-full" />
-                      )}
-                    </button>
-                  )}
-                  <button
-                    onClick={() => {
-                      if (onAnnouncementsClick) {
-                        onAnnouncementsClick();
-                      }
-                    }}
-                    className="p-1.5 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative"
-                    title="Announcements"
-                  >
-                    <Bell className="w-4 h-4 text-gray-600 dark:text-gray-400" />
-                    {announcementCount > 0 && (
-                      <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center bg-red-500 text-white text-[8px] font-bold rounded-full px-0.5 leading-none shadow-sm border border-white dark:border-surface-900">
-                        {announcementCount > 9 ? '9+' : announcementCount}
-                      </span>
-                    )}
-                  </button>
-                </div>
-              </>
+              <></>
             ) : (
               <>
                 <h1 className="text-xl font-bold text-gray-900 dark:text-white">
@@ -525,43 +487,63 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
 
-          {/* Instagram-style horizontal story bar (mobile) / Profile row (desktop) */}
+          {/* Mobile: Profile row matching web view — avatar + name/email + icons */}
           {isMobile ? (
-            <div className="flex gap-3 overflow-x-auto py-2 px-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-              {/* My Story — Instagram-style circle with + badge */}
-              <div className="flex flex-col items-center gap-1 flex-shrink-0" onClick={(e) => { e.stopPropagation(); handleAddStory(e); }}>
-                <div className="relative w-[56px] h-[56px]">
-                  <div className={`w-[56px] h-[56px] rounded-full p-[2px] ${hasActiveStory ? 'bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600' : 'bg-gray-200 dark:bg-surface-600'}`}>
-                    <div className="w-full h-full rounded-full bg-white dark:bg-surface-900 flex items-center justify-center overflow-hidden">
-                      <div className="w-[46px] h-[46px] rounded-full overflow-hidden">
-                        <Avatar src={user.avatar || (user as any).avatarUrl} name={user.displayName || user.username || user.email || 'User'} username={user.username || user.email || 'User'} size="md" />
-                      </div>
+            <div className="flex items-center gap-3 py-2 px-2">
+              {/* Owner avatar — perfect circle with story indicator + add badge */}
+              <div className="relative flex-shrink-0 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleAddStory(e); }}>
+                <div className={`w-[52px] h-[52px] rounded-full p-[2px] ${hasActiveStory ? 'bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600' : 'bg-gray-200 dark:bg-surface-600'}`}>
+                  <div className="w-full h-full rounded-full bg-white dark:bg-surface-900 p-[2px]">
+                    <div className="w-full h-full rounded-full overflow-hidden aspect-square">
+                      <Avatar src={user.avatar || (user as any).avatarUrl} name={user.displayName || user.username || user.email || 'User'} username={user.username || user.email || 'User'} size="lg" />
                     </div>
                   </div>
-                  <div className="absolute bottom-0 right-0 w-[18px] h-[18px] bg-primary-500 rounded-full border-[1.5px] border-white dark:border-surface-900 flex items-center justify-center">
-                    <Plus className="w-2.5 h-2.5 text-white" />
-                  </div>
                 </div>
-                <span className="text-[10px] text-gray-500 dark:text-gray-400 truncate w-14 text-center">My Story</span>
+                <div className="absolute -bottom-0.5 -right-0.5 w-[18px] h-[18px] bg-primary-500 rounded-full border-[2px] border-white dark:border-surface-900 flex items-center justify-center">
+                  <Plus className="w-2.5 h-2.5 text-white" />
+                </div>
               </div>
 
-              {/* Contact Stories */}
-              {contactStories.map((cs) => (
-                <div
-                  key={cs.userId}
-                  className="flex flex-col items-center gap-1 flex-shrink-0 cursor-pointer"
-                  onClick={() => { setStoryViewUserId(cs.userId); setShowStoryViewer(true); }}
+              {/* Owner name + email — matches web view */}
+              <div className="flex-1 text-left min-w-0">
+                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                  {user.displayName || user.username || user.email?.split('@')[0] || 'User'}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                  {user.email || ''}
+                </p>
+              </div>
+
+              {/* Action icons — top-aligned with small margin, 15% smaller */}
+              <div className="flex items-center gap-0.5 flex-shrink-0 mt-1">
+                {isOrgAdmin && (
+                  <button
+                    onClick={handleDashboardClick}
+                    className={`p-1.5 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative ${dashboardBlink ? 'animate-pulse' : ''}`}
+                    title="Admin Dashboard"
+                  >
+                    <LayoutDashboard className={`w-[17px] h-[17px] ${dashboardBlink ? 'text-primary-600 dark:text-primary-400' : 'text-gray-600 dark:text-gray-400'}`} />
+                    {dashboardBlink && (
+                      <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary-500 rounded-full animate-ping" />
+                    )}
+                    {dashboardBlink && (
+                      <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-primary-500 rounded-full" />
+                    )}
+                  </button>
+                )}
+                <button
+                  onClick={() => { if (onAnnouncementsClick) onAnnouncementsClick(); }}
+                  className="p-1.5 hover:bg-gray-100 dark:hover:bg-surface-800 rounded-lg transition-colors relative"
+                  title="Announcements"
                 >
-                  <div className="w-[56px] h-[56px] rounded-full p-[2px] bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600">
-                    <div className="w-full h-full rounded-full bg-white dark:bg-surface-900 flex items-center justify-center overflow-hidden">
-                      <div className="w-[46px] h-[46px] rounded-full overflow-hidden">
-                        <Avatar src={cs.avatarUrl} name={cs.displayName || cs.username} username={cs.username} size="md" />
-                      </div>
-                    </div>
-                  </div>
-                  <span className="text-[10px] text-gray-500 dark:text-gray-400 truncate w-14 text-center">{(cs.displayName || cs.username || '').split(' ')[0]}</span>
-                </div>
-              ))}
+                  <Bell className="w-[17px] h-[17px] text-gray-600 dark:text-gray-400" />
+                  {announcementCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center bg-red-500 text-white text-[8px] font-bold rounded-full px-0.5 leading-none shadow-sm border border-white dark:border-surface-900">
+                      {announcementCount > 9 ? '9+' : announcementCount}
+                    </span>
+                  )}
+                </button>
+              </div>
             </div>
           ) : (
             <div

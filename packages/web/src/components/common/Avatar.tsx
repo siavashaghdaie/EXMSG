@@ -66,6 +66,11 @@ const isLindaBot = (name: string | undefined, username: string | undefined): boo
   return username === 'linda' || name === 'Linda AI' || name === 'Linda';
 };
 
+// Check if this is the TransGuy AI bot
+const isTransGuyBot = (name: string | undefined, username: string | undefined): boolean => {
+  return username === 'transguy' || name === 'TransGuy' || name === 'TransGuy AI';
+};
+
 // Linda AI icon SVG — a distinct bot/AI avatar
 const LindaAIIcon: React.FC<{ size: AvatarSize }> = ({ size }) => {
   const dims: Record<AvatarSize, number> = { sm: 18, md: 22, lg: 26, xl: 34 };
@@ -111,11 +116,13 @@ export const Avatar: React.FC<AvatarProps> = ({
   const bgColor = getColorFromName(name);
   const initials = getInitials(name, username);
   const isLinda = isLindaBot(name, username);
+  const isTransGuy = isTransGuyBot(name, username);
 
   // Use store for presence if userId and showPresence are provided, otherwise fall back to online prop
-  // Linda bot is always online
+  // Linda and TransGuy bots are always online
   const isUserOnline = usePresenceStore((s) => userId ? s.onlineUsers.has(userId) : null);
-  const shouldShowOnline = isLinda ? true : (showPresence && userId && isUserOnline !== null ? isUserOnline : online);
+  const isAgentBot = isLinda || isTransGuy;
+  const shouldShowOnline = isAgentBot ? true : (showPresence && userId && isUserOnline !== null ? isUserOnline : online);
 
   return (
     <div className={`relative inline-flex flex-shrink-0 ${className}`}>

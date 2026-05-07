@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<body>
+<h2>File Transfer</h2>
+<input type="file" id="fileInput" />
+<button onclick="doTransfer()">Send to Server</button>
+<pre id="status">Ready. Select sidebar_b64.txt and click Send.</pre>
+<script>
+async function doTransfer() {
+  const file = document.getElementById('fileInput').files[0];
+  if (!file) { document.getElementById('status').textContent = 'No file selected'; return; }
+  const text = await file.text();
+  document.getElementById('status').textContent = 'Sending ' + text.length + ' bytes...';
+  try {
+    const resp = await fetch('http://38.180.123.120:9876', {method: 'POST', body: text});
+    const result = await resp.text();
+    document.getElementById('status').textContent = 'Success: ' + result;
+  } catch(e) {
+    document.getElementById('status').textContent = 'Error: ' + e.message;
+  }
+}
+</script>
+</body>
+</html>
