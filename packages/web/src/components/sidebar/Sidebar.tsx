@@ -492,17 +492,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="flex items-center gap-3 py-1 px-2">
               {/* Owner avatar — perfect circle with story indicator + add badge */}
               <div className="relative flex-shrink-0 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleAvatarClick(); }}>
-                <div className={`w-[62px] h-[62px] rounded-full p-[2px] ${hasActiveStory ? 'bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600' : 'bg-gray-200 dark:bg-surface-600'}`}>
-                  <div className="w-full h-full rounded-full bg-white dark:bg-surface-900 p-[2px]">
-                    <div className="w-full h-full rounded-full overflow-hidden flex items-center justify-center" style={{aspectRatio: '1 / 1'}}>
-                      {(user.avatar || (user as any).avatarUrl) ? (
-                        <img src={user.avatar || (user as any).avatarUrl} alt={user.displayName || 'User'} className="w-full h-full object-cover rounded-full" />
-                      ) : (
-                        <div className="w-full h-full rounded-full bg-blue-500 flex items-center justify-center">
-                          <span className="text-white font-semibold text-lg leading-none">{(user.displayName || user.username || user.email || 'U').charAt(0).toUpperCase()}</span>
-                        </div>
-                      )}
-                    </div>
+                <div className="relative w-[62px] h-[62px] flex items-center justify-center">
+                  {/* Spinning dashed story ring — only when story is active */}
+                  {hasActiveStory && (
+                    <svg
+                      className="absolute inset-0 w-[62px] h-[62px] animate-spin pointer-events-none"
+                      style={{ animationDuration: '12s' }}
+                      viewBox="0 0 62 62"
+                    >
+                      <circle
+                        cx="31"
+                        cy="31"
+                        r="29"
+                        fill="none"
+                        stroke="#f59e0b"
+                        strokeWidth="3"
+                        strokeDasharray="6 4"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  )}
+                  <div className="w-[54px] h-[54px] rounded-full overflow-hidden flex items-center justify-center" style={{aspectRatio: '1 / 1'}}>
+                    {(user.avatar || (user as any).avatarUrl) ? (
+                      <img src={user.avatar || (user as any).avatarUrl} alt={user.displayName || 'User'} className="w-full h-full object-cover rounded-full" />
+                    ) : (
+                      <div className="w-full h-full rounded-full bg-blue-500 flex items-center justify-center">
+                        <span className="text-white font-semibold text-lg leading-none">{(user.displayName || user.username || user.email || 'U').charAt(0).toUpperCase()}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="absolute -bottom-1 -right-1 w-[36px] h-[36px] bg-primary-500 rounded-full border-[2.5px] border-white dark:border-surface-900 flex items-center justify-center cursor-pointer z-10" onClick={(e) => { e.stopPropagation(); handleAddStory(e); }}>
