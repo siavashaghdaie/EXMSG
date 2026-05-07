@@ -489,13 +489,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Mobile: Profile row matching web view — avatar + name/email + icons */}
           {isMobile ? (
-            <div className="flex items-center gap-3 py-2 px-2">
+            <div className="flex items-center gap-3 py-1 px-2">
               {/* Owner avatar — perfect circle with story indicator + add badge */}
               <div className="relative flex-shrink-0 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleAddStory(e); }}>
-                <div className={`w-[52px] h-[52px] rounded-full p-[2px] ${hasActiveStory ? 'bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600' : 'bg-gray-200 dark:bg-surface-600'}`}>
+                <div className={`w-[62px] h-[62px] rounded-full p-[2px] ${hasActiveStory ? 'bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600' : 'bg-gray-200 dark:bg-surface-600'}`}>
                   <div className="w-full h-full rounded-full bg-white dark:bg-surface-900 p-[2px]">
-                    <div className="w-full h-full rounded-full overflow-hidden aspect-square">
-                      <Avatar src={user.avatar || (user as any).avatarUrl} name={user.displayName || user.username || user.email || 'User'} username={user.username || user.email || 'User'} size="lg" />
+                    <div className="w-full h-full rounded-full overflow-hidden flex items-center justify-center" style={{aspectRatio: '1 / 1'}}>
+                      {(user.avatar || (user as any).avatarUrl) ? (
+                        <img src={user.avatar || (user as any).avatarUrl} alt={user.displayName || 'User'} className="w-full h-full object-cover rounded-full" />
+                      ) : (
+                        <div className="w-full h-full rounded-full bg-blue-500 flex items-center justify-center">
+                          <span className="text-white font-semibold text-lg leading-none">{(user.displayName || user.username || user.email || 'U').charAt(0).toUpperCase()}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
