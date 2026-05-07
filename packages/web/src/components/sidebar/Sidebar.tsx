@@ -491,7 +491,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {isMobile ? (
             <div className="flex items-center gap-3 py-1 px-2">
               {/* Owner avatar — perfect circle with story indicator + add badge */}
-              <div className="relative flex-shrink-0 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleAddStory(e); }}>
+              <div className="relative flex-shrink-0 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleAvatarClick(); }}>
                 <div className={`w-[62px] h-[62px] rounded-full p-[2px] ${hasActiveStory ? 'bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600' : 'bg-gray-200 dark:bg-surface-600'}`}>
                   <div className="w-full h-full rounded-full bg-white dark:bg-surface-900 p-[2px]">
                     <div className="w-full h-full rounded-full overflow-hidden flex items-center justify-center" style={{aspectRatio: '1 / 1'}}>
@@ -505,8 +505,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </div>
                   </div>
                 </div>
-                <div className="absolute -bottom-0.5 -right-0.5 w-[18px] h-[18px] bg-primary-500 rounded-full border-[2px] border-white dark:border-surface-900 flex items-center justify-center">
-                  <Plus className="w-2.5 h-2.5 text-white" />
+                <div className="absolute -bottom-1 -right-1 w-[36px] h-[36px] bg-primary-500 rounded-full border-[2.5px] border-white dark:border-surface-900 flex items-center justify-center cursor-pointer z-10" onClick={(e) => { e.stopPropagation(); handleAddStory(e); }}>
+                  <Plus className="w-5 h-5 text-white" />
                 </div>
               </div>
 
