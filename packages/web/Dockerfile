@@ -8,8 +8,8 @@ WORKDIR /app
 # Copy entire monorepo
 COPY . .
 
-# Install dependencies
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+# Install dependencies (remove stale lock file to force fresh install)
+RUN rm -f package-lock.json && npm install
 
 # Build web application
 RUN npm run build --workspace=packages/web

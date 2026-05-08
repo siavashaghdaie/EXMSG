@@ -10,8 +10,8 @@ WORKDIR /app
 # Copy entire monorepo
 COPY . .
 
-# Install dependencies
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+# Install dependencies (remove stale lock file to force fresh install)
+RUN rm -f package-lock.json && npm install
 
 # Generate Prisma client for linux-musl-openssl-3.0.x (Alpine 3.18+)
 RUN npx prisma generate --schema=packages/backend/prisma/schema.prisma
