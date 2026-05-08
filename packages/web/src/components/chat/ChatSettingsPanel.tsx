@@ -16,6 +16,7 @@ interface ChatSettingsPanelProps {
   onNavigateToChat?: (conversationId: string) => void;
   onNavigateToAgents?: (agentSlug?: string) => void;
   onWallpaperChange?: (color: string | null) => void;
+  onTranslationChange?: (active: boolean) => void;
 }
 
 type MediaTab = 'media' | 'docs' | 'links';
@@ -61,7 +62,7 @@ const LANGUAGES = [
   'Norwegian', 'Ukrainian', 'Persian', 'Bengali', 'Urdu', 'Swahili',
 ];
 
-export default function ChatSettingsPanel({ conversationId, onClose, onNavigateToChat, onNavigateToAgents, onWallpaperChange }: ChatSettingsPanelProps) {
+export default function ChatSettingsPanel({ conversationId, onClose, onNavigateToChat, onNavigateToAgents, onWallpaperChange, onTranslationChange }: ChatSettingsPanelProps) {
   const [loading, setLoading] = useState(true);
   const [chatInfo, setChatInfo] = useState<any>(null);
   const [activeMediaTab, setActiveMediaTab] = useState<MediaTab>('media');
@@ -186,6 +187,8 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
           merged.translateMyFrom,
           merged.translateMyTo,
         );
+        // Notify parent so robot icon updates immediately
+        onTranslationChange?.(merged.autoTranslate === true && !!merged.translateLang);
       }
     } catch (err) {
       console.error('Failed to update setting:', err);

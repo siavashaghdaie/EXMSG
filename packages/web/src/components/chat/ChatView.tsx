@@ -1041,6 +1041,7 @@ export default function ChatView() {
           conversationId={conversationId}
           onClose={() => setShowChatSettings(false)}
           onWallpaperChange={(color) => setChatWallpaper(color)}
+          onTranslationChange={(active) => setTranslationActive(active)}
           onNavigateToChat={(id) => {
             setShowChatSettings(false);
             navigate(`/chat/${id}`);
