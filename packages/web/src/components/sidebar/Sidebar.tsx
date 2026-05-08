@@ -420,7 +420,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             ) : (
               <>
                 <h1 className="text-xl font-bold text-gray-900 dark:text-white">
-                  OMNILINK
+                  W3LINK
                 </h1>
                 <div className="flex items-center gap-1">
                   {isOrgAdmin && (

@@ -200,6 +200,8 @@ export default function AgentsPage({ onClose, isEmbedded = false, initialAgentSl
         }}
         onFire={async (agentId) => {
           await handleFire(agentId);
+          // Navigate back to agent list after firing so user can re-hire
+          setSelectedAgent(null);
         }}
         onBack={() => setSelectedAgent(null)}
       />
