@@ -254,6 +254,36 @@ export default function ChatSettingsScreen() {
             }
           />
           <SettingItem
+            icon="color-palette-outline"
+            label="Chat Wallpaper"
+            subtitle={settings.wallpaper ? 'Custom' : 'Default'}
+            colors={colors}
+            onPress={() => {
+              Alert.alert('Chat Wallpaper', 'Choose a wallpaper color', [
+                { text: 'Default', onPress: () => updateSetting('wallpaper', null) },
+                { text: 'Light Blue', onPress: () => updateSetting('wallpaper', '#E0F2FE') },
+                { text: 'Light Green', onPress: () => updateSetting('wallpaper', '#DCFCE7') },
+                { text: 'Light Purple', onPress: () => updateSetting('wallpaper', '#F3E8FF') },
+                { text: 'Light Pink', onPress: () => updateSetting('wallpaper', '#FCE7F3') },
+                { text: 'Cancel', style: 'cancel' },
+              ]);
+            }}
+          />
+          <SettingItem
+            icon="eye-off-outline"
+            label="One-time Media"
+            subtitle={settings.oneTimeMedia ? 'Enabled' : 'Disabled'}
+            colors={colors}
+            trailing={
+              <Switch
+                value={settings.oneTimeMedia}
+                onValueChange={(v) => updateSetting('oneTimeMedia', v)}
+                trackColor={{ false: '#ccc', true: colors.primary + '80' }}
+                thumbColor={settings.oneTimeMedia ? colors.primary : '#f4f3f4'}
+              />
+            }
+          />
+          <SettingItem
             icon="shield-checkmark-outline"
             label="Encryption"
             subtitle="Messages are encrypted in transit"

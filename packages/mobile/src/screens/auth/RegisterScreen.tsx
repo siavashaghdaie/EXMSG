@@ -111,7 +111,7 @@ export default function RegisterScreen({ navigation }: Props) {
           {/* Title */}
           <Text style={styles.title}>Create Account</Text>
           <Text style={styles.subtitle}>
-            Join OmniLink Messenger to get started
+            Join W3LINK Messenger to get started
           </Text>
 
           {/* Error */}

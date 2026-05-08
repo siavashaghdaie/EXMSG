@@ -12,6 +12,9 @@ import {
   Alert,
   Pressable,
   Image,
+  Modal,
+  Animated,
+  Clipboard,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -24,6 +27,8 @@ import { socket } from '@/services/socket';
 import { api } from '@/services/api';
 import { ChatStackParamList } from '@/navigation/ChatNavigator';
 import { callService } from '@/services/callService';
+import ForwardModal from '@/components/ForwardModal';
+import EmojiPicker from '@/components/EmojiPicker';
 
 type ChatRouteProp = RouteProp<ChatStackParamList, 'Chat'>;
 
@@ -100,6 +105,12 @@ export default function ChatScreen() {
     setReplyingTo,
     setActiveConversationId,
     typingIndicators,
+    pinnedMessages: allPinnedMessages,
+    fetchPinnedMessages,
+    pinMessage,
+    unpinMessage,
+    addReaction,
+    removeReaction,
   } = useChatStore();
 
   const onlineUsers = usePresenceStore((s) => s.onlineUsers);
@@ -110,6 +121,13 @@ export default function ChatScreen() {
   const [attachedFile, setAttachedFile] = useState<any>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [forwardModalVisible, setForwardModalVisible] = useState(false);
+  const [forwardMessageId, setForwardMessageId] = useState<string>('');
+  const [emojiPickerVisible, setEmojiPickerVisible] = useState(false);
+  const [emojiTargetMessageId, setEmojiTargetMessageId] = useState<string>('');
+  const [pinnedBannerIndex, setPinnedBannerIndex] = useState(0);
+  const [showAgentPanel, setShowAgentPanel] = useState(false);
+  const [hiredAgentsList, setHiredAgentsList] = useState<any[]>([]);
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -155,6 +173,8 @@ export default function ChatScreen() {
     setActiveConversationId(conversationId);
     if (!isLinda) {
       socket.joinConversation(conversationId);
+      // Fetch pinned messages for this conversation
+      fetchPinnedMessages(conversationId);
     }
     if (isLinda) {
       useChatStore.setState({ isLoadingMessages: true });
@@ -170,6 +190,29 @@ export default function ChatScreen() {
       setActiveConversationId(null);
     };
   }, [conversationId, isLinda]);
+
+  // Get pinned messages for this conversation
+  const pinnedMessages = allPinnedMessages.get(conversationId) || [];
+  const currentPin = pinnedMessages.length > 0 ? pinnedMessages[pinnedBannerIndex % pinnedMessages.length] : null;
+
+  // Load hired agents to check for robot icon
+  useEffect(() => {
+    if (!isLinda) {
+      api.getHiredAgents().then((agents) => {
+        setHiredAgentsList(agents || []);
+      }).catch(() => {});
+    }
+  }, [isLinda]);
+
+  // Check if any agents are active in this conversation
+  const allConversations = useChatStore((s) => s.conversations);
+  const convData = allConversations.find((c: any) => c.id === conversationId);
+  const agentParticipants = useMemo(() => {
+    if (!convData) return [];
+    const participants = (convData as any).participants || (convData as any).members || [];
+    return participants.filter((p: any) => p.isAgent || p.role === 'agent');
+  }, [convData]);
+  const hasActiveAgentsInChat = agentParticipants.length > 0 || hiredAgentsList.length > 0;
 
   // Typing indicator logic (not for Linda conversations)
   const handleTextChange = (text: string) => {
@@ -399,29 +442,71 @@ export default function ChatScreen() {
     setInputText(suggestion);
   };
 
-  const handleLongPress = (msg: any) => {
-    // For Linda conversations, only allow reply (no edit/delete on Linda messages)
-    if (isLinda) {
-      if (msg.senderId === currentUser?.id) {
-        Alert.alert('Message Options', undefined, [
-          {
-            text: 'Reply',
-            onPress: () => {
-              setReplyingTo({
-                messageId: msg.id,
-                content: msg.content || '',
-                senderName: 'You',
-              });
-            },
-          },
-          { text: 'Cancel', style: 'cancel' },
-        ]);
-      }
-      return;
-    }
+  // Check if a message is pinned
+  const isMessagePinned = useCallback((messageId: string) => {
+    return pinnedMessages.some((p: any) => p.id === messageId);
+  }, [pinnedMessages]);
 
-    if (msg.senderId !== currentUser?.id) {
-      // Allow reply on other people's messages too
+  // Handle pin/unpin
+  const handleTogglePin = useCallback(async (msg: any) => {
+    try {
+      if (isMessagePinned(msg.id)) {
+        await unpinMessage(conversationId, msg.id);
+      } else {
+        await pinMessage(conversationId, msg.id);
+      }
+    } catch (err) {
+      Alert.alert('Error', 'Failed to update pin');
+    }
+  }, [conversationId, isMessagePinned, pinMessage, unpinMessage]);
+
+  // Handle star/unstar
+  const handleToggleStar = useCallback(async (msg: any) => {
+    try {
+      if (msg.isStarred) {
+        await api.unstarMessage(conversationId, msg.id);
+      } else {
+        await api.starMessage(conversationId, msg.id);
+      }
+    } catch (err) {
+      Alert.alert('Error', 'Failed to update star');
+    }
+  }, [conversationId]);
+
+  // Handle forward
+  const handleForward = useCallback((msg: any) => {
+    setForwardMessageId(msg.id);
+    setForwardModalVisible(true);
+  }, []);
+
+  // Handle emoji reaction from quick bar or picker
+  const handleReaction = useCallback(async (messageId: string, emoji: string) => {
+    try {
+      await addReaction(conversationId, messageId, emoji);
+    } catch (err) {
+      console.error('[ChatScreen] Reaction error:', err);
+    }
+    setEmojiPickerVisible(false);
+    setEmojiTargetMessageId('');
+  }, [conversationId, addReaction]);
+
+  // Open emoji picker for a specific message
+  const handleOpenEmojiPicker = useCallback((messageId: string) => {
+    setEmojiTargetMessageId(messageId);
+    setEmojiPickerVisible(true);
+  }, []);
+
+  // Copy message text
+  const handleCopyMessage = useCallback((msg: any) => {
+    if (msg.content) {
+      Clipboard.setString(msg.content);
+      Alert.alert('Copied', 'Message copied to clipboard');
+    }
+  }, []);
+
+  const handleLongPress = (msg: any) => {
+    // For Linda conversations, only allow reply and copy
+    if (isLinda) {
       Alert.alert('Message Options', undefined, [
         {
           text: 'Reply',
@@ -429,24 +514,58 @@ export default function ChatScreen() {
             setReplyingTo({
               messageId: msg.id,
               content: msg.content || '',
-              senderName: msg.sender?.displayName || 'Unknown',
+              senderName: msg.senderId === currentUser?.id ? 'You' : 'Linda',
             });
           },
         },
+        { text: 'Copy', onPress: () => handleCopyMessage(msg) },
         { text: 'Cancel', style: 'cancel' },
       ]);
       return;
     }
 
-    Alert.alert('Message Options', undefined, [
+    const isOwn = msg.senderId === currentUser?.id;
+    const pinned = isMessagePinned(msg.id);
+
+    const options: any[] = [
       {
+        text: 'React',
+        onPress: () => handleOpenEmojiPicker(msg.id),
+      },
+      {
+        text: 'Reply',
+        onPress: () => {
+          setReplyingTo({
+            messageId: msg.id,
+            content: msg.content || '',
+            senderName: isOwn ? 'You' : (msg.sender?.displayName || 'Unknown'),
+          });
+        },
+      },
+      {
+        text: pinned ? 'Unpin' : 'Pin',
+        onPress: () => handleTogglePin(msg),
+      },
+      {
+        text: msg.isStarred ? 'Unstar' : 'Star',
+        onPress: () => handleToggleStar(msg),
+      },
+      {
+        text: 'Forward',
+        onPress: () => handleForward(msg),
+      },
+      { text: 'Copy', onPress: () => handleCopyMessage(msg) },
+    ];
+
+    if (isOwn) {
+      options.push({
         text: 'Edit',
         onPress: () => {
           setEditingMessageId(msg.id);
           setInputText(msg.content || '');
         },
-      },
-      {
+      });
+      options.push({
         text: 'Delete',
         style: 'destructive',
         onPress: () => {
@@ -459,19 +578,11 @@ export default function ChatScreen() {
             },
           ]);
         },
-      },
-      {
-        text: 'Reply',
-        onPress: () => {
-          setReplyingTo({
-            messageId: msg.id,
-            content: msg.content || '',
-            senderName: msg.sender?.displayName || 'Unknown',
-          });
-        },
-      },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+      });
+    }
+
+    options.push({ text: 'Cancel', style: 'cancel' });
+    Alert.alert('Message Options', undefined, options);
   };
 
   // Typing indicator display
@@ -560,14 +671,60 @@ export default function ChatScreen() {
                 </View>
               )}
 
-              {/* Reactions */}
-              {item.reactions && item.reactions.length > 0 && (
-                <View style={styles.reactionsRow}>
-                  {item.reactions.map((r: any, i: number) => (
-                    <Text key={i} style={styles.reactionEmoji}>{r.emoji}</Text>
-                  ))}
-                </View>
-              )}
+              {/* Reactions — interactive, grouped by emoji */}
+              {item.reactions && item.reactions.length > 0 && (() => {
+                // Group reactions by emoji
+                const groups: { emoji: string; count: number; userReacted: boolean }[] = [];
+                const emojiMap = new Map<string, { count: number; users: string[] }>();
+                item.reactions.forEach((r: any) => {
+                  const existing = emojiMap.get(r.emoji);
+                  if (existing) {
+                    existing.count++;
+                    existing.users.push(r.userId);
+                  } else {
+                    emojiMap.set(r.emoji, { count: 1, users: [r.userId] });
+                  }
+                });
+                emojiMap.forEach((val, emoji) => {
+                  groups.push({
+                    emoji,
+                    count: val.count,
+                    userReacted: val.users.includes(currentUser?.id || ''),
+                  });
+                });
+                return (
+                  <View style={styles.reactionsRow}>
+                    {groups.map((g, i) => (
+                      <TouchableOpacity
+                        key={`${g.emoji}-${i}`}
+                        style={[
+                          styles.reactionBadge,
+                          g.userReacted && styles.reactionBadgeActive,
+                        ]}
+                        onPress={() => {
+                          if (g.userReacted) {
+                            removeReaction(conversationId, item.id, g.emoji);
+                          } else {
+                            addReaction(conversationId, item.id, g.emoji);
+                          }
+                        }}
+                      >
+                        <Text style={styles.reactionEmoji}>{g.emoji}</Text>
+                        <Text style={[
+                          styles.reactionCount,
+                          g.userReacted && styles.reactionCountActive,
+                        ]}>{g.count}</Text>
+                      </TouchableOpacity>
+                    ))}
+                    <TouchableOpacity
+                      style={styles.reactionAddBtn}
+                      onPress={() => handleOpenEmojiPicker(item.id)}
+                    >
+                      <Text style={styles.reactionAddIcon}>+</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })()}
             </>
           )}
 
@@ -603,29 +760,28 @@ export default function ChatScreen() {
   };
 
   // Find the other user in DM conversations for online status
-  const conversations = useChatStore((s) => s.conversations);
   const lastSeenMap = usePresenceStore((s) => s.lastSeen);
   const otherUserId = useMemo(() => {
     if (isLinda || !currentUser) return null;
-    const conv = conversations.find((c: any) => c.id === conversationId);
+    const conv = allConversations.find((c: any) => c.id === conversationId);
     if (!conv) return null;
     const participants = (conv as any).participants || (conv as any).members || [];
     if (participants.length !== 2) return null; // group chat
     const other = participants.find((p: any) => p.id !== currentUser.id);
     return other?.id || null;
-  }, [conversations, conversationId, currentUser, isLinda]);
+  }, [allConversations, conversationId, currentUser, isLinda]);
 
   const isOtherOnline = otherUserId ? onlineUsers.has(otherUserId) : false;
 
   // Get other user details for call initiation
   const otherUser = useMemo(() => {
     if (isLinda || !currentUser) return null;
-    const conv = conversations.find((c: any) => c.id === conversationId);
+    const conv = allConversations.find((c: any) => c.id === conversationId);
     if (!conv) return null;
     const participants = (conv as any).participants || (conv as any).members || [];
     if (participants.length !== 2) return null;
     return participants.find((p: any) => p.id !== currentUser.id) || null;
-  }, [conversations, conversationId, currentUser, isLinda]);
+  }, [allConversations, conversationId, currentUser, isLinda]);
 
   const handleCall = (callType: 'audio' | 'video') => {
     if (!otherUser) return;
@@ -705,6 +861,17 @@ export default function ChatScreen() {
           {getHeaderSubtitle()}
         </TouchableOpacity>
 
+        {/* Agent robot button */}
+        {hasActiveAgentsInChat && !isLinda && (
+          <TouchableOpacity
+            style={[styles.headerCallBtn, showAgentPanel && styles.headerCallBtnActive]}
+            onPress={() => setShowAgentPanel(!showAgentPanel)}
+            activeOpacity={0.6}
+          >
+            <Text style={styles.headerCallIcon}>{'🤖'}</Text>
+          </TouchableOpacity>
+        )}
+
         {/* Call buttons — only for DM chats (not Linda, not group) */}
         {otherUser && !isLinda && (
           <View style={styles.headerCallButtons}>
@@ -725,6 +892,90 @@ export default function ChatScreen() {
           </View>
         )}
       </View>
+
+      {/* Agent Panel */}
+      {showAgentPanel && (
+        <View style={styles.agentPanel}>
+          <View style={styles.agentPanelHeader}>
+            <Text style={styles.agentPanelTitle}>{'🤖'} Active Agents</Text>
+            <TouchableOpacity onPress={() => setShowAgentPanel(false)}>
+              <Text style={styles.agentPanelClose}>{'✕'}</Text>
+            </TouchableOpacity>
+          </View>
+          {hiredAgentsList.length === 0 ? (
+            <Text style={styles.agentPanelEmpty}>No agents hired yet</Text>
+          ) : (
+            hiredAgentsList.map((ha: any) => (
+              <View key={ha.id} style={styles.agentPanelItem}>
+                <View style={[styles.agentPanelIcon, { backgroundColor: '#7C3AED' }]}>
+                  <Text style={styles.agentPanelIconText}>
+                    {(ha.agent?.name || ha.name || 'AI').charAt(0)}
+                  </Text>
+                </View>
+                <View style={styles.agentPanelInfo}>
+                  <Text style={styles.agentPanelName}>{ha.agent?.displayName || ha.agent?.name || ha.name}</Text>
+                  <Text style={styles.agentPanelStatus}>
+                    {ha.isEnabled !== false ? 'Active' : 'Paused'}
+                  </Text>
+                </View>
+                <View style={[
+                  styles.agentPanelDot,
+                  { backgroundColor: ha.isEnabled !== false ? COLORS.green : COLORS.muted },
+                ]} />
+              </View>
+            ))
+          )}
+        </View>
+      )}
+
+      {/* Pinned message banner */}
+      {currentPin && !isLinda && (
+        <TouchableOpacity
+          style={styles.pinnedBanner}
+          onPress={() => {
+            // Cycle through pinned messages
+            if (pinnedMessages.length > 1) {
+              setPinnedBannerIndex((prev) => (prev + 1) % pinnedMessages.length);
+            }
+          }}
+          activeOpacity={0.7}
+        >
+          <View style={styles.pinnedIconContainer}>
+            <Text style={styles.pinnedIcon}>{'📌'}</Text>
+          </View>
+          <View style={styles.pinnedContent}>
+            <Text style={styles.pinnedSender} numberOfLines={1}>
+              {currentPin.sender?.displayName || 'Unknown'}
+            </Text>
+            <Text style={styles.pinnedText} numberOfLines={1}>
+              {currentPin.content || 'Attachment'}
+            </Text>
+          </View>
+          {pinnedMessages.length > 1 && (
+            <View style={styles.pinnedDots}>
+              {pinnedMessages.map((_: any, i: number) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.pinnedDot,
+                    i === pinnedBannerIndex % pinnedMessages.length && styles.pinnedDotActive,
+                  ]}
+                />
+              ))}
+            </View>
+          )}
+          <TouchableOpacity
+            style={styles.pinnedClose}
+            onPress={() => {
+              if (currentPin) {
+                unpinMessage(conversationId, currentPin.id);
+              }
+            }}
+          >
+            <Text style={styles.pinnedCloseText}>{'✕'}</Text>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      )}
 
       <KeyboardAvoidingView
         style={styles.flex}
@@ -898,6 +1149,20 @@ export default function ChatScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Forward modal */}
+      <ForwardModal
+        visible={forwardModalVisible}
+        messageId={forwardMessageId}
+        onClose={() => setForwardModalVisible(false)}
+      />
+
+      {/* Emoji picker */}
+      <EmojiPicker
+        visible={emojiPickerVisible}
+        onSelect={(emoji) => handleReaction(emojiTargetMessageId, emoji)}
+        onClose={() => { setEmojiPickerVisible(false); setEmojiTargetMessageId(''); }}
+      />
     </SafeAreaView>
   );
 }
@@ -944,7 +1209,44 @@ const styles = StyleSheet.create({
   headerStatusLinda: { fontSize: 12, color: COLORS.lindaPurple },
   headerCallButtons: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 8 },
   headerCallBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: COLORS.inputBg, justifyContent: 'center', alignItems: 'center' },
+  headerCallBtnActive: { backgroundColor: '#EDE9FE' },
   headerCallIcon: { fontSize: 18 },
+
+  // Agent panel
+  agentPanel: {
+    backgroundColor: '#F5F0FF',
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  agentPanelHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  agentPanelTitle: { fontSize: 14, fontWeight: '700', color: COLORS.primary },
+  agentPanelClose: { fontSize: 16, color: COLORS.muted, padding: 4 },
+  agentPanelEmpty: { fontSize: 13, color: COLORS.muted, textAlign: 'center', paddingVertical: 8 },
+  agentPanelItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    gap: 10,
+  },
+  agentPanelIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  agentPanelIconText: { color: COLORS.white, fontSize: 14, fontWeight: '700' },
+  agentPanelInfo: { flex: 1 },
+  agentPanelName: { fontSize: 14, fontWeight: '600', color: COLORS.text },
+  agentPanelStatus: { fontSize: 11, color: COLORS.muted },
+  agentPanelDot: { width: 8, height: 8, borderRadius: 4 },
   headerTyping: { fontSize: 12, color: COLORS.green, fontStyle: 'italic' },
 
   // Messages list
@@ -1074,9 +1376,55 @@ const styles = StyleSheet.create({
   attachmentIcon: { fontSize: 16, marginRight: 6 },
   attachmentName: { fontSize: 12, color: COLORS.secondary, flex: 1 },
 
+  // Pinned banner
+  pinnedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0EAFF',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  pinnedIconContainer: { marginRight: 8 },
+  pinnedIcon: { fontSize: 16 },
+  pinnedContent: { flex: 1 },
+  pinnedSender: { fontSize: 12, fontWeight: '600', color: COLORS.primary },
+  pinnedText: { fontSize: 13, color: COLORS.secondary },
+  pinnedDots: { flexDirection: 'row', gap: 3, marginRight: 8 },
+  pinnedDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: COLORS.muted },
+  pinnedDotActive: { backgroundColor: COLORS.primary },
+  pinnedClose: { padding: 4 },
+  pinnedCloseText: { fontSize: 14, color: COLORS.muted },
+
   // Reactions
-  reactionsRow: { flexDirection: 'row', marginTop: 4, gap: 2 },
-  reactionEmoji: { fontSize: 16 },
+  reactionsRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4, gap: 4 },
+  reactionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    gap: 2,
+  },
+  reactionBadgeActive: {
+    backgroundColor: '#EDE9FE',
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+  },
+  reactionEmoji: { fontSize: 14 },
+  reactionCount: { fontSize: 11, color: COLORS.secondary, fontWeight: '500' },
+  reactionCountActive: { color: COLORS.primary },
+  reactionAddBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reactionAddIcon: { fontSize: 14, color: COLORS.muted, fontWeight: '600' },
 
   // Message footer
   messageFooter: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4 },

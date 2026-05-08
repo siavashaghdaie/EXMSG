@@ -86,7 +86,7 @@ function formatLastSeen(dateStr: string | undefined): string {
   return `Last seen ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
 }
 
-type ConvCategory = 'all' | 'dms' | 'tasks' | 'projects' | 'groups';
+type ConvCategory = 'all' | 'favorites' | 'dms' | 'tasks' | 'projects' | 'groups';
 
 interface ConversationItemData {
   id: string;
@@ -106,6 +106,7 @@ interface ConversationItemData {
   category: ConvCategory;
   isTaskChat: boolean;
   isProjectChat: boolean;
+  isFavorite: boolean;
 }
 
 export default function ConversationListScreen() {
@@ -286,6 +287,7 @@ export default function ConversationListScreen() {
         category,
         isTaskChat,
         isProjectChat,
+        isFavorite: !!conv.isFavorite,
       };
     });
   }, [conversations, currentUser, typingIndicators, unreadCounts, onlineUsers, lastSeenMap]);
@@ -293,7 +295,9 @@ export default function ConversationListScreen() {
   const filtered = useMemo(() => {
     let items = conversationItems;
     // Apply tab filter
-    if (activeTab !== 'all') {
+    if (activeTab === 'favorites') {
+      items = items.filter((c) => c.isFavorite);
+    } else if (activeTab !== 'all') {
       items = items.filter((c) => c.category === activeTab);
     }
     if (!searchQuery.trim()) return items;
@@ -444,9 +448,9 @@ export default function ConversationListScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        {/* Top row: OMNILINK logo + bell */}
+        {/* Top row: W3LINK logo + bell */}
         <View style={styles.headerButtonsRow}>
-          <Text style={styles.headerTitle}>OMNILINK</Text>
+          <Text style={styles.headerTitle}>W3LINK</Text>
           <View style={styles.headerButtons}>
             {/* Announcements bell */}
             <TouchableOpacity
@@ -516,6 +520,7 @@ export default function ConversationListScreen() {
       <View style={styles.tabsContainer}>
         {([
           { key: 'all' as ConvCategory, label: 'All' },
+          { key: 'favorites' as ConvCategory, label: '★ Favs' },
           { key: 'dms' as ConvCategory, label: 'DMs' },
           { key: 'tasks' as ConvCategory, label: 'Tasks' },
           { key: 'projects' as ConvCategory, label: 'Projects' },

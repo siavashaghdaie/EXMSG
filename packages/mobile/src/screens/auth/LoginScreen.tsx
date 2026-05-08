@@ -85,9 +85,9 @@ export default function LoginScreen({ navigation }: Props) {
           {/* Logo Area */}
           <View style={styles.logoContainer}>
             <View style={styles.logoCircle}>
-              <Text style={styles.logoLetter}>O</Text>
+              <Text style={styles.logoLetter}>W</Text>
             </View>
-            <Text style={styles.appName}>OmniLink Messenger</Text>
+            <Text style={styles.appName}>W3LINK Messenger</Text>
           </View>
 
           {/* Verified Banner */}

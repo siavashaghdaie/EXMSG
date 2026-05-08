@@ -882,6 +882,37 @@ class APIClient {
     return response.data;
   }
 
+  // ─── Agent Marketplace ──────────────────────────────────────────────────
+
+  async getAgentCatalog(): Promise<any[]> {
+    const res = await this.client.get('/agents/catalog');
+    return res.data;
+  }
+
+  async getHiredAgents(): Promise<any[]> {
+    const res = await this.client.get('/agents/hired');
+    return res.data;
+  }
+
+  async hireAgent(agentId: string): Promise<any> {
+    const res = await this.client.post(`/agents/${agentId}/hire`);
+    return res.data;
+  }
+
+  async fireAgent(agentId: string): Promise<void> {
+    await this.client.delete(`/agents/${agentId}/fire`);
+  }
+
+  async updateAgentSettings(agentId: string, data: { isEnabled?: boolean; settings?: any }): Promise<any> {
+    const res = await this.client.patch(`/agents/${agentId}/settings`, data);
+    return res.data;
+  }
+
+  async addMemberToConversation(conversationId: string, userId: string): Promise<any> {
+    const res = await this.client.post(`/conversations/${conversationId}/members`, { userId });
+    return res.data;
+  }
+
   // ─── Linda AI Secretary API ─────────────────────────────────────────────
 
   async chatWithLinda(

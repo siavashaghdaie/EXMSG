@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -124,12 +124,49 @@ export default function AgentsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   const [enabledAgents, setEnabledAgents] = useState<Set<string>>(new Set(['linda']));
+  const [hiredAgents, setHiredAgents] = useState<any[]>([]);
+  const [catalogAgents, setCatalogAgents] = useState<AgentDef[]>(AGENTS);
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [tuningAgent, setTuningAgent] = useState<string | null>(null);
   const [agentSettings, setAgentSettings] = useState<Record<string, TuningSettings>>({});
+  const [hiringLoading, setHiringLoading] = useState<string | null>(null);
+
+  // Load hired agents from backend
+  useEffect(() => {
+    loadAgentData();
+  }, []);
+
+  const loadAgentData = useCallback(async () => {
+    try {
+      const [catalog, hired] = await Promise.all([
+        api.getAgentCatalog().catch(() => []),
+        api.getHiredAgents().catch(() => []),
+      ]);
+      if (catalog && catalog.length > 0) {
+        // Merge backend catalog with local defaults
+        const merged = catalog.map((a: any) => ({
+          id: a.id,
+          name: a.name || a.displayName,
+          description: a.description,
+          category: a.category || 'Productivity',
+          icon: a.avatar || AGENTS.find((d) => d.id === a.id)?.icon || 'AI',
+          iconBg: AGENTS.find((d) => d.id === a.id)?.iconBg || '#7C3AED',
+          capabilities: a.capabilities || a.features || [],
+          status: a.id === 'linda' ? 'mandatory' as const : undefined,
+        }));
+        setCatalogAgents(merged.length > 0 ? merged : AGENTS);
+      }
+      setHiredAgents(hired || []);
+      const hiredIds = new Set((hired || []).map((h: any) => h.agentId || h.id));
+      hiredIds.add('linda'); // Linda always active
+      setEnabledAgents(hiredIds);
+    } catch (err) {
+      console.error('[AgentsScreen] Failed to load agents:', err);
+    }
+  }, []);
 
   const filteredAgents = useMemo(() => {
-    let result = AGENTS;
+    let result = catalogAgents;
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -146,21 +183,37 @@ export default function AgentsScreen() {
     }
 
     return result;
-  }, [searchQuery, activeCategory]);
+  }, [searchQuery, activeCategory, catalogAgents]);
 
-  const handleToggleAgent = useCallback((agentId: string) => {
-    if (agentId === 'linda') return; // Linda is mandatory
-    setEnabledAgents((prev) => {
-      const next = new Set(prev);
-      if (next.has(agentId)) {
-        next.delete(agentId);
+  const handleToggleAgent = useCallback(async (agentId: string) => {
+    if (agentId === 'linda') return;
+    const isCurrentlyEnabled = enabledAgents.has(agentId);
+    setHiringLoading(agentId);
+    try {
+      if (isCurrentlyEnabled) {
+        await api.fireAgent(agentId);
+        setEnabledAgents((prev) => {
+          const next = new Set(prev);
+          next.delete(agentId);
+          return next;
+        });
+        setHiredAgents((prev) => prev.filter((h: any) => (h.agentId || h.id) !== agentId));
         setTuningAgent((t) => (t === agentId ? null : t));
       } else {
-        next.add(agentId);
+        const result = await api.hireAgent(agentId);
+        setEnabledAgents((prev) => {
+          const next = new Set(prev);
+          next.add(agentId);
+          return next;
+        });
+        setHiredAgents((prev) => [...prev, result]);
       }
-      return next;
-    });
-  }, []);
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.message || 'Failed to update agent');
+    } finally {
+      setHiringLoading(null);
+    }
+  }, [enabledAgents]);
 
   const handleExpandToggle = useCallback((agentId: string) => {
     setExpandedAgent((prev) => (prev === agentId ? null : agentId));
@@ -351,20 +404,52 @@ export default function AgentsScreen() {
                         )}
                       </TouchableOpacity>
                     ) : isEnabled ? (
-                      <TouchableOpacity
-                        style={styles.actionButton}
-                        onPress={() => Alert.alert('Add to Conversation', 'Select a conversation to add this agent.')}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={styles.actionButtonText}>Add to Conversation</Text>
-                      </TouchableOpacity>
+                      <View style={styles.agentActionRow}>
+                        <TouchableOpacity
+                          style={[styles.actionButton, { flex: 1 }]}
+                          onPress={() => Alert.alert('Add to Conversation', 'Select a conversation to add this agent.')}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.actionButtonText}>Add to Chat</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.actionButton, styles.actionButtonDanger, { flex: 1 }]}
+                          onPress={() => {
+                            Alert.alert(
+                              'Remove Agent',
+                              `Are you sure you want to remove ${agent.name} from your team?`,
+                              [
+                                { text: 'Cancel', style: 'cancel' },
+                                {
+                                  text: 'Remove',
+                                  style: 'destructive',
+                                  onPress: () => handleToggleAgent(agent.id),
+                                },
+                              ]
+                            );
+                          }}
+                          disabled={hiringLoading === agent.id}
+                          activeOpacity={0.7}
+                        >
+                          {hiringLoading === agent.id ? (
+                            <ActivityIndicator size="small" color={COLORS.white} />
+                          ) : (
+                            <Text style={styles.actionButtonText}>Remove</Text>
+                          )}
+                        </TouchableOpacity>
+                      </View>
                     ) : (
                       <TouchableOpacity
                         style={[styles.actionButton, styles.actionButtonOutline]}
                         onPress={() => handleToggleAgent(agent.id)}
+                        disabled={hiringLoading === agent.id}
                         activeOpacity={0.7}
                       >
-                        <Text style={[styles.actionButtonText, styles.actionButtonTextOutline]}>Enable Agent</Text>
+                        {hiringLoading === agent.id ? (
+                          <ActivityIndicator size="small" color={COLORS.primary} />
+                        ) : (
+                          <Text style={[styles.actionButtonText, styles.actionButtonTextOutline]}>Hire Agent</Text>
+                        )}
                       </TouchableOpacity>
                     )}
                   </View>
@@ -639,6 +724,9 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: COLORS.primary,
   },
+  actionButtonDanger: {
+    backgroundColor: COLORS.red,
+  },
   actionButtonText: {
     color: COLORS.white,
     fontSize: 14,
@@ -646,6 +734,10 @@ const styles = StyleSheet.create({
   },
   actionButtonTextOutline: {
     color: COLORS.primary,
+  },
+  agentActionRow: {
+    flexDirection: 'row',
+    gap: 8,
   },
 
   // Tuning panel
