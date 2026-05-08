@@ -5,6 +5,7 @@ import { env } from '../../config/env';
 import { emitToConversation, getIO, registerLindaBotUserId } from '../../services/socket';
 import { processFile, buildClaudeContentForFile, isMultimodalContent } from './fileProcessor';
 import { getLindaBotUserId as getSharedLindaBotUserId } from '../../services/lindaNotify';
+import { searchWeb, formatSearchResultsForPrompt } from './webSearch';
 
 // Type-safe accessors for new Prisma models (available after running `npx prisma generate`)
 const db = prisma as any;
@@ -27,6 +28,7 @@ function stripActionBlocks(text: string): string {
     .replace(/\[CREATE_FILE\][\s\S]*?\[\/CREATE_FILE\]/gi, '')
     .replace(/\[SEND_FILE\][\s\S]*?\[\/SEND_FILE\]/gi, '')
     .replace(/\[POST_STORY\][\s\S]*?\[\/POST_STORY\]/gi, '')
+    .replace(/\[SEARCH_WEB\][\s\S]*?\[\/SEARCH_WEB\]/gi, '')
     .trim();
 }
 
@@ -303,15 +305,53 @@ export class LindaController {
       const isDownloadReq = /\b(download|docx|pdf|\.doc|\.pdf)\b/i.test(message);
       const chatMaxTokens = (isFileGenRequest || isDownloadReq) ? 4096 : 2048;
 
-      const response = await client.messages.create({
+      let response = await client.messages.create({
         model: 'claude-sonnet-4-6',
         max_tokens: chatMaxTokens,
         system: systemPrompt,
         messages: messagesForApi,
       });
 
-      const textBlock = response.content.find((block: { type: string }) => block.type === 'text') as { type: 'text'; text: string } | undefined;
-      const rawResponseText = textBlock ? textBlock.text : 'Sorry, I could not process that. Please try again.';
+      let textBlock = response.content.find((block: { type: string }) => block.type === 'text') as { type: 'text'; text: string } | undefined;
+      let rawResponseText = textBlock ? textBlock.text : 'Sorry, I could not process that. Please try again.';
+
+      // Check for [SEARCH_WEB] action blocks — if found, execute search and re-query
+      const searchRegex = /\[SEARCH_WEB\]\s*query:\s*(.*?)\s*\[\/SEARCH_WEB\]/gi;
+      const searchMatches: string[] = [];
+      let searchMatch;
+      while ((searchMatch = searchRegex.exec(rawResponseText)) !== null) {
+        searchMatches.push(searchMatch[1].trim());
+      }
+
+      if (searchMatches.length > 0) {
+        console.log(`[Linda] Executing ${searchMatches.length} web search(es):`, searchMatches);
+
+        // Execute all searches in parallel
+        const searchResults = await Promise.all(
+          searchMatches.map(q => searchWeb(q))
+        );
+
+        // Format search results into context
+        const searchContext = searchResults
+          .map(sr => formatSearchResultsForPrompt(sr))
+          .join('\n\n');
+
+        // Add the search results as a follow-up user message and re-query
+        const searchFollowUp = messagesForApi.concat([
+          { role: 'assistant' as const, content: rawResponseText },
+          { role: 'user' as const, content: `Here are the web search results you requested:\n\n${searchContext}\n\nNow please use these search results to answer the original question. Cite sources with their URLs when relevant. Do NOT include any more [SEARCH_WEB] blocks in your response.` },
+        ]);
+
+        const followUpResponse = await client.messages.create({
+          model: 'claude-sonnet-4-6',
+          max_tokens: chatMaxTokens,
+          system: systemPrompt,
+          messages: searchFollowUp,
+        });
+
+        textBlock = followUpResponse.content.find((block: { type: string }) => block.type === 'text') as { type: 'text'; text: string } | undefined;
+        rawResponseText = textBlock ? textBlock.text : rawResponseText;
+      }
 
       // Execute any action blocks (send messages, etc.)
       const actions = await this.executeActions(rawResponseText, userId);
@@ -457,15 +497,44 @@ export class LindaController {
         content: claudeContent,
       });
 
-      const response = await client.messages.create({
+      let fileResponse = await client.messages.create({
         model: 'claude-sonnet-4-6',
         max_tokens: 2048,
         system: systemPrompt,
         messages: messagesForApi,
       });
 
-      const textBlock = response.content.find((block: { type: string }) => block.type === 'text') as { type: 'text'; text: string } | undefined;
-      responseText = textBlock ? textBlock.text : 'I received your file but could not generate a response.';
+      let fileTextBlock = fileResponse.content.find((block: { type: string }) => block.type === 'text') as { type: 'text'; text: string } | undefined;
+      responseText = fileTextBlock ? fileTextBlock.text : 'I received your file but could not generate a response.';
+
+      // Check for [SEARCH_WEB] action blocks — if found, execute search and re-query
+      const fileSearchRegex = /\[SEARCH_WEB\]\s*query:\s*(.*?)\s*\[\/SEARCH_WEB\]/gi;
+      const fileSearchMatches: string[] = [];
+      let fileSearchMatch;
+      while ((fileSearchMatch = fileSearchRegex.exec(responseText)) !== null) {
+        fileSearchMatches.push(fileSearchMatch[1].trim());
+      }
+
+      if (fileSearchMatches.length > 0) {
+        console.log(`[Linda] File chat: executing ${fileSearchMatches.length} web search(es):`, fileSearchMatches);
+        const fileSearchResults = await Promise.all(fileSearchMatches.map(q => searchWeb(q)));
+        const fileSearchContext = fileSearchResults.map(sr => formatSearchResultsForPrompt(sr)).join('\n\n');
+
+        const fileSearchFollowUp = messagesForApi.concat([
+          { role: 'assistant' as const, content: responseText },
+          { role: 'user' as const, content: `Here are the web search results you requested:\n\n${fileSearchContext}\n\nNow please use these search results to answer the original question. Cite sources with their URLs when relevant. Do NOT include any more [SEARCH_WEB] blocks in your response.` },
+        ]);
+
+        const fileFollowUpResponse = await client.messages.create({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 2048,
+          system: systemPrompt,
+          messages: fileSearchFollowUp,
+        });
+
+        fileTextBlock = fileFollowUpResponse.content.find((block: { type: string }) => block.type === 'text') as { type: 'text'; text: string } | undefined;
+        responseText = fileTextBlock ? fileTextBlock.text : responseText;
+      }
 
       // Clean up uploaded file
       try { const fs = await import('fs'); fs.unlinkSync(file.path); } catch {}
@@ -2276,6 +2345,25 @@ Rules for file forwarding:
 - If the user asks you to send/forward a file and you can see it in your recent files list, use [SEND_FILE]
 - If you can't find the file in the recent files list, ask the user to share it with you again
 
+WEB SEARCH:
+You CAN search the internet to find up-to-date information. When the user asks about current events, news, prices, facts you're unsure about, weather, stocks, or anything that requires real-time data, use the [SEARCH_WEB] block.
+
+Format:
+[SEARCH_WEB]
+query: your google search query here
+[/SEARCH_WEB]
+
+Rules for web search:
+- Use this when the user asks for current/recent information you don't have
+- Use this when asked to research a topic, find news, look up a company, check prices, etc.
+- Write clear, specific search queries (like you'd type into Google)
+- You can include multiple [SEARCH_WEB] blocks if you need different searches
+- After you output [SEARCH_WEB], the system will execute the search and provide you with the results. You will then receive the search results and should use them to compose your final answer.
+- ALWAYS cite sources by mentioning the source name and URL when using search results
+- If the user asks "can you search the web?" or similar, confirm that yes, you can search the internet
+- Do NOT search for things you already know well (basic facts, common knowledge)
+- DO search for: current events, recent news, specific company/product info, prices, statistics, research papers, technical documentation
+
 PROJECT MANAGEMENT:
 - You have full visibility into all projects the user belongs to (see workspace context below)
 - When asked about projects, report on: project status, team lead, members, task counts, recent tasks, deadlines
@@ -3002,6 +3090,17 @@ export async function handleLindaAutoReply(
     const isDownloadRequest = /\b(download|docx|pdf|\.doc|\.pdf)\b/i.test(lastUserMsg);
     const maxTokens = (fileInfo || isFileGenerationRequest || isDownloadRequest) ? 4096 : 2048;
 
+    // If user message looks like a search request, augment with a hint to use [SEARCH_WEB]
+    const searchKeywords = /search|look up|find out|what.?s the (latest|current|price|weather|news)|google|browse|internet|best .+ near|restaurants? near|hotels? near|stores? near|shops? near/i;
+    const lastMsg = messagesForApi[messagesForApi.length - 1];
+    if (lastMsg && lastMsg.role === 'user' && typeof lastMsg.content === 'string' && searchKeywords.test(lastMsg.content)) {
+      console.log(`[Linda] Search-like message detected, augmenting with search hint`);
+      messagesForApi[messagesForApi.length - 1] = {
+        ...lastMsg,
+        content: lastMsg.content + '\n\n[System: The user is asking for real-time information. You MUST use the [SEARCH_WEB] block to look this up. Output your search query inside [SEARCH_WEB]query: ...[/SEARCH_WEB] tags NOW.]',
+      };
+    }
+
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: maxTokens,
@@ -3009,8 +3108,49 @@ export async function handleLindaAutoReply(
       messages: messagesForApi,
     });
 
-    const textBlock = response.content.find((block: { type: string }) => block.type === 'text') as { type: 'text'; text: string } | undefined;
-    const rawResponse = textBlock ? textBlock.text : "Sorry, I couldn't process that. Try again?";
+    let textBlock = response.content.find((block: { type: string }) => block.type === 'text') as { type: 'text'; text: string } | undefined;
+    let rawResponse = textBlock ? textBlock.text : "Sorry, I couldn't process that. Try again?";
+
+    console.log(`[Linda] Raw Claude response (first 500 chars): ${rawResponse.substring(0, 500)}`);
+
+    // Check for [SEARCH_WEB] action blocks — if found, execute search and re-query
+    const chatSearchRegex = /\[SEARCH_WEB\]\s*query:\s*(.*?)\s*\[\/SEARCH_WEB\]/gi;
+    const chatSearchMatches: string[] = [];
+    let chatSearchMatch;
+    while ((chatSearchMatch = chatSearchRegex.exec(rawResponse)) !== null) {
+      chatSearchMatches.push(chatSearchMatch[1].trim());
+    }
+
+    if (chatSearchMatches.length > 0) {
+      console.log(`[Linda] Executing ${chatSearchMatches.length} web search(es) from chat:`, chatSearchMatches);
+
+      // Execute all searches in parallel
+      const chatSearchResults = await Promise.all(
+        chatSearchMatches.map(q => searchWeb(q))
+      );
+
+      // Format search results into context
+      const chatSearchContext = chatSearchResults
+        .map(sr => formatSearchResultsForPrompt(sr))
+        .join('\n\n');
+
+      // Add the search results as a follow-up user message and re-query
+      const chatSearchFollowUp = messagesForApi.concat([
+        { role: 'assistant' as const, content: rawResponse },
+        { role: 'user' as const, content: `Here are the web search results you requested:\n\n${chatSearchContext}\n\nNow please use these search results to answer the original question. Cite sources with their URLs when relevant. Do NOT include any more [SEARCH_WEB] blocks in your response.` },
+      ]);
+
+      const followUpResponse = await client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: maxTokens,
+        system: systemPrompt,
+        messages: chatSearchFollowUp,
+      });
+
+      textBlock = followUpResponse.content.find((block: { type: string }) => block.type === 'text') as { type: 'text'; text: string } | undefined;
+      rawResponse = textBlock ? textBlock.text : rawResponse;
+      console.log(`[Linda] Search follow-up response (first 500 chars): ${rawResponse.substring(0, 500)}`);
+    }
 
     // Execute any action blocks (send messages to other users, etc.)
     const actions = await (lindaController as any).executeActions(rawResponse, senderUserId);
