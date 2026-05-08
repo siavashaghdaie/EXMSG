@@ -22,6 +22,9 @@ RUN echo "=== Checking source files ===" && \
     ls packages/backend/src/middleware/validate.ts && \
     cat packages/backend/tsconfig.json
 
+# Ensure backend node_modules dir exists (may be empty if all deps hoisted to root)
+RUN mkdir -p /app/packages/backend/node_modules
+
 # Build backend - capture all output
 RUN cd packages/backend && \
     npx tsc --project tsconfig.json --incremental false --composite false 2>&1; \
