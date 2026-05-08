@@ -6,10 +6,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import * as SecureStore from 'expo-secure-store';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import { useTheme } from '@/theme/ThemeContext';
 import { getFullUrl } from '@/utils/imageUrl';
+import ChatLockModal from '@/components/ChatLockModal';
 
 export default function ChatSettingsScreen() {
   const navigation = useNavigation<any>();
@@ -21,6 +23,10 @@ export default function ChatSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [chatInfo, setChatInfo] = useState<any>(null);
   const [showDisappearing, setShowDisappearing] = useState(false);
+  const [showLockModal, setShowLockModal] = useState(false);
+  const [lockStep, setLockStep] = useState<'set' | 'confirm'>('set');
+  const [lockPinTemp, setLockPinTemp] = useState('');
+  const [lockError, setLockError] = useState<string | null>(null);
   const [showTranslateSettings, setShowTranslateSettings] = useState(false);
   const [showLangPicker, setShowLangPicker] = useState<{ field: string; title: string; includeAll?: boolean; includeNone?: boolean } | null>(null);
   const [showReport, setShowReport] = useState(false);
@@ -247,7 +253,19 @@ export default function ChatSettingsScreen() {
             trailing={
               <Switch
                 value={settings.isLocked}
-                onValueChange={(v) => updateSetting('isLocked', v)}
+                onValueChange={(v) => {
+                  if (v) {
+                    // Start PIN set flow
+                    setLockStep('set');
+                    setLockPinTemp('');
+                    setLockError(null);
+                    setShowLockModal(true);
+                  } else {
+                    // Unlock — remove PIN and disable lock
+                    SecureStore.deleteItemAsync(`chat_lock_${conversationId}`).catch(() => {});
+                    updateSetting('isLocked', false);
+                  }
+                }}
                 trackColor={{ false: '#ccc', true: colors.primary + '80' }}
                 thumbColor={settings.isLocked ? colors.primary : '#f4f3f4'}
               />
@@ -373,6 +391,37 @@ export default function ChatSettingsScreen() {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* Lock Chat PIN Modal */}
+      <ChatLockModal
+        visible={showLockModal}
+        mode={lockStep}
+        error={lockError}
+        onCancel={() => setShowLockModal(false)}
+        onSubmit={async (pin) => {
+          if (lockStep === 'set') {
+            setLockPinTemp(pin);
+            setLockStep('confirm');
+            setLockError(null);
+          } else {
+            // confirm step
+            if (pin !== lockPinTemp) {
+              setLockError('PINs do not match. Try again.');
+              setLockStep('set');
+              setLockPinTemp('');
+            } else {
+              // Save PIN and enable lock
+              try {
+                await SecureStore.setItemAsync(`chat_lock_${conversationId}`, pin);
+                await updateSetting('isLocked', true);
+                setShowLockModal(false);
+              } catch (err) {
+                setLockError('Failed to save PIN.');
+              }
+            }
+          }
+        }}
+      />
 
       {/* Disappearing Messages Modal */}
       <Modal visible={showDisappearing} transparent animationType="fade">

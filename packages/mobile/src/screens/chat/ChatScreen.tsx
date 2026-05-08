@@ -29,6 +29,7 @@ import { ChatStackParamList } from '@/navigation/ChatNavigator';
 import { callService } from '@/services/callService';
 import ForwardModal from '@/components/ForwardModal';
 import EmojiPicker from '@/components/EmojiPicker';
+import LindaActivitiesPanel from '@/components/LindaActivitiesPanel';
 
 type ChatRouteProp = RouteProp<ChatStackParamList, 'Chat'>;
 
@@ -65,6 +66,13 @@ function stripActionTags(content: string): string {
 function formatMessageTime(dateStr: string): string {
   const date = new Date(dateStr);
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatDisappearingDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+  return `${Math.floor(seconds / 86400)}d`;
 }
 
 function formatDateHeader(dateStr: string): string {
@@ -128,6 +136,7 @@ export default function ChatScreen() {
   const [pinnedBannerIndex, setPinnedBannerIndex] = useState(0);
   const [showAgentPanel, setShowAgentPanel] = useState(false);
   const [hiredAgentsList, setHiredAgentsList] = useState<any[]>([]);
+  const [showLindaActivities, setShowLindaActivities] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -857,6 +866,14 @@ export default function ChatScreen() {
                 <Text style={styles.headerAiBadgeText}>AI</Text>
               </View>
             )}
+            {!isLinda && (convData as any)?.disappearingSeconds > 0 && (
+              <View style={styles.disappearingBadge}>
+                <Text style={styles.disappearingIcon}>{'⏲'}</Text>
+                <Text style={styles.disappearingText}>
+                  {formatDisappearingDuration((convData as any).disappearingSeconds)}
+                </Text>
+              </View>
+            )}
           </View>
           {getHeaderSubtitle()}
         </TouchableOpacity>
@@ -869,6 +886,17 @@ export default function ChatScreen() {
             activeOpacity={0.6}
           >
             <Text style={styles.headerCallIcon}>{'🤖'}</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Linda activities eye icon */}
+        {isLinda && (
+          <TouchableOpacity
+            style={[styles.headerCallBtn, showLindaActivities && styles.headerCallBtnActive]}
+            onPress={() => setShowLindaActivities(!showLindaActivities)}
+            activeOpacity={0.6}
+          >
+            <Text style={styles.headerCallIcon}>{'👁'}</Text>
           </TouchableOpacity>
         )}
 
@@ -1163,6 +1191,13 @@ export default function ChatScreen() {
         onSelect={(emoji) => handleReaction(emojiTargetMessageId, emoji)}
         onClose={() => { setEmojiPickerVisible(false); setEmojiTargetMessageId(''); }}
       />
+
+      {/* Linda Activities Panel */}
+      {showLindaActivities && (
+        <View style={styles.lindaActivitiesOverlay}>
+          <LindaActivitiesPanel onClose={() => setShowLindaActivities(false)} />
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -1170,6 +1205,15 @@ export default function ChatScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
   flex: { flex: 1 },
+  lindaActivitiesOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: COLORS.bg,
+    zIndex: 100,
+  },
 
   // Header
   header: {
@@ -1204,6 +1248,17 @@ const styles = StyleSheet.create({
     marginLeft: 6,
   },
   headerAiBadgeText: { color: COLORS.white, fontSize: 9, fontWeight: '700' },
+  disappearingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    borderRadius: 8,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    marginLeft: 6,
+  },
+  disappearingIcon: { fontSize: 12, marginRight: 2 },
+  disappearingText: { fontSize: 10, fontWeight: '600', color: COLORS.green },
   headerStatus: { fontSize: 12, color: COLORS.green },
   headerStatusOffline: { fontSize: 12, color: COLORS.muted },
   headerStatusLinda: { fontSize: 12, color: COLORS.lindaPurple },

@@ -18,10 +18,12 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useChatStore } from '@/store/chatStore';
 import { usePresenceStore } from '@/store/presenceStore';
 import { useAuthStore } from '@/store/authStore';
+import * as SecureStore from 'expo-secure-store';
 import { api, SearchUsersResponse } from '@/services/api';
 import { ChatStackParamList } from '@/navigation/ChatNavigator';
 import StoryCreationModal from '@/components/StoryCreationModal';
 import StoryViewerModal from '@/components/StoryViewerModal';
+import ChatLockModal from '@/components/ChatLockModal';
 import { getFullUrl } from '@/utils/url';
 
 type NavProp = NativeStackNavigationProp<ChatStackParamList, 'ConversationList'>;
@@ -107,6 +109,7 @@ interface ConversationItemData {
   isTaskChat: boolean;
   isProjectChat: boolean;
   isFavorite: boolean;
+  isLocked: boolean;
 }
 
 export default function ConversationListScreen() {
@@ -133,6 +136,9 @@ export default function ConversationListScreen() {
   const [storyViewUserName, setStoryViewUserName] = useState('');
   const [hasOwnStory, setHasOwnStory] = useState(false);
   const [contactStories, setContactStories] = useState<any[]>([]);
+  const [showLockModal, setShowLockModal] = useState(false);
+  const [lockTargetItem, setLockTargetItem] = useState<ConversationItemData | null>(null);
+  const [lockError, setLockError] = useState<string | null>(null);
 
   // Fetch own stories status
   const refreshStoryStatus = useCallback(async () => {
@@ -288,6 +294,7 @@ export default function ConversationListScreen() {
         isTaskChat,
         isProjectChat,
         isFavorite: !!conv.isFavorite,
+        isLocked: !!(conv.settings?.isLocked),
       };
     });
   }, [conversations, currentUser, typingIndicators, unreadCounts, onlineUsers, lastSeenMap]);
@@ -307,12 +314,38 @@ export default function ConversationListScreen() {
     );
   }, [conversationItems, searchQuery, activeTab]);
 
-  const handlePress = (item: ConversationItemData) => {
+  const handlePress = async (item: ConversationItemData) => {
+    if (item.isLocked) {
+      // Check if there's a PIN stored
+      const savedPin = await SecureStore.getItemAsync(`chat_lock_${item.id}`);
+      if (savedPin) {
+        setLockTargetItem(item);
+        setLockError(null);
+        setShowLockModal(true);
+        return;
+      }
+    }
     navigation.navigate('Chat', {
       conversationId: item.id,
       name: item.name,
       isLinda: item.isLinda,
     });
+  };
+
+  const handleLockUnlock = async (pin: string) => {
+    if (!lockTargetItem) return;
+    const savedPin = await SecureStore.getItemAsync(`chat_lock_${lockTargetItem.id}`);
+    if (savedPin && pin === savedPin) {
+      setShowLockModal(false);
+      navigation.navigate('Chat', {
+        conversationId: lockTargetItem.id,
+        name: lockTargetItem.name,
+        isLinda: lockTargetItem.isLinda,
+      });
+      setLockTargetItem(null);
+    } else {
+      setLockError('Incorrect PIN');
+    }
   };
 
   // User avatar URL
@@ -379,6 +412,9 @@ export default function ConversationListScreen() {
               <View style={[styles.aiBadge, { backgroundColor: '#DBEAFE' }]}>
                 <Text style={[styles.aiBadgeText, { color: '#2563EB' }]}>Project</Text>
               </View>
+            )}
+            {item.isLocked && (
+              <Text style={styles.lockIcon}>{'🔒'}</Text>
             )}
           </View>
           <Text style={[styles.itemTime, item.unread > 0 && styles.itemTimeUnread]}>
@@ -670,6 +706,15 @@ export default function ConversationListScreen() {
           )}
         </SafeAreaView>
       </Modal>
+
+      {/* Lock Chat PIN Modal */}
+      <ChatLockModal
+        visible={showLockModal}
+        mode="unlock"
+        error={lockError}
+        onCancel={() => { setShowLockModal(false); setLockTargetItem(null); }}
+        onSubmit={handleLockUnlock}
+      />
     </SafeAreaView>
   );
 }
@@ -945,6 +990,10 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontSize: 10,
     fontWeight: '700',
+  },
+  lockIcon: {
+    fontSize: 12,
+    marginLeft: 4,
   },
   itemTime: {
     fontSize: 12,
