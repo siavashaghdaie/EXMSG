@@ -593,11 +593,10 @@ export default function ChatView() {
       </div>
 
       {/* Agent Panel */}
-      {showAgentPanel && conversationId && (
+      {showAgentPanel && (
         <AgentPanel
           agentParticipants={agentParticipants}
           translationActive={translationActive}
-          conversationId={conversationId}
           onClose={() => setShowAgentPanel(false)}
           onViewActivities={(username) => {
             setShowAgentPanel(false);

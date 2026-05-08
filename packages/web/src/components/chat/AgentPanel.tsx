@@ -5,7 +5,6 @@ import { api } from '@/services/api';
 interface AgentPanelProps {
   agentParticipants: Array<{ id: string; username: string; displayName?: string; avatar?: string; email: string }>;
   translationActive: boolean;
-  conversationId: string;
   onClose: () => void;
   onViewActivities?: (agentUsername: string) => void;
   onOpenSettings?: (agentUsername: string) => void;
@@ -31,7 +30,7 @@ interface HiredAgentInfo {
   };
 }
 
-export default function AgentPanel({ agentParticipants, translationActive, conversationId, onClose, onViewActivities, onOpenSettings }: AgentPanelProps) {
+export default function AgentPanel({ agentParticipants, translationActive, onClose, onViewActivities, onOpenSettings }: AgentPanelProps) {
   const [hiredAgents, setHiredAgents] = useState<HiredAgentInfo[]>([]);
   const [loading, setLoading] = useState(true);
 
