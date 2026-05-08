@@ -522,8 +522,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     )}
                   </div>
                 </div>
-                <div className="absolute -bottom-1 -right-1 w-[36px] h-[36px] bg-primary-500 rounded-full border-[2.5px] border-white dark:border-surface-900 flex items-center justify-center cursor-pointer z-10" onClick={(e) => { e.stopPropagation(); handleAddStory(e); }}>
-                  <Plus className="w-5 h-5 text-white" />
+                <div className="absolute -bottom-0.5 -right-0.5 w-[25px] h-[25px] bg-primary-500 rounded-full border-[2px] border-white dark:border-surface-900 flex items-center justify-center cursor-pointer z-10" onClick={(e) => { e.stopPropagation(); handleAddStory(e); }}>
+                  <Plus className="w-3.5 h-3.5 text-white" />
                 </div>
               </div>
 

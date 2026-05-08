@@ -94,7 +94,7 @@ export default function AgentPanel({ agentParticipants, conversationId, onClose,
           <Bot size={20} className="text-violet-500" />
           <h3 className="font-semibold text-slate-900 dark:text-white">AI Agents</h3>
           <span className="text-xs bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400 px-1.5 py-0.5 rounded-full font-medium">
-            {hiredAgents.length}
+            {agentParticipants.length}
           </span>
         </div>
         <button
@@ -111,13 +111,13 @@ export default function AgentPanel({ agentParticipants, conversationId, onClose,
           <div className="flex items-center justify-center py-8">
             <div className="animate-spin w-6 h-6 border-2 border-violet-500 border-t-transparent rounded-full" />
           </div>
-        ) : hiredAgents.length === 0 ? (
+        ) : hiredAgents.filter(ha => agentParticipantSlugs.has(ha.agent.slug)).length === 0 ? (
           <div className="text-center py-8 text-slate-500 dark:text-slate-400 text-sm">
-            No agents hired yet. Visit the Agents page to hire agents.
+            No active agents in this chat.
           </div>
         ) : (
-          hiredAgents.map((ha) => {
-            const isInChat = agentParticipantSlugs.has(ha.agent.slug);
+          hiredAgents.filter(ha => agentParticipantSlugs.has(ha.agent.slug)).map((ha) => {
+            const isInChat = true;
 
             return (
               <div
