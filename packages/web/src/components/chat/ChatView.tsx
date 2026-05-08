@@ -57,6 +57,7 @@ export default function ChatView() {
   // Chat settings panel
   const [showChatSettings, setShowChatSettings] = useState(false);
   const [showAgentPanel, setShowAgentPanel] = useState(false);
+  const [hasActiveAgents, setHasActiveAgents] = useState(false);
 
   // Translation active indicator
   const [translationActive, setTranslationActive] = useState(false);
@@ -259,6 +260,21 @@ export default function ChatView() {
   const agentParticipants = (conversation?.participants || []).filter(
     (p) => p.id !== user?.id && (p.email?.endsWith('@omnilink.system') || false)
   );
+
+  // Check if there are any active agents (participants or hired+enabled)
+  useEffect(() => {
+    if (agentParticipants.length > 0) {
+      setHasActiveAgents(true);
+      return;
+    }
+    api.getHiredAgents()
+      .then((agents: any[]) => {
+        const hasEnabled = agents.some((a: any) => a.isEnabled);
+        setHasActiveAgents(hasEnabled);
+      })
+      .catch(() => setHasActiveAgents(false));
+  }, [agentParticipants.length, conversationId]);
+
   // Group messages by sender and time
   const groupedMessages = conversationMessages.reduce<Array<{ messages: MessageResponse[] }>>(
     (groups, message) => {
@@ -482,19 +498,21 @@ export default function ChatView() {
             })()}
           </div>
           <div className="flex items-center gap-0.5 sm:gap-2 flex-shrink-0">
-            {/* Agent robot button — always shown */}
-            <button
-              onClick={() => setShowAgentPanel(!showAgentPanel)}
-              className={`p-1.5 sm:p-2 rounded-lg transition relative ${showAgentPanel ? 'bg-violet-100 dark:bg-violet-900/30' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-              title="AI Agents"
-            >
-              <Bot size={18} className={showAgentPanel ? 'text-violet-500' : 'text-slate-600 dark:text-slate-400'} />
-              {agentParticipants.length > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-violet-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
-                  {agentParticipants.length}
-                </span>
-              )}
-            </button>
+            {/* Agent robot button — only shown when there are active agents */}
+            {hasActiveAgents && (
+              <button
+                onClick={() => setShowAgentPanel(!showAgentPanel)}
+                className={`p-1.5 sm:p-2 rounded-lg transition relative ${showAgentPanel ? 'bg-violet-100 dark:bg-violet-900/30' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                title="AI Agents"
+              >
+                <Bot size={18} className={showAgentPanel ? 'text-violet-500' : 'text-slate-600 dark:text-slate-400'} />
+                {agentParticipants.length > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-violet-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                    {agentParticipants.length}
+                  </span>
+                )}
+              </button>
+            )}
             {isLindaConversation && (
               <button
                 onClick={() => {

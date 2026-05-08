@@ -42,9 +42,14 @@ export default function AgentPanel({ agentParticipants, conversationId, onClose,
       .finally(() => setLoading(false));
   }, []);
 
-  // Determine which hired agents are in the chat
+  // Determine which hired agents are in the chat as participants
   const agentParticipantSlugs = new Set(
     agentParticipants.map(p => p.username)
+  );
+
+  // Show agents that are either: (1) participants in this chat, OR (2) hired and enabled
+  const visibleAgents = hiredAgents.filter(
+    ha => agentParticipantSlugs.has(ha.agent.slug) || ha.isEnabled
   );
 
   const handleToggleAgent = async (orgAgentId: string, currentEnabled: boolean) => {
@@ -94,7 +99,7 @@ export default function AgentPanel({ agentParticipants, conversationId, onClose,
           <Bot size={20} className="text-violet-500" />
           <h3 className="font-semibold text-slate-900 dark:text-white">AI Agents</h3>
           <span className="text-xs bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400 px-1.5 py-0.5 rounded-full font-medium">
-            {agentParticipants.length}
+            {visibleAgents.length}
           </span>
         </div>
         <button
@@ -111,13 +116,13 @@ export default function AgentPanel({ agentParticipants, conversationId, onClose,
           <div className="flex items-center justify-center py-8">
             <div className="animate-spin w-6 h-6 border-2 border-violet-500 border-t-transparent rounded-full" />
           </div>
-        ) : hiredAgents.filter(ha => agentParticipantSlugs.has(ha.agent.slug)).length === 0 ? (
+        ) : visibleAgents.length === 0 ? (
           <div className="text-center py-8 text-slate-500 dark:text-slate-400 text-sm">
             No active agents in this chat.
           </div>
         ) : (
-          hiredAgents.filter(ha => agentParticipantSlugs.has(ha.agent.slug)).map((ha) => {
-            const isInChat = true;
+          visibleAgents.map((ha) => {
+            const isInChat = agentParticipantSlugs.has(ha.agent.slug);
 
             return (
               <div
@@ -144,11 +149,15 @@ export default function AgentPanel({ agentParticipants, conversationId, onClose,
                       <h4 className="font-semibold text-slate-900 dark:text-white text-sm">
                         {ha.agent.name}
                       </h4>
-                      {isInChat && (
+                      {isInChat ? (
                         <span className="text-[9px] px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-full font-medium">
                           IN CHAT
                         </span>
-                      )}
+                      ) : ha.isEnabled ? (
+                        <span className="text-[9px] px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full font-medium">
+                          ACTIVE
+                        </span>
+                      ) : null}
                     </div>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
                       {ha.agent.role}
@@ -172,7 +181,7 @@ export default function AgentPanel({ agentParticipants, conversationId, onClose,
 
                 {/* Action buttons row */}
                 <div className="flex items-center gap-2 flex-wrap">
-                  {!isInChat && ha.isEnabled && (
+                  {!isInChat && !ha.isEnabled && (
                     <button
                       onClick={() => handleAddToChat(ha.agent.slug)}
                       disabled={addingAgent === ha.agent.slug}
@@ -186,7 +195,7 @@ export default function AgentPanel({ agentParticipants, conversationId, onClose,
                       Add to Chat
                     </button>
                   )}
-                  {isInChat && (
+                  {(isInChat || ha.isEnabled) && (
                     <>
                       <button
                         onClick={() => onViewActivities?.(ha.agent.slug)}
