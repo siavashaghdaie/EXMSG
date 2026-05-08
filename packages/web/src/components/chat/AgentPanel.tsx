@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Eye, Settings2, Bot, X, BarChart3, UserPlus } from 'lucide-react';
+import { Eye, Settings2, Bot, X, BarChart3 } from 'lucide-react';
 import { api } from '@/services/api';
 
 interface AgentPanelProps {
   agentParticipants: Array<{ id: string; username: string; displayName?: string; avatar?: string; email: string }>;
+  translationActive: boolean;
   conversationId: string;
   onClose: () => void;
   onViewActivities?: (agentUsername: string) => void;
@@ -30,10 +31,9 @@ interface HiredAgentInfo {
   };
 }
 
-export default function AgentPanel({ agentParticipants, conversationId, onClose, onViewActivities, onOpenSettings }: AgentPanelProps) {
+export default function AgentPanel({ agentParticipants, translationActive, conversationId, onClose, onViewActivities, onOpenSettings }: AgentPanelProps) {
   const [hiredAgents, setHiredAgents] = useState<HiredAgentInfo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [addingAgent, setAddingAgent] = useState<string | null>(null);
 
   useEffect(() => {
     api.getHiredAgents()
@@ -42,15 +42,21 @@ export default function AgentPanel({ agentParticipants, conversationId, onClose,
       .finally(() => setLoading(false));
   }, []);
 
-  // Determine which hired agents are in the chat as participants
+  // Slugs of agents who are actual participants in this conversation
   const agentParticipantSlugs = new Set(
     agentParticipants.map(p => p.username)
   );
 
-  // Show agents that are either: (1) participants in this chat, OR (2) hired and enabled
-  const visibleAgents = hiredAgents.filter(
-    ha => agentParticipantSlugs.has(ha.agent.slug) || ha.isEnabled
-  );
+  // Only show agents that are ACTIVE in THIS specific conversation:
+  // 1. Agent is a participant in this conversation (e.g. Linda in Linda's chat)
+  // 2. TransGuy: translation is active in this conversation
+  const visibleAgents = hiredAgents.filter(ha => {
+    // Is this agent a direct participant in this conversation?
+    if (agentParticipantSlugs.has(ha.agent.slug)) return true;
+    // Is this TransGuy and translation is active in this chat?
+    if (ha.agent.slug === 'transguy' && translationActive) return true;
+    return false;
+  });
 
   const handleToggleAgent = async (orgAgentId: string, currentEnabled: boolean) => {
     try {
@@ -62,26 +68,6 @@ export default function AgentPanel({ agentParticipants, conversationId, onClose,
       ));
     } catch (err) {
       console.error('Failed to toggle agent:', err);
-    }
-  };
-
-  const handleAddToChat = async (agentSlug: string) => {
-    try {
-      setAddingAgent(agentSlug);
-      // Search for the agent's system user
-      const results = await api.searchUsers(agentSlug);
-      const agentUser = results.find((u: any) =>
-        u.username === agentSlug || u.email?.endsWith('@omnilink.system')
-      );
-      if (agentUser) {
-        await api.addMemberToConversation(conversationId, agentUser.id);
-        // Refresh page to show updated participants
-        window.location.reload();
-      }
-    } catch (err) {
-      console.error('Failed to add agent to chat:', err);
-    } finally {
-      setAddingAgent(null);
     }
   };
 
@@ -122,15 +108,13 @@ export default function AgentPanel({ agentParticipants, conversationId, onClose,
           </div>
         ) : (
           visibleAgents.map((ha) => {
-            const isInChat = agentParticipantSlugs.has(ha.agent.slug);
+            const isParticipant = agentParticipantSlugs.has(ha.agent.slug);
+            const isTranslating = ha.agent.slug === 'transguy' && translationActive;
 
             return (
               <div
                 key={ha.id}
-                className={`rounded-xl p-4 border ${isInChat
-                  ? 'bg-slate-50 dark:bg-surface-800 border-slate-200 dark:border-surface-700'
-                  : 'bg-slate-50/50 dark:bg-surface-800/50 border-dashed border-slate-300 dark:border-surface-600'
-                }`}
+                className="rounded-xl p-4 border bg-slate-50 dark:bg-surface-800 border-slate-200 dark:border-surface-700"
               >
                 {/* Agent header */}
                 <div className="flex items-center gap-3 mb-3">
@@ -149,15 +133,16 @@ export default function AgentPanel({ agentParticipants, conversationId, onClose,
                       <h4 className="font-semibold text-slate-900 dark:text-white text-sm">
                         {ha.agent.name}
                       </h4>
-                      {isInChat ? (
+                      {isParticipant && (
                         <span className="text-[9px] px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-full font-medium">
                           IN CHAT
                         </span>
-                      ) : ha.isEnabled ? (
+                      )}
+                      {isTranslating && !isParticipant && (
                         <span className="text-[9px] px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full font-medium">
-                          ACTIVE
+                          TRANSLATING
                         </span>
-                      ) : null}
+                      )}
                     </div>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
                       {ha.agent.role}
@@ -181,45 +166,27 @@ export default function AgentPanel({ agentParticipants, conversationId, onClose,
 
                 {/* Action buttons row */}
                 <div className="flex items-center gap-2 flex-wrap">
-                  {!isInChat && !ha.isEnabled && (
-                    <button
-                      onClick={() => handleAddToChat(ha.agent.slug)}
-                      disabled={addingAgent === ha.agent.slug}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400 rounded-lg text-xs font-medium hover:bg-violet-100 dark:hover:bg-violet-900/40 transition disabled:opacity-50"
-                    >
-                      {addingAgent === ha.agent.slug ? (
-                        <div className="animate-spin w-3 h-3 border border-violet-500 border-t-transparent rounded-full" />
-                      ) : (
-                        <UserPlus size={12} />
-                      )}
-                      Add to Chat
-                    </button>
-                  )}
-                  {(isInChat || ha.isEnabled) && (
-                    <>
-                      <button
-                        onClick={() => onViewActivities?.(ha.agent.slug)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg text-xs font-medium hover:bg-blue-100 dark:hover:bg-blue-900/40 transition"
-                      >
-                        <Eye size={12} />
-                        Activity Log
-                      </button>
-                      <button
-                        onClick={() => onOpenSettings?.(ha.agent.slug)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-surface-700 text-slate-600 dark:text-slate-300 rounded-lg text-xs font-medium hover:bg-slate-200 dark:hover:bg-surface-600 transition"
-                      >
-                        <Settings2 size={12} />
-                        Tune
-                      </button>
-                      <button
-                        onClick={() => onViewActivities?.(ha.agent.slug)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400 rounded-lg text-xs font-medium hover:bg-violet-100 dark:hover:bg-violet-900/40 transition"
-                      >
-                        <BarChart3 size={12} />
-                        Stats
-                      </button>
-                    </>
-                  )}
+                  <button
+                    onClick={() => onViewActivities?.(ha.agent.slug)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg text-xs font-medium hover:bg-blue-100 dark:hover:bg-blue-900/40 transition"
+                  >
+                    <Eye size={12} />
+                    Activity Log
+                  </button>
+                  <button
+                    onClick={() => onOpenSettings?.(ha.agent.slug)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-surface-700 text-slate-600 dark:text-slate-300 rounded-lg text-xs font-medium hover:bg-slate-200 dark:hover:bg-surface-600 transition"
+                  >
+                    <Settings2 size={12} />
+                    Tune
+                  </button>
+                  <button
+                    onClick={() => onViewActivities?.(ha.agent.slug)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400 rounded-lg text-xs font-medium hover:bg-violet-100 dark:hover:bg-violet-900/40 transition"
+                  >
+                    <BarChart3 size={12} />
+                    Stats
+                  </button>
                 </div>
 
                 {/* Subscription info */}
