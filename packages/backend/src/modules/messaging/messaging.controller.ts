@@ -1289,6 +1289,35 @@ export class MessagingController {
           },
         });
         forwarded.push(msg);
+
+        // Update conversation timestamp
+        await prisma.conversation.update({
+          where: { id: convId },
+          data: { updatedAt: new Date() },
+        });
+
+        // Emit socket event so recipients see the message in real-time
+        emitToConversation(convId, 'message:new', {
+          id: msg.id,
+          conversationId: convId,
+          senderId: msg.sender.id,
+          content: msg.content,
+          type: msg.type,
+          metadata: msg.metadata,
+          reactions: {},
+          createdAt: msg.createdAt,
+          sender: msg.sender,
+        });
+
+        // Trigger Linda auto-reply if she's in this conversation
+        handleLindaAutoReply(convId, userId, original.content || '').catch((err) => {
+          console.error('[Linda] Auto-reply on forward error:', err);
+        });
+
+        // Trigger TransGuy auto-translate if active in this conversation
+        handleTransGuyAutoReply(convId, userId, original.content || '').catch((err) => {
+          console.error('[TransGuy] Auto-reply on forward error:', err);
+        });
       }
 
       res.json({ forwarded });
