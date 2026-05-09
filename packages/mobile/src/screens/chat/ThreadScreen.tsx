@@ -17,7 +17,17 @@ import { useAuthStore } from '@/store/authStore';
 import { useChatStore } from '@/store/chatStore';
 import { api, MessageResponse } from '@/services/api';
 import { ChatStackParamList } from '@/navigation/ChatNavigator';
-import { format } from 'date-fns';
+// Simple date formatter (avoids date-fns dependency)
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function format(date: Date, pattern: string): string {
+  const h = date.getHours();
+  const m = date.getMinutes();
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  const mm = m.toString().padStart(2, '0');
+  if (pattern === 'h:mm a') return `${h12}:${mm} ${ampm}`;
+  return `${MONTHS[date.getMonth()]} ${date.getDate()}, ${h12}:${mm} ${ampm}`;
+}
 
 type ThreadRouteProp = RouteProp<ChatStackParamList, 'Thread'>;
 
