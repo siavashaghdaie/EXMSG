@@ -8,6 +8,8 @@ import { sendWelcomeEmail, isEmailConfigured } from '../../services/email';
 import { validateInviteToken, consumeInviteToken } from '../../services/invite';
 import { getLindaBotUserId } from '../../services/lindaNotify';
 import { PLAN_ORDER, PLANS, PlanId, canSelfRegisterOn, isValidPlan } from './plans';
+import { setAuthCookies, clearAuthCookies } from '../../middleware/cookieParser';
+import { logAudit, requestMeta } from '../../services/auditLog';
 
 /**
  * Derive a URL-friendly slug from a company name. Collisions are resolved
@@ -394,6 +396,7 @@ export class AuthController {
       sendWelcomeEmail(email, user.displayName).catch(() => {});
 
       const enrichedPayload = await enrichUserWithOrgInfo(userPayload);
+      setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
       res.json({ user: enrichedPayload, ...tokens });
     } catch (error) {
       console.error('Verify registration error:', error);
@@ -531,6 +534,19 @@ export class AuthController {
       ensureLindaDM(user.id).catch(() => {});
 
       const enrichedUser = await enrichUserWithOrgInfo(userWithoutPassword as any);
+      setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
+
+      // Audit: successful login
+      if (enrichedUser.organizationId) {
+        logAudit({
+          organizationId: enrichedUser.organizationId,
+          actorId: user.id, actorEmail: user.email, actorName: user.username,
+          action: 'user.login', category: 'auth',
+          targetType: 'user', targetId: user.id,
+          ...requestMeta(req),
+        });
+      }
+
       res.json({ user: enrichedUser, ...tokens });
     } catch (error) {
       console.error('Login error:', error);
@@ -595,6 +611,20 @@ export class AuthController {
       ensureLindaDM(user.id).catch(() => {});
 
       const enrichedUser = await enrichUserWithOrgInfo(user);
+      setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
+
+      // Audit: successful login (OTP verified)
+      if (enrichedUser.organizationId) {
+        logAudit({
+          organizationId: enrichedUser.organizationId,
+          actorId: user.id, actorEmail: user.email, actorName: user.username,
+          action: 'user.login', category: 'auth',
+          targetType: 'user', targetId: user.id,
+          details: { method: '2fa_otp' },
+          ...requestMeta(req),
+        });
+      }
+
       res.json({ user: enrichedUser, ...tokens });
     } catch (error) {
       console.error('Verify login error:', error);
@@ -604,7 +634,13 @@ export class AuthController {
 
   async refresh(req: Request, res: Response): Promise<void> {
     try {
-      const { refreshToken } = req.body;
+      // Support refresh token from body (mobile) or cookie (web)
+      const refreshToken = req.body.refreshToken || req.cookies?.refreshToken;
+
+      if (!refreshToken) {
+        res.status(401).json({ error: 'No refresh token provided' });
+        return;
+      }
 
       // Verify token
       const payload = verifyRefreshToken(refreshToken);
@@ -638,6 +674,7 @@ export class AuthController {
         },
       });
 
+      setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
       res.json(tokens);
     } catch (error) {
       console.error('Refresh error:', error);
@@ -652,6 +689,19 @@ export class AuthController {
       // Delete all refresh tokens for this user
       await prisma.refreshToken.deleteMany({ where: { userId } });
 
+      // Audit: logout
+      if (req.orgId) {
+        logAudit({
+          organizationId: req.orgId,
+          actorId: userId, actorEmail: req.user?.email, actorName: req.user?.username,
+          action: 'user.logout', category: 'auth',
+          targetType: 'user', targetId: userId,
+          ...requestMeta(req),
+        });
+      }
+
+      // Clear auth cookies
+      clearAuthCookies(res);
       res.json({ message: 'Logged out successfully' });
     } catch (error) {
       console.error('Logout error:', error);
@@ -673,6 +723,8 @@ export class AuthController {
           status: true,
           role: true,
           isOnline: true,
+          readReceiptsEnabled: true,
+          lastSeenPrivacy: true,
           createdAt: true,
         },
       });
@@ -820,6 +872,60 @@ export class AuthController {
       });
     } catch (error) {
       console.error('Set password error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // ─── Privacy Settings ──────────────────────────────────────────
+
+  async getPrivacySettings(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.userId;
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          readReceiptsEnabled: true,
+          lastSeenPrivacy: true,
+        },
+      });
+      if (!user) {
+        res.status(404).json({ error: 'User not found' });
+        return;
+      }
+      res.json(user);
+    } catch (error) {
+      console.error('Get privacy settings error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  async updatePrivacySettings(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.userId;
+      const { readReceiptsEnabled, lastSeenPrivacy } = req.body;
+      const data: any = {};
+
+      if (readReceiptsEnabled !== undefined) data.readReceiptsEnabled = readReceiptsEnabled;
+      if (lastSeenPrivacy !== undefined) {
+        if (!['everyone', 'contacts', 'nobody'].includes(lastSeenPrivacy)) {
+          res.status(400).json({ error: 'lastSeenPrivacy must be "everyone", "contacts", or "nobody"' });
+          return;
+        }
+        data.lastSeenPrivacy = lastSeenPrivacy;
+      }
+
+      const updated = await prisma.user.update({
+        where: { id: userId },
+        data,
+        select: {
+          readReceiptsEnabled: true,
+          lastSeenPrivacy: true,
+        },
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error('Update privacy settings error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }

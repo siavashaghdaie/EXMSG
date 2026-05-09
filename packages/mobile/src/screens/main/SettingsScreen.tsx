@@ -18,6 +18,7 @@ import { api } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { getFullUrl } from '@/utils/url';
+import OrgOnboardingModal from './OrgOnboardingModal';
 
 const PRIMARY = '#6C47FF';
 const DANGER = '#E53935';
@@ -71,6 +72,12 @@ export default function SettingsScreen() {
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
+  // Privacy settings (synced with backend)
+  const [readReceiptsEnabled, setReadReceiptsEnabled] = useState(true);
+  const [lastSeenPrivacy, setLastSeenPrivacy] = useState<'everyone' | 'contacts' | 'nobody'>('everyone');
+  const [privacyLoading, setPrivacyLoading] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
   useEffect(() => {
     if (user) {
       setDisplayName(user.displayName ?? '');
@@ -90,6 +97,31 @@ export default function SettingsScreen() {
       setTimeout(() => setErrorMessage(''), 5000);
     }
   }, []);
+
+  // Load privacy settings from backend on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const settings = await api.getPrivacySettings();
+        setReadReceiptsEnabled(settings.readReceiptsEnabled);
+        setLastSeenPrivacy(settings.lastSeenPrivacy as 'everyone' | 'contacts' | 'nobody');
+      } catch {}
+    })();
+  }, []);
+
+  const handlePrivacyUpdate = useCallback(async (field: 'readReceiptsEnabled' | 'lastSeenPrivacy', value: boolean | string) => {
+    setPrivacyLoading(true);
+    try {
+      const updated = await api.updatePrivacySettings({ [field]: value });
+      setReadReceiptsEnabled(updated.readReceiptsEnabled);
+      setLastSeenPrivacy(updated.lastSeenPrivacy as 'everyone' | 'contacts' | 'nobody');
+      showFeedback('success', 'Privacy settings updated');
+    } catch {
+      showFeedback('error', 'Failed to update privacy settings');
+    } finally {
+      setPrivacyLoading(false);
+    }
+  }, [showFeedback]);
 
   const handleSaveProfile = useCallback(async () => {
     setSaving(true);
@@ -379,6 +411,79 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        {/* Privacy Section */}
+        <View style={[styles.section, { backgroundColor: C.sectionBg }]}>
+          <Text style={[styles.sectionTitle, { color: C.textPrimary }]}>Privacy</Text>
+          <View style={[styles.sectionContent, { backgroundColor: C.cardBg, borderColor: C.border }]}>
+            <View style={styles.switchRow}>
+              <View style={styles.switchInfo}>
+                <Text style={[styles.switchLabel, { color: C.textPrimary }]}>Read Receipts</Text>
+                <Text style={[styles.switchDescription, { color: C.textSecondary }]}>Let others know when you've read their messages</Text>
+              </View>
+              <Switch
+                value={readReceiptsEnabled}
+                onValueChange={(v) => {
+                  setReadReceiptsEnabled(v);
+                  handlePrivacyUpdate('readReceiptsEnabled', v);
+                }}
+                disabled={privacyLoading}
+                trackColor={{ false: '#ccc', true: `${PRIMARY}80` }}
+                thumbColor={readReceiptsEnabled ? PRIMARY : '#f4f3f4'}
+                ios_backgroundColor="#ccc"
+              />
+            </View>
+
+            <View style={[styles.divider, { backgroundColor: C.border }]} />
+
+            <View style={{ paddingVertical: 8 }}>
+              <Text style={[styles.switchLabel, { color: C.textPrimary, marginBottom: 4 }]}>Last Seen</Text>
+              <Text style={[styles.switchDescription, { color: C.textSecondary, marginBottom: 10 }]}>Who can see when you were last active</Text>
+              <View style={[styles.segmentedControl, { backgroundColor: C.inputBg, borderColor: C.border }]}>
+                {(['everyone', 'contacts', 'nobody'] as const).map((opt) => (
+                  <TouchableOpacity
+                    key={opt}
+                    style={[
+                      styles.segmentButton,
+                      lastSeenPrivacy === opt && styles.segmentButtonActive,
+                    ]}
+                    onPress={() => {
+                      setLastSeenPrivacy(opt);
+                      handlePrivacyUpdate('lastSeenPrivacy', opt);
+                    }}
+                    disabled={privacyLoading}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.segmentButtonText,
+                        lastSeenPrivacy === opt && styles.segmentButtonTextActive,
+                      ]}
+                    >
+                      {opt.charAt(0).toUpperCase() + opt.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Organization Setup (admin only) */}
+        {(user?.orgRole === 'OWNER' || user?.orgRole === 'ADMIN' || (user as any)?.role === 'SUPER_ADMIN') && (
+          <View style={[styles.section, { backgroundColor: C.sectionBg }]}>
+            <Text style={[styles.sectionTitle, { color: C.textPrimary }]}>Organization</Text>
+            <View style={[styles.sectionContent, { backgroundColor: C.cardBg, borderColor: C.border }]}>
+              <TouchableOpacity
+                style={[styles.saveButton, { backgroundColor: PRIMARY }]}
+                onPress={() => setShowOnboarding(true)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.saveButtonText}>Organization Setup Wizard</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {/* Account Section */}
         <View style={[styles.section, { backgroundColor: C.sectionBg }]}>
           <Text style={[styles.sectionTitle, { color: C.textPrimary }]}>Account</Text>
@@ -398,6 +503,11 @@ export default function SettingsScreen() {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      <OrgOnboardingModal
+        visible={showOnboarding}
+        onClose={() => setShowOnboarding(false)}
+      />
     </SafeAreaView>
   );
 }

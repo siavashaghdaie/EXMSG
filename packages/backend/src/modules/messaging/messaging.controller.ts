@@ -8,6 +8,7 @@ import { emitToConversation } from '../../services/socket';
 import { handleLindaAutoReply } from '../linda/linda.controller';
 import { handleTransGuyAutoReply } from '../agents/transguy.controller';
 import { getOrgMemberIds } from '../../middleware/orgScope';
+import { logAudit, actorFromReq } from '../../services/auditLog';
 import { translateText, translateTexts, isTranslationAvailable } from '../../services/translationService';
 import { transcribeAudio } from '../linda/voiceService';
 
@@ -433,8 +434,10 @@ export class MessagingController {
           type: true,
           metadata: true,
           isEdited: true,
+          editHistory: true,
           isDeleted: true,
           expiresAt: true,
+          isEncrypted: true,
           isViewOnce: true,
           viewedAt: true,
           createdAt: true,
@@ -452,6 +455,9 @@ export class MessagingController {
               content: true,
               sender: { select: { displayName: true } },
             },
+          },
+          _count: {
+            select: { replies: true },
           },
           readReceipts: {
             select: { userId: true, readAt: true },
@@ -557,7 +563,7 @@ export class MessagingController {
     try {
       const { conversationId } = req.params;
       const userId = req.user!.userId;
-      const { content, type = 'TEXT', replyToId, storyReply } = req.body;
+      const { content, type = 'TEXT', replyToId, storyReply, isEncrypted = false } = req.body;
 
       // Verify membership
       const membership = await prisma.conversationMember.findUnique({
@@ -586,6 +592,7 @@ export class MessagingController {
           type,
           replyToId,
           metadata: storyReply ? JSON.stringify(storyReply) : null,
+          isEncrypted: !!isEncrypted,
           ...(expiresAt ? { expiresAt } : {}),
         },
         include: {
@@ -624,6 +631,7 @@ export class MessagingController {
         sender: message.sender,
         ...(message.expiresAt ? { expiresAt: message.expiresAt } : {}),
         ...(message.isViewOnce ? { isViewOnce: true } : {}),
+        ...(message.isEncrypted ? { isEncrypted: true } : {}),
       });
 
       // Check if Linda is in this conversation and should auto-reply
@@ -662,9 +670,16 @@ export class MessagingController {
         return;
       }
 
+      // Store previous content in edit history
+      const existingHistory = (message as any).editHistory as any[] || [];
+      const editHistory = [
+        ...existingHistory,
+        { content: message.content, editedAt: new Date().toISOString() },
+      ];
+
       const updated = await prisma.message.update({
         where: { id: messageId },
-        data: { content, isEdited: true },
+        data: { content, isEdited: true, editHistory },
         include: {
           sender: {
             select: { id: true, username: true, displayName: true, avatarUrl: true },
@@ -687,6 +702,40 @@ export class MessagingController {
     }
   }
 
+  // GET /api/messages/:messageId/history
+  async getEditHistory(req: Request, res: Response): Promise<void> {
+    try {
+      const { messageId } = req.params;
+
+      const message = await prisma.message.findUnique({
+        where: { id: messageId },
+        select: {
+          id: true,
+          content: true,
+          isEdited: true,
+          editHistory: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      if (!message) {
+        res.status(404).json({ error: 'Message not found' });
+        return;
+      }
+
+      res.json({
+        messageId: message.id,
+        currentContent: message.content,
+        isEdited: message.isEdited,
+        history: (message as any).editHistory || [],
+      });
+    } catch (error) {
+      console.error('Get edit history error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
   // DELETE /api/messages/:messageId
   async deleteMessage(req: Request, res: Response): Promise<void> {
     try {
@@ -704,6 +753,16 @@ export class MessagingController {
         where: { id: messageId },
         data: { isDeleted: true, content: null },
       });
+
+      // Audit: message deleted
+      if (req.orgId) {
+        logAudit({
+          ...actorFromReq(req),
+          action: 'message.delete', category: 'messaging',
+          targetType: 'message', targetId: messageId,
+          details: { conversationId: message.conversationId },
+        });
+      }
 
       res.json({ message: 'Message deleted' });
 
@@ -792,47 +851,58 @@ export class MessagingController {
       const userId = req.user!.userId;
       const { messageId } = req.body;
 
-      // Create read receipt for specific message if provided
-      if (messageId) {
-        await prisma.readReceipt.upsert({
-          where: { messageId_userId: { messageId, userId } },
-          create: { messageId, userId },
-          update: { readAt: new Date() },
-        });
-      }
-
-      // Also create read receipts for ALL unread messages from others in this conversation
-      // This enables WhatsApp-style blue ticks for senders
-      const unreadMessages = await prisma.message.findMany({
-        where: {
-          conversationId,
-          senderId: { not: userId },
-          isDeleted: false,
-          readReceipts: {
-            none: { userId },
-          },
-        },
-        select: { id: true },
+      // Check if user has read receipts enabled
+      const currentUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { readReceiptsEnabled: true },
       });
+      const receiptEnabled = currentUser?.readReceiptsEnabled !== false;
 
-      if (unreadMessages.length > 0) {
-        await prisma.readReceipt.createMany({
-          data: unreadMessages.map((m: any) => ({
-            messageId: m.id,
-            userId,
-          })),
-          skipDuplicates: true,
+      // Only create visible read receipts if the user has them enabled
+      if (receiptEnabled) {
+        // Create read receipt for specific message if provided
+        if (messageId) {
+          await prisma.readReceipt.upsert({
+            where: { messageId_userId: { messageId, userId } },
+            create: { messageId, userId },
+            update: { readAt: new Date() },
+          });
+        }
+
+        // Also create read receipts for ALL unread messages from others in this conversation
+        // This enables WhatsApp-style blue ticks for senders
+        const unreadMessages = await prisma.message.findMany({
+          where: {
+            conversationId,
+            senderId: { not: userId },
+            isDeleted: false,
+            readReceipts: {
+              none: { userId },
+            },
+          },
+          select: { id: true },
         });
 
-        // Emit read receipt event so sender sees blue ticks in real-time
-        emitToConversation(conversationId, 'messagesRead', {
-          conversationId,
-          readByUserId: userId,
-          messageIds: unreadMessages.map((m: any) => m.id),
-        });
+        if (unreadMessages.length > 0) {
+          await prisma.readReceipt.createMany({
+            data: unreadMessages.map((m: any) => ({
+              messageId: m.id,
+              userId,
+            })),
+            skipDuplicates: true,
+          });
+
+          // Emit read receipt event so sender sees blue ticks in real-time
+          emitToConversation(conversationId, 'messagesRead', {
+            conversationId,
+            readByUserId: userId,
+            messageIds: unreadMessages.map((m: any) => m.id),
+          });
+        }
       }
 
       // Always update last read timestamp on the conversation membership
+      // (even when receipts are disabled, so unread badge resets)
       await prisma.conversationMember.update({
         where: { conversationId_userId: { conversationId, userId } },
         data: { lastReadAt: new Date() },
@@ -849,7 +919,17 @@ export class MessagingController {
   async searchMessages(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.user!.userId;
-      const { query, conversationId, limit = '20' } = req.query;
+      const {
+        query,
+        conversationId,
+        limit = '20',
+        page = '1',
+        senderId,
+        from,
+        to,
+        hasAttachment,
+        type,
+      } = req.query;
 
       if (!query || typeof query !== 'string' || query.trim().length < 2) {
         res.status(400).json({ error: 'Search query must be at least 2 characters' });
@@ -857,8 +937,10 @@ export class MessagingController {
       }
 
       const orgId = req.orgId ?? null;
+      const take = Math.min(parseInt(limit as string) || 20, 50);
+      const skip = (Math.max(parseInt(page as string) || 1, 1) - 1) * take;
 
-      // Build where clause with OR to search both message content and conversation names
+      // Build where clause
       const where: any = {
         AND: [
           {
@@ -888,21 +970,61 @@ export class MessagingController {
         where.conversationId = conversationId as string;
       }
 
-      const messages = await prisma.message.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        take: parseInt(limit as string),
-        include: {
-          sender: {
-            select: { id: true, username: true, displayName: true, avatarUrl: true },
-          },
-          conversation: {
-            select: { id: true, name: true, type: true },
-          },
-        },
-      });
+      // Sender filter
+      if (senderId && typeof senderId === 'string') {
+        where.senderId = senderId;
+      }
 
-      res.json({ messages });
+      // Date range filters
+      if (from || to) {
+        where.createdAt = {};
+        if (from && typeof from === 'string') {
+          where.createdAt.gte = new Date(from);
+        }
+        if (to && typeof to === 'string') {
+          where.createdAt.lte = new Date(to);
+        }
+      }
+
+      // Attachment filter
+      if (hasAttachment === 'true') {
+        where.attachments = { some: {} };
+      }
+
+      // Message type filter
+      if (type && typeof type === 'string') {
+        where.type = type.toUpperCase();
+      }
+
+      const [messages, total] = await Promise.all([
+        prisma.message.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          take,
+          skip,
+          include: {
+            sender: {
+              select: { id: true, username: true, displayName: true, avatarUrl: true },
+            },
+            conversation: {
+              select: { id: true, name: true, type: true },
+            },
+            attachments: {
+              select: { id: true, filename: true, mimeType: true },
+              take: 3,
+            },
+          },
+        }),
+        prisma.message.count({ where }),
+      ]);
+
+      res.json({
+        messages,
+        total,
+        page: Math.max(parseInt(page as string) || 1, 1),
+        totalPages: Math.ceil(total / take),
+        hasMore: skip + take < total,
+      });
     } catch (error) {
       console.error('Search messages error:', error);
       res.status(500).json({ error: 'Internal server error' });
@@ -1356,6 +1478,294 @@ export class MessagingController {
     } catch (error) {
       console.error('Translate error:', error);
       res.status(500).json({ error: 'Translation failed' });
+    }
+  }
+
+  /**
+   * GET /api/messages/:messageId/thread
+   * Get all replies to a given message (thread view).
+   */
+  async getThreadReplies(req: Request, res: Response): Promise<void> {
+    try {
+      const { messageId } = req.params;
+      const userId = req.user!.userId;
+
+      // Verify the parent message exists
+      const parentMessage = await prisma.message.findUnique({
+        where: { id: messageId },
+        select: {
+          id: true,
+          conversationId: true,
+          senderId: true,
+          content: true,
+          type: true,
+          createdAt: true,
+          sender: {
+            select: { id: true, username: true, displayName: true, avatarUrl: true },
+          },
+          _count: { select: { replies: true } },
+        },
+      });
+
+      if (!parentMessage) {
+        res.status(404).json({ error: 'Message not found' });
+        return;
+      }
+
+      // Verify the user is a member of the conversation
+      const membership = await prisma.conversationMember.findUnique({
+        where: {
+          conversationId_userId: {
+            conversationId: parentMessage.conversationId,
+            userId,
+          },
+        },
+      });
+
+      if (!membership) {
+        res.status(403).json({ error: 'Not a member of this conversation' });
+        return;
+      }
+
+      // Fetch all replies
+      const replies = await prisma.message.findMany({
+        where: { replyToId: messageId, isDeleted: false },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          conversationId: true,
+          senderId: true,
+          content: true,
+          type: true,
+          isEdited: true,
+          editHistory: true,
+          isDeleted: true,
+          createdAt: true,
+          updatedAt: true,
+          sender: {
+            select: { id: true, username: true, displayName: true, avatarUrl: true },
+          },
+          attachments: true,
+          reactions: {
+            include: { user: { select: { id: true, displayName: true } } },
+          },
+          _count: { select: { replies: true } },
+        },
+      });
+
+      // Format reactions like the main getMessages does
+      const formattedReplies = replies.map((msg: any) => {
+        const reactionMap: Record<string, string[]> = {};
+        if (msg.reactions) {
+          msg.reactions.forEach((r: any) => {
+            if (!reactionMap[r.emoji]) reactionMap[r.emoji] = [];
+            reactionMap[r.emoji].push(r.userId);
+          });
+        }
+        return {
+          ...msg,
+          reactions: reactionMap,
+        };
+      });
+
+      res.json({
+        parentMessage,
+        replies: formattedReplies,
+        totalReplies: parentMessage._count.replies,
+      });
+    } catch (error) {
+      console.error('Get thread replies error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  // ─── CHANNELS ────────────────────────────────────────────────────────
+
+  /** Create a channel (public or private) */
+  async createChannel(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.userId;
+      const orgId = req.orgId ?? null;
+      const { name, description, isPublic = true, slug } = req.body;
+
+      if (!name) {
+        res.status(400).json({ error: 'Channel name is required' });
+        return;
+      }
+
+      const channelSlug = slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+
+      // Check slug uniqueness within org
+      if (orgId) {
+        const existing = await prisma.channel.findFirst({
+          where: { organizationId: orgId, slug: channelSlug },
+        });
+        if (existing) {
+          res.status(409).json({ error: 'A channel with this name already exists' });
+          return;
+        }
+      }
+
+      // Create conversation of type CHANNEL
+      const conversation = await prisma.conversation.create({
+        data: {
+          type: 'CHANNEL',
+          name,
+          description,
+          organizationId: orgId,
+          members: {
+            create: [{ userId, role: 'OWNER' }],
+          },
+        },
+        include: {
+          members: {
+            include: {
+              user: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
+            },
+          },
+        },
+      });
+
+      // Create Channel record
+      await prisma.channel.create({
+        data: {
+          organizationId: orgId || '',
+          conversationId: conversation.id,
+          slug: channelSlug,
+          isPublic,
+        },
+      });
+
+      res.status(201).json({ conversation, slug: channelSlug, isPublic });
+    } catch (error) {
+      console.error('Create channel error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  /** List all channels (public + user's private channels) */
+  async listChannels(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.userId;
+      const orgId = req.orgId ?? null;
+
+      const channels = await prisma.channel.findMany({
+        where: {
+          organizationId: orgId || undefined,
+          OR: [
+            { isPublic: true },
+            {
+              conversation: {
+                members: { some: { userId } },
+              },
+            },
+          ],
+        },
+        include: {
+          conversation: {
+            include: {
+              members: {
+                include: {
+                  user: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
+                },
+              },
+              _count: { select: { members: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      const result = channels
+        .filter((ch: any) => ch.conversation)
+        .map((ch: any) => ({
+          id: ch.id,
+          slug: ch.slug,
+          isPublic: ch.isPublic,
+          conversationId: ch.conversationId,
+          name: ch.conversation.name,
+          description: ch.conversation.description,
+          memberCount: ch.conversation._count.members,
+          isMember: ch.conversation.members.some((m: any) => m.userId === userId),
+          createdAt: ch.createdAt,
+        }));
+
+      res.json({ channels: result });
+    } catch (error) {
+      console.error('List channels error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  /** Join a public channel */
+  async joinChannel(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.userId;
+      const { channelId } = req.params;
+
+      const channel = await prisma.channel.findUnique({
+        where: { id: channelId },
+        include: { conversation: true },
+      });
+
+      if (!channel || !channel.conversationId) {
+        res.status(404).json({ error: 'Channel not found' });
+        return;
+      }
+
+      if (!channel.isPublic) {
+        res.status(403).json({ error: 'Cannot join a private channel without invitation' });
+        return;
+      }
+
+      // Check if already a member
+      const existing = await prisma.conversationMember.findUnique({
+        where: { conversationId_userId: { conversationId: channel.conversationId, userId } },
+      });
+
+      if (existing) {
+        res.json({ message: 'Already a member', conversationId: channel.conversationId });
+        return;
+      }
+
+      await prisma.conversationMember.create({
+        data: {
+          conversationId: channel.conversationId,
+          userId,
+          role: 'MEMBER',
+        },
+      });
+
+      res.json({ message: 'Joined channel', conversationId: channel.conversationId });
+    } catch (error) {
+      console.error('Join channel error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  /** Leave a channel */
+  async leaveChannel(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.userId;
+      const { channelId } = req.params;
+
+      const channel = await prisma.channel.findUnique({
+        where: { id: channelId },
+      });
+
+      if (!channel || !channel.conversationId) {
+        res.status(404).json({ error: 'Channel not found' });
+        return;
+      }
+
+      await prisma.conversationMember.deleteMany({
+        where: { conversationId: channel.conversationId, userId },
+      });
+
+      res.json({ message: 'Left channel' });
+    } catch (error) {
+      console.error('Leave channel error:', error);
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 }

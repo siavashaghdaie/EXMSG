@@ -24,12 +24,18 @@ import { checklistRoutes } from './modules/checklists/checklist.routes';
 import { callRoutes } from './modules/calls/call.routes';
 import { pushRoutes } from './modules/push/push.routes';
 import { agentRoutes } from './modules/agents/agent.routes';
+import { auditRoutes } from './modules/audit/audit.routes';
+import { permissionsRoutes } from './modules/permissions/permissions.routes';
+import e2eeRoutes from './modules/e2ee/e2ee.routes';
 import { initializePush } from './modules/push/pushService';
 import { initializeLinda } from './modules/linda/linda.controller';
 import { seedAgents } from './modules/agents/agent.controller';
 import { startTaskReminderJob } from './modules/tasks/taskReminder';
 import { startMessageCleanupJob } from './services/messageCleanup';
 import { resolveOrganization } from './middleware/orgScope';
+import { generalLimiter, authLimiter } from './middleware/rateLimiter';
+import { sanitizeInput } from './middleware/sanitize';
+import { cookieParser } from './middleware/cookieParser';
 
 async function bootstrap() {
   const app = express();
@@ -54,10 +60,31 @@ async function bootstrap() {
   }
 
   // Middleware
-  app.use(helmet());
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        imgSrc: ["'self'", "data:", "blob:", "https:"],
+        connectSrc: ["'self'", "wss:", "ws:", "https:"],
+        mediaSrc: ["'self'", "blob:", "data:"],
+        frameSrc: ["'none'"],
+      },
+    },
+    crossOriginEmbedderPolicy: false, // Allow loading cross-origin media
+  }));
   app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
   app.use(express.json({ limit: '10mb' }));
+  app.use(cookieParser);
   app.use(morgan('dev'));
+
+  // Rate limiting — general limiter for all API routes
+  app.use('/api', generalLimiter);
+
+  // Input sanitization — strip HTML/XSS from all request bodies
+  app.use(sanitizeInput);
 
   // Serve uploaded files statically
   app.use('/uploads', express.static(uploadsDir));
@@ -90,6 +117,9 @@ async function bootstrap() {
   app.use('/api', checklistRoutes);
   app.use('/api', callRoutes);
   app.use('/api', agentRoutes);
+  app.use('/api', auditRoutes);
+  app.use('/api', permissionsRoutes);
+  app.use('/api/e2ee', e2eeRoutes);
   app.use('/api', adminRoutes);
   // IMPORTANT: orgAdminRoutes MUST be scoped to /api/org-admin so its
   // router.use(requireOrgAdmin) middleware does not leak to subsequent

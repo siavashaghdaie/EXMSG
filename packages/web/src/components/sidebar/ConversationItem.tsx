@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { Trash2, Archive, VolumeX, Pin, Sparkles, ClipboardList, FolderKanban, Users, Lock, Timer, Fingerprint } from 'lucide-react';
-import { ConversationResponse } from '@/services/api';
+import { Trash2, Archive, VolumeX, Volume2, Pin, Sparkles, ClipboardList, FolderKanban, Users, Lock, Timer, Fingerprint } from 'lucide-react';
+import { ConversationResponse, api } from '@/services/api';
 import Avatar from '@/components/common/Avatar';
 import { useAuthStore } from '@/store/authStore';
 import { useChatStore } from '@/store/chatStore';
@@ -368,9 +368,17 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
                 </p>
               )}
 
+              {/* Muted indicator */}
+              {conversation.isMuted && (
+                <VolumeX size={14} className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
+              )}
               {/* Unread badge */}
               {unreadCount > 0 && (
-                <div className="flex-shrink-0 min-w-[20px] h-5 px-1 rounded-full bg-primary-600 dark:bg-primary-500 flex items-center justify-center">
+                <div className={`flex-shrink-0 min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center ${
+                  conversation.isMuted
+                    ? 'bg-slate-400 dark:bg-slate-500'
+                    : 'bg-primary-600 dark:bg-primary-500'
+                }`}>
                   <span className="text-[11px] font-bold text-white leading-none">
                     {unreadCount > 99 ? '99+' : unreadCount}
                   </span>
@@ -463,11 +471,34 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
             Archive chat
           </button>
           <button
-            onClick={() => { setContextMenu(null); /* TODO: mute */ }}
+            onClick={async () => {
+              setContextMenu(null);
+              try {
+                const isMuted = conversation.isMuted;
+                await api.updateChatSettings(conversation.id, {
+                  isMuted: !isMuted,
+                  muteUntil: null,
+                });
+                // Refresh conversations
+                const { fetchConversations } = useChatStore.getState();
+                fetchConversations();
+              } catch (err) {
+                console.error('Failed to toggle mute:', err);
+              }
+            }}
             className="w-full px-4 py-2.5 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-surface-700 flex items-center gap-3"
           >
-            <VolumeX size={16} className="text-gray-500 dark:text-gray-400" />
-            Mute notifications
+            {conversation.isMuted ? (
+              <>
+                <Volume2 size={16} className="text-gray-500 dark:text-gray-400" />
+                Unmute notifications
+              </>
+            ) : (
+              <>
+                <VolumeX size={16} className="text-gray-500 dark:text-gray-400" />
+                Mute notifications
+              </>
+            )}
           </button>
           <button
             onClick={() => { setContextMenu(null); /* TODO: pin */ }}

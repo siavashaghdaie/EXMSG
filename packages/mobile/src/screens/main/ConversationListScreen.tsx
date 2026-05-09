@@ -550,6 +550,13 @@ export default function ConversationListScreen() {
           onChangeText={setSearchQuery}
           autoCorrect={false}
         />
+        <TouchableOpacity
+          style={styles.globalSearchButton}
+          onPress={() => navigation.navigate('Search')}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.globalSearchIcon}>🔍</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Category Tabs */}
@@ -862,14 +869,29 @@ const styles = StyleSheet.create({
   searchContainer: {
     paddingHorizontal: 16,
     paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   searchInput: {
+    flex: 1,
     backgroundColor: COLORS.inputBg,
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 10,
     fontSize: 16,
     color: COLORS.text,
+  },
+  globalSearchButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: COLORS.inputBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  globalSearchIcon: {
+    fontSize: 16,
   },
 
   // Category tabs

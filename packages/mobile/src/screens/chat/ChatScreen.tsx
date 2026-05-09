@@ -19,6 +19,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
@@ -30,6 +31,7 @@ import { callService } from '@/services/callService';
 import ForwardModal from '@/components/ForwardModal';
 import EmojiPicker from '@/components/EmojiPicker';
 import LindaActivitiesPanel from '@/components/LindaActivitiesPanel';
+import MarkdownText from '@/components/MarkdownText';
 
 type ChatRouteProp = RouteProp<ChatStackParamList, 'Chat'>;
 
@@ -527,6 +529,10 @@ export default function ChatScreen() {
             });
           },
         },
+        {
+          text: 'Reply in Thread',
+          onPress: () => (navigation as any).navigate('Thread', { messageId: msg.id, conversationId }),
+        },
         { text: 'Copy', onPress: () => handleCopyMessage(msg) },
         { text: 'Cancel', style: 'cancel' },
       ]);
@@ -550,6 +556,10 @@ export default function ChatScreen() {
             senderName: isOwn ? 'You' : (msg.sender?.displayName || 'Unknown'),
           });
         },
+      },
+      {
+        text: 'Reply in Thread',
+        onPress: () => (navigation as any).navigate('Thread', { messageId: msg.id, conversationId }),
       },
       {
         text: pinned ? 'Unpin' : 'Pin',
@@ -586,6 +596,31 @@ export default function ChatScreen() {
               onPress: () => deleteMessage(conversationId, msg.id),
             },
           ]);
+        },
+      });
+    }
+
+    // Show edit history option for edited messages
+    if (msg.isEdited) {
+      options.push({
+        text: 'View Edit History',
+        onPress: async () => {
+          try {
+            const data = await api.getEditHistory(msg.id);
+            const history = data.history || [];
+            if (history.length === 0) {
+              Alert.alert('Edit History', 'No edit history available.');
+              return;
+            }
+            const historyText = history.map((h: any, i: number) => {
+              const d = new Date(h.editedAt);
+              const time = `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+              return `${time}: ${h.content}`;
+            }).join('\n\n');
+            Alert.alert('Edit History', historyText);
+          } catch {
+            Alert.alert('Error', 'Could not load edit history.');
+          }
         },
       });
     }
@@ -663,9 +698,7 @@ export default function ChatScreen() {
             </Text>
           ) : (
             <>
-              <Text style={[styles.messageText, isOwn ? styles.messageTextOwn : styles.messageTextOther]}>
-                {displayContent}
-              </Text>
+              <MarkdownText text={displayContent || ''} isOwn={isOwn} />
 
               {/* Attachments */}
               {item.attachments && item.attachments.length > 0 && (
@@ -735,6 +768,19 @@ export default function ChatScreen() {
                 );
               })()}
             </>
+          )}
+
+          {/* Thread replies indicator */}
+          {item._count && item._count.replies > 0 && (
+            <TouchableOpacity
+              onPress={() => (navigation as any).navigate('Thread', { messageId: item.id, conversationId })}
+              style={styles.threadIndicator}
+            >
+              <Ionicons name="chatbubbles-outline" size={14} color="#7C3AED" />
+              <Text style={styles.threadIndicatorText}>
+                {item._count.replies} {item._count.replies === 1 ? 'reply' : 'replies'}
+              </Text>
+            </TouchableOpacity>
           )}
 
           <View style={styles.messageFooter}>
@@ -865,6 +911,9 @@ export default function ChatScreen() {
               <View style={styles.headerAiBadge}>
                 <Text style={styles.headerAiBadgeText}>AI</Text>
               </View>
+            )}
+            {!isLinda && (convData as any)?.isE2EE && (
+              <Ionicons name="shield-checkmark" size={14} color="#22c55e" style={{ marginLeft: 4 }} />
             )}
             {!isLinda && (convData as any)?.disappearingSeconds > 0 && (
               <View style={styles.disappearingBadge}>
@@ -1504,6 +1553,22 @@ const styles = StyleSheet.create({
   replyContent: { paddingLeft: 10 },
   replyName: { fontSize: 11, fontWeight: '600', color: COLORS.primary },
   replyText: { fontSize: 11, color: COLORS.secondary },
+
+  // Thread indicator
+  threadIndicator: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 4,
+    marginTop: 6,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.06)',
+  },
+  threadIndicatorText: {
+    fontSize: 12,
+    fontWeight: '600' as const,
+    color: '#7C3AED',
+  },
 
   // Reply preview (above composer)
   replyPreview: {

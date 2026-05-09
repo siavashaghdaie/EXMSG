@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { format, isToday, isYesterday } from 'date-fns';
-import { ArrowDown, ChevronLeft, Phone, Video, Eye, SlidersHorizontal, MessageSquare, ClipboardList, Megaphone, ArrowUpDown, RefreshCw, CheckCircle2, XCircle, Sparkles, Bot, X, Settings2, Globe, Pin, Timer, TrendingUp, Zap, Calendar, Camera } from 'lucide-react';
+import { ArrowDown, ChevronLeft, Phone, Video, Eye, SlidersHorizontal, MessageSquare, ClipboardList, Megaphone, ArrowUpDown, RefreshCw, CheckCircle2, XCircle, Sparkles, Bot, X, Settings2, Globe, Pin, Timer, TrendingUp, Zap, Calendar, Camera, ShieldCheck } from 'lucide-react';
 import { useChatStore, setTranslationSettings } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { MessageResponse, ConversationResponse, api, UserStatusGroup, LindaActivity } from '@/services/api';
@@ -16,6 +16,7 @@ import PresenceIndicator from '@/components/common/PresenceIndicator';
 import { callService } from '@/services/callService';
 import ChatSettingsPanel from './ChatSettingsPanel';
 import AgentPanel from './AgentPanel';
+import ThreadPanel from './ThreadPanel';
 
 export default function ChatView() {
   const { conversationId } = useParams<{ conversationId: string }>();
@@ -58,6 +59,9 @@ export default function ChatView() {
   const [showChatSettings, setShowChatSettings] = useState(false);
   const [showAgentPanel, setShowAgentPanel] = useState(false);
 
+  // Threaded replies
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+
   // Translation active indicator
   const [translationActive, setTranslationActive] = useState(false);
   const [translateLangName, setTranslateLangName] = useState('');
@@ -85,9 +89,10 @@ export default function ChatView() {
     loadContactStories();
   }, [conversationId]);
 
-  // Close Linda panel when switching conversations
+  // Close Linda panel and thread panel when switching conversations
   useEffect(() => {
     setLindaPanel('none');
+    setActiveThreadId(null);
   }, [conversationId]);
 
   const loadLindaActivities = async () => {
@@ -373,6 +378,7 @@ export default function ChatView() {
                     message={msg}
                     isOwnMessage={msg.senderId === user?.id}
                     showAvatar={conversation ? conversation.participants.length > 2 : false}
+                    onOpenThread={(id) => setActiveThreadId(id)}
                   />
                 ))}
               </div>
@@ -458,6 +464,11 @@ export default function ChatView() {
                   <div className="flex-1">
                     <h2 className="font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
                       {displayName}
+                      {conversation.isE2EE && (
+                        <span className="text-green-500" title="End-to-end encrypted">
+                          <ShieldCheck size={14} />
+                        </span>
+                      )}
                       {conversation.disappearingSeconds && (
                         <span className="text-emerald-500" title={`Disappearing messages: ${conversation.disappearingSeconds >= 86400 ? Math.floor(conversation.disappearingSeconds / 86400) + 'd' : conversation.disappearingSeconds >= 3600 ? Math.floor(conversation.disappearingSeconds / 3600) + 'h' : Math.floor(conversation.disappearingSeconds / 60) + 'm'}`}>
                           <Timer size={14} />
@@ -1034,6 +1045,28 @@ export default function ChatView() {
         />
       )}
       </div>
+
+      {/* Thread Panel */}
+      {activeThreadId && conversationId && (
+        <div className="w-[360px] flex-shrink-0 hidden md:flex">
+          <ThreadPanel
+            messageId={activeThreadId}
+            conversationId={conversationId}
+            onClose={() => setActiveThreadId(null)}
+          />
+        </div>
+      )}
+
+      {/* Thread Panel — Mobile (full overlay) */}
+      {activeThreadId && conversationId && (
+        <div className="absolute inset-0 z-30 md:hidden">
+          <ThreadPanel
+            messageId={activeThreadId}
+            conversationId={conversationId}
+            onClose={() => setActiveThreadId(null)}
+          />
+        </div>
+      )}
 
       {/* Chat Settings Panel */}
       {showChatSettings && conversationId && (

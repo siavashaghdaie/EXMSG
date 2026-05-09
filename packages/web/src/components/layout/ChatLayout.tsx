@@ -15,6 +15,7 @@ import AdminDashboard from '@/components/admin/AdminDashboard';
 import AnnouncementBoard from '@/components/announcements/AnnouncementBoard';
 import AgentsPage from '@/components/agents/AgentsPage';
 import PanelOwnerWizard from '@/components/auth/PanelOwnerWizard';
+import OnboardingWizard from '@/components/org-admin/OnboardingWizard';
 import OrgAdminDashboard from '@/components/org-admin/OrgAdminDashboard';
 import InterPanelPage from '@/components/inter-panel/InterPanelPage';
 import ProjectsPage from '@/components/projects/ProjectsPage';
@@ -44,6 +45,7 @@ export const ChatLayout: React.FC = () => {
   const [showPlanner, setShowPlanner] = useState(false);
   const [showOffice, setShowOffice] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
+  const [showOnboardingWizard, setShowOnboardingWizard] = useState(false);
   const [showPushBanner, setShowPushBanner] = useState(false);
   const [, setAnnouncementCount] = useState(0);
   const [taskCount, setTaskCount] = useState(0);
@@ -97,6 +99,25 @@ export const ChatLayout: React.FC = () => {
       setShowWizard(true);
     }
   }, [user?.id]);
+
+  // Check whether to show org onboarding wizard for admins
+  useEffect(() => {
+    if (!user?.id) return;
+    const isAdmin = user.role === 'SUPER_ADMIN' || user.orgRole === 'OWNER' || user.orgRole === 'ADMIN';
+    if (!isAdmin) return;
+    const onboardingKey = `omnilink_onboarding_checked_${user.id}`;
+    if (localStorage.getItem(onboardingKey)) return;
+    // Check backend onboarding status
+    (async () => {
+      try {
+        const profile = await api.getOrgProfile();
+        if (!profile.onboardingDone) {
+          setShowOnboardingWizard(true);
+        }
+        localStorage.setItem(onboardingKey, '1');
+      } catch {}
+    })();
+  }, [user?.id, user?.role, (user as any)?.orgRole]);
 
   // Show push notification banner if permission not yet granted
   useEffect(() => {
@@ -507,6 +528,14 @@ export const ChatLayout: React.FC = () => {
               localStorage.setItem(`omnilink_dashboard_seen_${user.id}`, '1');
             }
           }}
+        />
+      )}
+
+      {/* Organization Onboarding Wizard — shown once for admins who haven't completed setup */}
+      {showOnboardingWizard && !showWizard && (
+        <OnboardingWizard
+          onComplete={() => setShowOnboardingWizard(false)}
+          onSkip={() => setShowOnboardingWizard(false)}
         />
       )}
     </div>

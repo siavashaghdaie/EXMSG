@@ -17,6 +17,8 @@ interface OrgProfile {
   description: string | null;
   visibility: 'public' | 'private';
   avatarUrl: string | null;
+  primaryColor: string | null;
+  welcomeMessage: string | null;
 }
 
 type Visibility = 'public' | 'private';
@@ -49,6 +51,8 @@ export default function PanelSettingsTab({ orgId }: PanelSettingsTabProps) {
   const [description, setDescription] = useState('');
   const [visibility, setVisibility] = useState<Visibility>('private');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [primaryColor, setPrimaryColor] = useState('');
+  const [welcomeMessage, setWelcomeMessage] = useState('');
 
   // Save / upload state
   const [isSaving, setIsSaving] = useState(false);
@@ -84,6 +88,8 @@ export default function PanelSettingsTab({ orgId }: PanelSettingsTabProps) {
       setDescription(data.description ?? '');
       setVisibility(data.visibility);
       setAvatarUrl(data.avatarUrl);
+      setPrimaryColor(data.primaryColor ?? '');
+      setWelcomeMessage(data.welcomeMessage ?? '');
       setInitialValues({
         name: data.name,
         description: data.description ?? '',
@@ -151,6 +157,8 @@ export default function PanelSettingsTab({ orgId }: PanelSettingsTabProps) {
         name,
         description,
         visibility,
+        primaryColor: primaryColor || null,
+        welcomeMessage: welcomeMessage || null,
       });
       setProfile(updated);
       setInitialValues({
@@ -333,6 +341,54 @@ export default function PanelSettingsTab({ orgId }: PanelSettingsTabProps) {
         />
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 text-right">
           {description.length}/500
+        </p>
+      </div>
+
+      {/* --- Brand Color ---------------------------------------------------- */}
+      <div>
+        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+          Brand Color <span className="text-slate-400">(optional)</span>
+        </label>
+        <div className="flex items-center gap-3">
+          <input
+            type="color"
+            value={primaryColor || '#6C47FF'}
+            onChange={(e) => setPrimaryColor(e.target.value)}
+            className="w-10 h-10 rounded cursor-pointer border border-slate-200 dark:border-slate-600"
+          />
+          <input
+            type="text"
+            value={primaryColor}
+            onChange={(e) => setPrimaryColor(e.target.value)}
+            placeholder="#6C47FF"
+            maxLength={7}
+            className="w-32 px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white placeholder-slate-400 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+          />
+        </div>
+      </div>
+
+      {/* --- Welcome Message ---------------------------------------------- */}
+      <div>
+        <label
+          htmlFor="panel-welcome"
+          className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5"
+        >
+          Welcome Message <span className="text-slate-400">(optional)</span>
+        </label>
+        <textarea
+          id="panel-welcome"
+          value={welcomeMessage}
+          onChange={(e) => {
+            if (e.target.value.length <= 500) {
+              setWelcomeMessage(e.target.value);
+            }
+          }}
+          rows={3}
+          placeholder="Message shown to new team members when they join..."
+          className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none transition"
+        />
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 text-right">
+          {welcomeMessage.length}/500
         </p>
       </div>
 

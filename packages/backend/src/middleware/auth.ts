@@ -18,14 +18,25 @@ declare global {
 }
 
 export function authenticate(req: Request, res: Response, next: NextFunction): void {
-  const authHeader = req.headers.authorization;
+  // Support both httpOnly cookies (web) and Authorization header (mobile)
+  let token: string | undefined;
 
-  if (!authHeader?.startsWith('Bearer ')) {
+  // 1. Try httpOnly cookie first
+  if (req.cookies?.accessToken) {
+    token = req.cookies.accessToken;
+  }
+  // 2. Fall back to Authorization header (mobile clients)
+  else {
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    }
+  }
+
+  if (!token) {
     res.status(401).json({ error: 'No token provided' });
     return;
   }
-
-  const token = authHeader.substring(7);
 
   try {
     const decoded = jwt.verify(token, env.JWT_SECRET) as AuthPayload;

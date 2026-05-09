@@ -11,8 +11,12 @@ import {
   setPasswordSchema,
 } from './auth.validation';
 import { authenticate } from '../../middleware/auth';
+import { authLimiter } from '../../middleware/rateLimiter';
 
 const router = Router();
+
+// Apply stricter rate limiting to auth endpoints
+router.use(authLimiter);
 const controller = new AuthController();
 
 // Public plan catalog (used by landing page + plan selection screen)
@@ -25,6 +29,10 @@ router.post('/verify-login', validate(verifyLoginSchema), (req, res) => controll
 router.post('/refresh', validate(refreshSchema), (req, res) => controller.refresh(req, res));
 router.post('/logout', authenticate, (req, res) => controller.logout(req, res));
 router.get('/me', authenticate, (req, res) => controller.me(req, res));
+
+// ─── Privacy Settings ─────────────────────────────────────────
+router.get('/privacy', authenticate, (req, res) => controller.getPrivacySettings(req, res));
+router.patch('/privacy', authenticate, (req, res) => controller.updatePrivacySettings(req, res));
 
 // ─── Invite Flow ───────────────────────────────────────────────
 router.get('/accept-invite', (req, res) => controller.acceptInvite(req, res));

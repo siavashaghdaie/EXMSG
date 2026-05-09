@@ -39,10 +39,40 @@ export default function SettingsPage({ onBack }: SettingsPageProps) {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [desktopNotifications, setDesktopNotifications] = useState(true);
 
-  // Privacy settings
+  // Privacy settings (synced with backend)
   const [showOnlineStatus, setShowOnlineStatus] = useState(true);
   const [showReadReceipts, setShowReadReceipts] = useState(true);
-  const [showLastSeen, setShowLastSeen] = useState(true);
+  const [lastSeenPrivacy, setLastSeenPrivacy] = useState<'everyone' | 'contacts' | 'nobody'>('everyone');
+  const [isLoadingPrivacy, setIsLoadingPrivacy] = useState(false);
+  const [privacySaveMsg, setPrivacySaveMsg] = useState('');
+
+  // Load privacy settings from backend
+  useEffect(() => {
+    (async () => {
+      try {
+        const settings = await api.getPrivacySettings();
+        setShowReadReceipts(settings.readReceiptsEnabled);
+        setLastSeenPrivacy(settings.lastSeenPrivacy as 'everyone' | 'contacts' | 'nobody');
+      } catch {}
+    })();
+  }, []);
+
+  const handlePrivacyChange = async (field: 'readReceiptsEnabled' | 'lastSeenPrivacy', value: boolean | string) => {
+    setIsLoadingPrivacy(true);
+    setPrivacySaveMsg('');
+    try {
+      const updated = await api.updatePrivacySettings({ [field]: value });
+      setShowReadReceipts(updated.readReceiptsEnabled);
+      setLastSeenPrivacy(updated.lastSeenPrivacy as 'everyone' | 'contacts' | 'nobody');
+      setPrivacySaveMsg('Privacy settings saved');
+      setTimeout(() => setPrivacySaveMsg(''), 2000);
+    } catch {
+      setPrivacySaveMsg('Failed to save');
+      setTimeout(() => setPrivacySaveMsg(''), 3000);
+    } finally {
+      setIsLoadingPrivacy(false);
+    }
+  };
 
   // Apply theme to DOM
   const applyTheme = (themeValue: 'light' | 'dark' | 'system') => {
@@ -447,6 +477,12 @@ export default function SettingsPage({ onBack }: SettingsPageProps) {
             <div className="max-w-lg">
               <h2 className="text-xl font-semibold text-slate-900 dark:text-white mb-6">Privacy Settings</h2>
 
+              {privacySaveMsg && (
+                <p className={`mb-4 text-sm ${privacySaveMsg.includes('saved') ? 'text-green-600' : 'text-red-500'}`}>
+                  {privacySaveMsg}
+                </p>
+              )}
+
               <div className="space-y-4">
                 <div className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-800">
                   <div>
@@ -461,15 +497,43 @@ export default function SettingsPage({ onBack }: SettingsPageProps) {
                     <p className="font-medium text-slate-900 dark:text-white">Read Receipts</p>
                     <p className="text-sm text-slate-500">Let others know when you've read their messages</p>
                   </div>
-                  <ToggleSwitch enabled={showReadReceipts} onChange={setShowReadReceipts} />
+                  <ToggleSwitch
+                    enabled={showReadReceipts}
+                    onChange={(v) => {
+                      setShowReadReceipts(v);
+                      handlePrivacyChange('readReceiptsEnabled', v);
+                    }}
+                  />
                 </div>
 
-                <div className="flex items-center justify-between py-3 border-b border-slate-100 dark:border-slate-800">
-                  <div>
+                <div className="py-3 border-b border-slate-100 dark:border-slate-800">
+                  <div className="mb-3">
                     <p className="font-medium text-slate-900 dark:text-white">Last Seen</p>
-                    <p className="text-sm text-slate-500">Show your last seen time to others</p>
+                    <p className="text-sm text-slate-500">Who can see when you were last active</p>
                   </div>
-                  <ToggleSwitch enabled={showLastSeen} onChange={setShowLastSeen} />
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      { value: 'everyone', label: 'Everyone' },
+                      { value: 'contacts', label: 'Contacts' },
+                      { value: 'nobody', label: 'Nobody' },
+                    ] as const).map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => {
+                          setLastSeenPrivacy(opt.value);
+                          handlePrivacyChange('lastSeenPrivacy', opt.value);
+                        }}
+                        disabled={isLoadingPrivacy}
+                        className={`px-3 py-2 rounded-lg text-sm font-medium transition border ${
+                          lastSeenPrivacy === opt.value
+                            ? 'bg-blue-50 text-blue-600 border-blue-300 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-600'
+                            : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>

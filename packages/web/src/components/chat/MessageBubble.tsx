@@ -12,36 +12,122 @@ import VoiceMessagePlayer from './VoiceMessagePlayer';
 import ForwardModal from './ForwardModal';
 import { extractUrls, linkifyText } from '@/utils/urlDetector';
 
-/** Render markdown-style formatting (bold, italic, strikethrough, code, line breaks) as HTML */
+/** Render markdown-style formatting as HTML — supports bold, italic, strikethrough,
+ *  inline code, multi-line code blocks, blockquotes, headers, lists, and links. */
 function formatMarkdown(text: string): React.ReactNode[] {
-  return text.split('\n').map((line, i) => {
-    const html = line
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/~~(.*?)~~/g, '<del>$1</del>')
-      .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      .replace(/`(.*?)`/g, '<code class="bg-slate-200 dark:bg-slate-600 px-1 rounded text-xs font-mono">$1</code>')
-      // Render ─── lines as visual dividers
-      .replace(/^[─]{3,}$/g, '<hr class="border-slate-300 dark:border-slate-600 my-1" />')
-      // Render progress bars with monospace
-      .replace(/([█░]{2,}\s*\d+%)/g, '<span class="font-mono text-xs">$1</span>');
-    return (
-      <span key={i}>
-        {i > 0 && <br />}
+  const nodes: React.ReactNode[] = [];
+  const lines = text.split('\n');
+  let i = 0;
+
+  while (i < lines.length) {
+    // Multi-line code block: ```lang ... ```
+    if (lines[i].startsWith('```')) {
+      const lang = lines[i].slice(3).trim();
+      const codeLines: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith('```')) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      if (i < lines.length) i++; // skip closing ```
+      nodes.push(
+        <pre key={`code-${i}`} className="bg-slate-900 dark:bg-slate-950 text-slate-100 rounded-lg p-3 my-1 overflow-x-auto text-xs font-mono whitespace-pre">
+          {lang && <div className="text-[10px] text-slate-400 mb-1 uppercase">{lang}</div>}
+          {codeLines.join('\n')}
+        </pre>
+      );
+      continue;
+    }
+
+    const line = lines[i];
+    i++;
+
+    // Blockquote
+    if (line.startsWith('> ')) {
+      const quoteHtml = formatInline(line.slice(2));
+      nodes.push(
+        <div key={`q-${i}`} className="border-l-3 border-slate-400 dark:border-slate-500 pl-2 my-0.5 text-slate-500 dark:text-slate-400 italic">
+          <span dangerouslySetInnerHTML={{ __html: quoteHtml }} />
+        </div>
+      );
+      continue;
+    }
+
+    // Headers (# ## ###)
+    if (/^#{1,3}\s/.test(line)) {
+      const level = line.match(/^(#{1,3})\s/)![1].length;
+      const content = formatInline(line.replace(/^#{1,3}\s/, ''));
+      const sizes = ['text-lg font-bold', 'text-base font-bold', 'text-sm font-semibold'];
+      nodes.push(
+        <div key={`h-${i}`} className={`${sizes[level - 1]} my-0.5`}>
+          <span dangerouslySetInnerHTML={{ __html: content }} />
+        </div>
+      );
+      continue;
+    }
+
+    // Unordered list items (- or *)
+    if (/^[\-\*]\s/.test(line)) {
+      nodes.push(
+        <div key={`ul-${i}`} className="flex gap-1.5 ml-1">
+          <span className="text-slate-400">•</span>
+          <span dangerouslySetInnerHTML={{ __html: formatInline(line.replace(/^[\-\*]\s/, '')) }} />
+        </div>
+      );
+      continue;
+    }
+
+    // Ordered list items (1. 2. etc)
+    if (/^\d+\.\s/.test(line)) {
+      const num = line.match(/^(\d+)\.\s/)![1];
+      nodes.push(
+        <div key={`ol-${i}`} className="flex gap-1.5 ml-1">
+          <span className="text-slate-400 min-w-[1.2em] text-right">{num}.</span>
+          <span dangerouslySetInnerHTML={{ __html: formatInline(line.replace(/^\d+\.\s/, '')) }} />
+        </div>
+      );
+      continue;
+    }
+
+    // Regular line with inline formatting
+    const html = formatInline(line);
+    nodes.push(
+      <span key={`l-${i}`}>
+        {nodes.length > 0 && <br />}
         <span dangerouslySetInnerHTML={{ __html: html }} />
       </span>
     );
-  });
+  }
+
+  return nodes;
+}
+
+/** Format inline markdown: bold, italic, strikethrough, inline code, links */
+function formatInline(line: string): string {
+  return line
+    // Links: [text](url)
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="underline">$1</a>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/~~(.*?)~~/g, '<del>$1</del>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/`(.*?)`/g, '<code class="bg-slate-200 dark:bg-slate-600 px-1 rounded text-xs font-mono">$1</code>')
+    // Render ─── lines as visual dividers
+    .replace(/^[─]{3,}$/g, '<hr class="border-slate-300 dark:border-slate-600 my-1" />')
+    // Render progress bars with monospace
+    .replace(/([█░]{2,}\s*\d+%)/g, '<span class="font-mono text-xs">$1</span>');
 }
 
 interface MessageBubbleProps {
   message: MessageResponse;
   isOwnMessage: boolean;
   showAvatar?: boolean;
+  onOpenThread?: (messageId: string) => void;
 }
 
 export default function MessageBubble({
   message,
   isOwnMessage,
+  onOpenThread,
 }: MessageBubbleProps) {
   const [showActions, setShowActions] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -54,6 +140,9 @@ export default function MessageBubble({
   const [viewOnceRevealed, setViewOnceRevealed] = useState(false);
   const [viewOnceExpired, setViewOnceExpired] = useState(!!message.viewedAt && !isOwnMessage);
   const [expiresIn, setExpiresIn] = useState<string | null>(null);
+  const [showEditHistory, setShowEditHistory] = useState(false);
+  const [editHistoryData, setEditHistoryData] = useState<Array<{ content: string; editedAt: string }>>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
   const { editMessage, deleteMessage, addReaction, pinnedMessages } = useChatStore();
@@ -600,7 +689,28 @@ export default function MessageBubble({
                     </span>
                   )}
                   {message.editedAt && (
-                    <span className="text-[10px] italic">edited</span>
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (showEditHistory) {
+                          setShowEditHistory(false);
+                          return;
+                        }
+                        setLoadingHistory(true);
+                        setShowEditHistory(true);
+                        try {
+                          const data = await api.getEditHistory(message.id);
+                          setEditHistoryData(data.history || []);
+                        } catch {
+                          setEditHistoryData([]);
+                        } finally {
+                          setLoadingHistory(false);
+                        }
+                      }}
+                      className="text-[10px] italic hover:underline cursor-pointer"
+                    >
+                      edited
+                    </button>
                   )}
                   <span className="text-[10px]">
                     {format(new Date(message.createdAt), 'HH:mm')}
@@ -683,6 +793,58 @@ export default function MessageBubble({
               <span>{reaction.count}</span>
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Thread replies indicator */}
+      {message._count && message._count.replies > 0 && onOpenThread && (
+        <button
+          onClick={() => onOpenThread(message.id)}
+          className={`flex items-center gap-1 mt-1 text-xs font-medium transition hover:underline ${
+            isOwnMessage ? 'text-blue-200 hover:text-white' : 'text-blue-500 dark:text-blue-400 hover:text-blue-700'
+          }`}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          {message._count.replies} {message._count.replies === 1 ? 'reply' : 'replies'}
+        </button>
+      )}
+
+      {/* Edit history popup */}
+      {showEditHistory && (
+        <div
+          className={`mt-1 rounded-lg border shadow-lg text-xs max-w-[280px] ${
+            isOwnMessage
+              ? 'bg-white dark:bg-surface-800 border-slate-200 dark:border-surface-600'
+              : 'bg-white dark:bg-surface-800 border-slate-200 dark:border-surface-600'
+          }`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-3 py-2 border-b border-slate-100 dark:border-surface-700 flex items-center justify-between">
+            <span className="font-semibold text-slate-700 dark:text-slate-300">Edit History</span>
+            <button onClick={() => setShowEditHistory(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+              ×
+            </button>
+          </div>
+          <div className="max-h-[200px] overflow-y-auto">
+            {loadingHistory ? (
+              <div className="px-3 py-4 text-center text-slate-400">Loading...</div>
+            ) : editHistoryData.length === 0 ? (
+              <div className="px-3 py-4 text-center text-slate-400">No edit history available</div>
+            ) : (
+              editHistoryData.map((entry, i) => (
+                <div key={i} className="px-3 py-2 border-b border-slate-50 dark:border-surface-700 last:border-0">
+                  <div className="text-[10px] text-slate-400 dark:text-slate-500 mb-0.5">
+                    {format(new Date(entry.editedAt), 'MMM d, HH:mm')}
+                  </div>
+                  <div className="text-slate-600 dark:text-slate-300 whitespace-pre-wrap break-words line-through opacity-60">
+                    {entry.content}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       )}
 

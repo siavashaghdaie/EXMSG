@@ -149,6 +149,10 @@ interface MessageResponse {
       displayName: string;
     };
   };
+  editHistory?: Array<{ content: string; editedAt: string }>;
+  _count?: {
+    replies: number;
+  };
 }
 
 interface ConversationResponse {
@@ -666,6 +670,35 @@ class APIClient {
     };
   }
 
+  async getThreadReplies(messageId: string): Promise<{ parent: MessageResponse; replies: MessageResponse[] }> {
+    const response = await this.client.get(`/messages/${messageId}/thread`);
+    const data = response.data;
+    const mapMsg = (m: any): MessageResponse => ({
+      id: m.id,
+      conversationId: m.conversationId || '',
+      senderId: m.sender?.id || m.senderId || '',
+      content: m.content,
+      type: m.type,
+      metadata: m.metadata,
+      attachments: m.attachments,
+      reactions: m.reactions || {},
+      editedAt: m.editedAt,
+      createdAt: m.createdAt,
+      sender: m.sender,
+      replyTo: m.replyTo,
+      _count: m._count,
+    });
+    return {
+      parent: mapMsg(data.parent),
+      replies: (data.replies || []).map(mapMsg),
+    };
+  }
+
+  async getEditHistory(messageId: string): Promise<{ messageId: string; currentContent: string; isEdited: boolean; history: Array<{ content: string; editedAt: string }> }> {
+    const response = await this.client.get(`/messages/${messageId}/history`);
+    return response.data;
+  }
+
   /**
    * Upload a file in a conversation.
    *
@@ -783,12 +816,40 @@ class APIClient {
 
   // ─── Message Search API ─────────────────────────────────────────────────
 
-  async searchMessages(query: string, conversationId?: string): Promise<MessageResponse[]> {
+  async searchMessages(
+    query: string,
+    options?: {
+      conversationId?: string;
+      page?: number;
+      limit?: number;
+      from?: string;
+      to?: string;
+      senderId?: string;
+      hasAttachment?: boolean;
+      type?: string;
+    },
+  ): Promise<{
+    messages: MessageResponse[];
+    total: number;
+    page: number;
+    totalPages: number;
+    hasMore: boolean;
+  }> {
     const response = await this.client.get('/messages/search', {
-      params: { query, conversationId, limit: 30 },
+      params: {
+        query,
+        conversationId: options?.conversationId,
+        page: options?.page || 1,
+        limit: options?.limit || 20,
+        from: options?.from,
+        to: options?.to,
+        senderId: options?.senderId,
+        hasAttachment: options?.hasAttachment,
+        type: options?.type,
+      },
     });
     const rawMessages = response.data.messages || [];
-    return rawMessages.map((m: any) => ({
+    const messages = rawMessages.map((m: any) => ({
       id: m.id,
       conversationId: m.conversationId,
       senderId: m.sender?.id || m.senderId || '',
@@ -800,6 +861,13 @@ class APIClient {
       sender: m.sender,
       replyTo: m.replyTo,
     }));
+    return {
+      messages,
+      total: response.data.total || 0,
+      page: response.data.page || 1,
+      totalPages: response.data.totalPages || 1,
+      hasMore: response.data.hasMore || false,
+    };
   }
 
   // ─── Message Forwarding API ─────────────────────────────────────────────
@@ -1433,7 +1501,7 @@ class APIClient {
     return data;
   }
 
-  async updateOrgProfile(updates: { name?: string; description?: string; visibility?: string }): Promise<any> {
+  async updateOrgProfile(updates: { name?: string; description?: string; visibility?: string; primaryColor?: string | null; welcomeMessage?: string | null; onboardingDone?: boolean }): Promise<any> {
     const { data } = await this.client.patch('/org-admin/profile', updates);
     return data;
   }
@@ -1539,6 +1607,75 @@ class APIClient {
 
   async getCall(callId: string): Promise<any> {
     const res = await this.client.get(`/calls/${callId}`);
+    return res.data;
+  }
+
+  // ─── Channels API ────────────────────────────────────────────────────
+
+  async createChannel(data: { name: string; description?: string; isPublic?: boolean }): Promise<any> {
+    const res = await this.client.post('/channels', data);
+    return res.data;
+  }
+
+  async listChannels(): Promise<any> {
+    const res = await this.client.get('/channels');
+    return res.data;
+  }
+
+  async joinChannel(channelId: string): Promise<any> {
+    const res = await this.client.post(`/channels/${channelId}/join`);
+    return res.data;
+  }
+
+  async leaveChannel(channelId: string): Promise<any> {
+    const res = await this.client.post(`/channels/${channelId}/leave`);
+    return res.data;
+  }
+
+  // ─── Privacy Settings API ──────────────────────────────────────────────
+
+  async getPrivacySettings(): Promise<{ readReceiptsEnabled: boolean; lastSeenPrivacy: string }> {
+    const res = await this.client.get('/auth/privacy');
+    return res.data;
+  }
+
+  async updatePrivacySettings(settings: { readReceiptsEnabled?: boolean; lastSeenPrivacy?: string }): Promise<{ readReceiptsEnabled: boolean; lastSeenPrivacy: string }> {
+    const res = await this.client.patch('/auth/privacy', settings);
+    return res.data;
+  }
+
+  // ─── E2EE ──────────────────────────────────────────────────────
+  async uploadE2EEKey(data: { publicKey: string; deviceId: string }): Promise<{ id: string; fingerprint: string; deviceId: string }> {
+    const res = await this.client.post('/e2ee/keys', data);
+    return res.data;
+  }
+
+  async getMyE2EEKeys(): Promise<{ keys: any[] }> {
+    const res = await this.client.get('/e2ee/keys');
+    return res.data;
+  }
+
+  async getUserE2EEKeys(userId: string): Promise<{ keys: any[] }> {
+    const res = await this.client.get(`/e2ee/keys/${userId}`);
+    return res.data;
+  }
+
+  async revokeE2EEKey(deviceId: string): Promise<void> {
+    await this.client.delete(`/e2ee/keys/${deviceId}`);
+  }
+
+  async enableE2EE(conversationId: string): Promise<{ id: string; isE2EE: boolean }> {
+    const res = await this.client.post(`/e2ee/conversations/${conversationId}/enable`);
+    return res.data;
+  }
+
+  async disableE2EE(conversationId: string): Promise<{ id: string; isE2EE: boolean }> {
+    const res = await this.client.post(`/e2ee/conversations/${conversationId}/disable`);
+    return res.data;
+  }
+
+  async getConversationE2EEKeys(conversationId: string): Promise<{ members: Record<string, any> }> {
+    const res = await this.client.get(`/e2ee/conversations/${conversationId}/keys`);
     return res.data;
   }
 }

@@ -38,7 +38,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navigate = useNavigate();
   const { conversationId } = useParams<{ conversationId?: string }>();
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'all' | 'dms' | 'tasks' | 'projects' | 'favorites'>('dms');
+  const [activeTab, setActiveTab] = useState<'all' | 'dms' | 'tasks' | 'projects' | 'favorites' | 'channels'>('dms');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
 
@@ -212,7 +212,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   // Helper to determine conversation category
-  const getConvCategory = (conv: any): 'dms' | 'tasks' | 'projects' | 'groups' => {
+  const getConvCategory = (conv: any): 'dms' | 'tasks' | 'projects' | 'groups' | 'channels' => {
+    if (conv.type === 'CHANNEL') return 'channels';
     if (conv.linkedTask) return 'tasks';
     if (conv.linkedProject) return 'projects';
     if (conv.type === 'DIRECT' || conv.participants.length <= 2) return 'dms';
@@ -638,6 +639,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               { key: 'all', label: 'All' },
               { key: 'favorites', label: '★ Favs' },
               { key: 'dms', label: 'DMs' },
+              { key: 'channels', label: '# Channels' },
               { key: 'tasks', label: 'Tasks' },
               { key: 'projects', label: 'Projects' },
             ] as const).map(({ key, label }) => {

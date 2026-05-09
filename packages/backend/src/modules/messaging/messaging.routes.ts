@@ -4,6 +4,7 @@ import path from 'path';
 import { MessagingController } from './messaging.controller';
 import { ChatSettingsController } from './chatSettings.controller';
 import { authenticate } from '../../middleware/auth';
+import { messageLimiter, uploadLimiter, searchLimiter } from '../../middleware/rateLimiter';
 
 const router = Router();
 const controller = new MessagingController();
@@ -42,13 +43,19 @@ router.post('/conversations/:conversationId/members', controller.addMember.bind(
 
 // Messages
 router.get('/conversations/:conversationId/messages', controller.getMessages);
-router.post('/conversations/:conversationId/messages', controller.sendMessage);
-router.get('/messages/search', controller.searchMessages.bind(controller));
+router.post('/conversations/:conversationId/messages', messageLimiter, controller.sendMessage);
+router.get('/messages/search', searchLimiter, controller.searchMessages.bind(controller));
 router.put('/messages/:messageId', controller.editMessage);
 router.delete('/messages/:messageId', controller.deleteMessage);
 
+// Thread replies
+router.get('/messages/:messageId/thread', controller.getThreadReplies.bind(controller));
+
+// Edit history
+router.get('/messages/:messageId/history', controller.getEditHistory.bind(controller));
+
 // File upload
-router.post('/conversations/:conversationId/upload', upload.single('file'), controller.uploadFile);
+router.post('/conversations/:conversationId/upload', uploadLimiter, upload.single('file'), controller.uploadFile);
 
 // Translation
 router.post('/translate', controller.translateMessage.bind(controller));
@@ -109,5 +116,13 @@ router.post('/users/:targetUserId/report', chatSettings.reportUser.bind(chatSett
 
 // Common groups
 router.get('/users/:targetUserId/common-groups', chatSettings.getCommonGroups.bind(chatSettings));
+
+// ============================================
+// CHANNEL ROUTES
+// ============================================
+router.post('/channels', controller.createChannel.bind(controller));
+router.get('/channels', controller.listChannels.bind(controller));
+router.post('/channels/:channelId/join', controller.joinChannel.bind(controller));
+router.post('/channels/:channelId/leave', controller.leaveChannel.bind(controller));
 
 export { router as messagingRoutes };

@@ -25,12 +25,13 @@ import { api } from '@/services/api';
 import Avatar from '@/components/common/Avatar';
 import PanelSettingsTab from './PanelSettingsTab';
 import DepartmentsTab from './DepartmentsTab';
+import AuditLogsTab from './AuditLogsTab';
 
 interface OrgAdminDashboardProps {
   onBack: () => void;
 }
 
-type TabType = 'overview' | 'members' | 'departments' | 'messages' | 'tasks' | 'reports' | 'settings';
+type TabType = 'overview' | 'members' | 'departments' | 'messages' | 'tasks' | 'reports' | 'audit' | 'settings';
 
 interface OrgSummary {
   id: string;
@@ -565,6 +566,7 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
             { id: 'messages' as TabType, label: 'Messages' },
             { id: 'tasks' as TabType, label: 'Tasks' },
             { id: 'reports' as TabType, label: 'Reports' },
+            { id: 'audit' as TabType, label: 'Audit Logs' },
             { id: 'settings' as TabType, label: 'Settings' },
           ].map((tab) => (
             <button
@@ -1291,6 +1293,11 @@ export default function OrgAdminDashboard({ onBack }: OrgAdminDashboardProps) {
               </div>
             )}
           </div>
+        )}
+
+        {/* Audit Logs Tab */}
+        {activeTab === 'audit' && (
+          <AuditLogsTab />
         )}
 
         {/* Settings Tab */}

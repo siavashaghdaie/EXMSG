@@ -118,6 +118,21 @@ export const NewConversationModal: React.FC<NewConversationModalProps> = ({
     try {
       setIsCreating(true);
 
+      if (activeTab === 'channel') {
+        // Use dedicated channel API
+        await api.createChannel({
+          name: groupName,
+          isPublic: true,
+        });
+        // Refresh conversations to pick up the new channel
+        const { fetchConversations } = useChatStore.getState();
+        fetchConversations();
+        resetAll();
+        setActiveTab('dm');
+        onClose();
+        return;
+      }
+
       const participantIds =
         activeTab === 'dm'
           ? [selectedMembers[0]?.id]

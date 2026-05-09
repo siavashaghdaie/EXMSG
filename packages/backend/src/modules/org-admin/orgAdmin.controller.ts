@@ -6,6 +6,7 @@ import { prisma } from '../../config/database';
 import { createInviteToken, INVITE_EXPIRY_HOURS } from '../../services/invite';
 import { sendInviteEmail, isEmailConfigured } from '../../services/email';
 import { env } from '../../config/env';
+import { logAudit, actorFromReq } from '../../services/auditLog';
 
 // Reserved role names accepted from the client
 type IncomingOrgRole = 'OWNER' | 'ADMIN' | 'MEMBER';
@@ -679,6 +680,15 @@ export class OrgAdminController {
 
       console.log(`[OrgAdmin] addMember result: email=${normalizedEmail} createdNewUser=${createdNewUser} inviteSent=${inviteSent}`);
 
+      // Audit: member added
+      logAudit({
+        ...actorFromReq(req),
+        action: 'member.add', category: 'member',
+        targetType: 'user', targetId: user.id,
+        details: { email: user.email, role: member.role, createdNewUser },
+        severity: 'info',
+      });
+
       res.status(201).json({
         member: {
           id: user.id,
@@ -879,6 +889,15 @@ export class OrgAdminController {
         include: { department: { select: { id: true, name: true } } },
       });
 
+      // Audit: member role/profile updated
+      logAudit({
+        ...actorFromReq(req),
+        action: 'member.update', category: 'member',
+        targetType: 'user', targetId: userId,
+        details: { role, displayName, departmentId },
+        severity: 'info',
+      });
+
       res.json({
         member: {
           id: refreshed!.user.id,
@@ -939,6 +958,16 @@ export class OrgAdminController {
       }
 
       await prisma.organizationMember.delete({ where: { id: target.id } });
+
+      // Audit: member removed
+      logAudit({
+        ...actorFromReq(req),
+        action: 'member.remove', category: 'member',
+        targetType: 'user', targetId: userId,
+        details: { removedRole: target.role },
+        severity: 'warning',
+      });
+
       res.status(204).send();
     } catch (error) {
       console.error('Remove member error:', error);
@@ -1126,6 +1155,9 @@ export class OrgAdminController {
           visibility: true,
           plan: true,
           planStatus: true,
+          primaryColor: true,
+          welcomeMessage: true,
+          onboardingDone: true,
         },
       });
 
@@ -1155,7 +1187,7 @@ export class OrgAdminController {
         return;
       }
 
-      const { name, description, visibility } = req.body || {};
+      const { name, description, visibility, primaryColor, welcomeMessage, onboardingDone } = req.body || {};
 
       // Validate visibility if provided
       if (visibility !== undefined && visibility !== 'public' && visibility !== 'private') {
@@ -1163,10 +1195,19 @@ export class OrgAdminController {
         return;
       }
 
+      // Validate primaryColor format if provided
+      if (primaryColor !== undefined && primaryColor !== null && !/^#[0-9A-Fa-f]{6}$/.test(primaryColor)) {
+        res.status(400).json({ error: 'primaryColor must be a valid hex color (e.g. #6C47FF)' });
+        return;
+      }
+
       const data: Record<string, any> = {};
       if (name !== undefined) data.name = String(name).trim();
       if (description !== undefined) data.description = String(description).trim();
       if (visibility !== undefined) data.visibility = visibility;
+      if (primaryColor !== undefined) data.primaryColor = primaryColor;
+      if (welcomeMessage !== undefined) data.welcomeMessage = welcomeMessage ? String(welcomeMessage).trim() : null;
+      if (onboardingDone !== undefined) data.onboardingDone = Boolean(onboardingDone);
 
       if (Object.keys(data).length === 0) {
         res.status(400).json({ error: 'No fields to update' });
@@ -1185,6 +1226,9 @@ export class OrgAdminController {
           visibility: true,
           plan: true,
           planStatus: true,
+          primaryColor: true,
+          welcomeMessage: true,
+          onboardingDone: true,
         },
       });
 

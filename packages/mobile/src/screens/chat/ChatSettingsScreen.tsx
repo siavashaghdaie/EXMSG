@@ -28,6 +28,7 @@ export default function ChatSettingsScreen() {
   const [lockPinTemp, setLockPinTemp] = useState('');
   const [lockError, setLockError] = useState<string | null>(null);
   const [showTranslateSettings, setShowTranslateSettings] = useState(false);
+  const [showMuteOptions, setShowMuteOptions] = useState(false);
   const [showLangPicker, setShowLangPicker] = useState<{ field: string; title: string; includeAll?: boolean; includeNone?: boolean } | null>(null);
   const [showReport, setShowReport] = useState(false);
   const [reportReason, setReportReason] = useState('');
@@ -218,16 +219,80 @@ export default function ChatSettingsScreen() {
           <SettingItem
             icon={settings.isMuted ? 'notifications-off-outline' : 'notifications-outline'}
             label="Mute Notifications"
+            subtitle={settings.isMuted
+              ? (settings.muteUntil
+                ? `Until ${new Date(settings.muteUntil).toLocaleDateString()}`
+                : 'Always')
+              : undefined}
             colors={colors}
+            onPress={() => {
+              if (settings.isMuted) {
+                updateSetting('isMuted', false);
+                updateSetting('muteUntil', null);
+                setShowMuteOptions(false);
+              } else {
+                setShowMuteOptions(true);
+              }
+            }}
             trailing={
               <Switch
                 value={settings.isMuted}
-                onValueChange={(v) => updateSetting('isMuted', v)}
+                onValueChange={(v) => {
+                  if (!v) {
+                    updateSetting('isMuted', false);
+                    updateSetting('muteUntil', null);
+                    setShowMuteOptions(false);
+                  } else {
+                    setShowMuteOptions(true);
+                  }
+                }}
                 trackColor={{ false: '#ccc', true: colors.primary + '80' }}
                 thumbColor={settings.isMuted ? colors.primary : '#f4f3f4'}
               />
             }
           />
+          {showMuteOptions && (
+            <View style={{ marginLeft: 40, marginBottom: 8, gap: 2 }}>
+              {[
+                { label: '1 hour', hours: 1 },
+                { label: '8 hours', hours: 8 },
+                { label: '1 day', hours: 24 },
+                { label: '1 week', hours: 168 },
+                { label: 'Always', hours: 0 },
+              ].map((opt) => (
+                <TouchableOpacity
+                  key={opt.label}
+                  onPress={() => {
+                    const muteUntil = opt.hours > 0
+                      ? new Date(Date.now() + opt.hours * 60 * 60 * 1000).toISOString()
+                      : null;
+                    updateSetting('isMuted', true);
+                    updateSetting('muteUntil', muteUntil);
+                    setShowMuteOptions(false);
+                  }}
+                  style={{
+                    paddingVertical: 10,
+                    paddingHorizontal: 16,
+                    borderRadius: 8,
+                    backgroundColor: settings.isMuted && (
+                      (opt.hours === 0 && !settings.muteUntil) ||
+                      (opt.hours > 0 && settings.muteUntil)
+                    ) ? colors.primary + '15' : 'transparent',
+                  }}
+                >
+                  <Text style={{
+                    fontSize: 14,
+                    color: settings.isMuted && (
+                      (opt.hours === 0 && !settings.muteUntil) ||
+                      (opt.hours > 0 && settings.muteUntil)
+                    ) ? colors.primary : colors.text,
+                  }}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
           <SettingItem
             icon="language-outline"
             label="Auto-Translate"
@@ -303,9 +368,31 @@ export default function ChatSettingsScreen() {
           />
           <SettingItem
             icon="shield-checkmark-outline"
-            label="Encryption"
-            subtitle="Messages are encrypted in transit"
+            label="End-to-End Encryption"
+            subtitle={conversation?.isE2EE ? 'Messages are end-to-end encrypted' : 'Messages are encrypted in transit'}
             colors={colors}
+            trailing={
+              <Switch
+                value={!!conversation?.isE2EE}
+                onValueChange={async (val) => {
+                  try {
+                    if (val) {
+                      await api.enableE2EE(conversationId);
+                    } else {
+                      await api.disableE2EE(conversationId);
+                    }
+                    setChatInfo((prev: any) => ({
+                      ...prev,
+                      conversation: { ...prev.conversation, isE2EE: val },
+                    }));
+                  } catch (err: any) {
+                    Alert.alert('Error', err?.response?.data?.error || 'Failed to toggle E2EE');
+                  }
+                }}
+                trackColor={{ false: '#ccc', true: colors.primary + '60' }}
+                thumbColor={conversation?.isE2EE ? colors.primary : '#f4f3f4'}
+              />
+            }
           />
         </View>
 

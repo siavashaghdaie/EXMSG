@@ -20,6 +20,10 @@ model Organization {
   // "public" panels appear on the landing page and can be found by other panel owners.
   // "private" panels are hidden from discovery.
   visibility  String   @default("private")   // "public" | "private"
+  // Branding & onboarding
+  primaryColor    String?  @map("primary_color")      // hex color e.g. "#6C47FF"
+  welcomeMessage  String?  @map("welcome_message")    // greeting shown to new members
+  onboardingDone  Boolean  @default(false) @map("onboarding_done") // has admin finished setup wizard?
   // Subscription plan selected at signup time
   plan        String   @default("starter")
   planStatus  String   @default("active") @map("plan_status")
@@ -37,6 +41,7 @@ model Organization {
   sentPanelRequests     InterPanelRequest[] @relation("SentPanelRequests")
   receivedPanelRequests InterPanelRequest[] @relation("ReceivedPanelRequests")
   orgAgents             OrgAgent[]
+  auditLogs             AuditLog[]
 
   @@map("organizations")
 }
@@ -73,6 +78,9 @@ model User {
   superAdminHash   String?  @map("super_admin_hash") // Deprecated — kept for backward compat
   twoFactorEnabled Boolean @default(false) @map("two_factor_enabled")
   twoFactorSecret  String? @map("two_factor_secret")
+  // Privacy settings
+  readReceiptsEnabled Boolean @default(true) @map("read_receipts_enabled")
+  lastSeenPrivacy     String  @default("everyone") @map("last_seen_privacy") // "everyone", "contacts", "nobody"
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
@@ -115,6 +123,7 @@ model User {
   reportsMade        ReportedUser[]   @relation("ReportsMade")
   reportsReceived    ReportedUser[]   @relation("ReportsReceived")
   pushSubscriptions  PushSubscription[]
+  e2eeKeys           UserE2EEKey[]
 
   @@map("users")
 }
@@ -136,6 +145,7 @@ model OrganizationMember {
   organizationId String   @map("organization_id")
   userId         String   @map("user_id")
   role           OrgRole  @default(MEMBER)
+  permissions    Json?                     // Custom permission overrides (string[]), null = use role defaults
   joinedAt       DateTime @default(now()) @map("joined_at")
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -167,6 +177,8 @@ model Conversation {
   isInterPanel   Boolean          @default(false) @map("is_inter_panel")
   // Disappearing messages: null = off, otherwise duration in seconds
   disappearingSeconds Int?        @map("disappearing_seconds")
+  // End-to-end encryption: when enabled, messages are encrypted client-side
+  isE2EE         Boolean          @default(false) @map("is_e2ee")
   createdAt      DateTime         @default(now()) @map("created_at")
   updatedAt      DateTime         @updatedAt @map("updated_at")
 
@@ -179,6 +191,7 @@ model Conversation {
   linkedTask    Task?    @relation("TaskConversation")
   linkedProject Project? @relation("ProjectConversation")
   calls         Call[]
+  channel       Channel?
 
   @@index([organizationId])
   @@map("conversations")
@@ -232,6 +245,7 @@ model Channel {
   createdAt      DateTime @default(now()) @map("created_at")
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, slug])
   @@map("channels")
@@ -249,10 +263,12 @@ model Message {
   content        String?
   type           MessageType @default(TEXT)
   isEdited       Boolean     @default(false) @map("is_edited")
+  editHistory    Json?       @map("edit_history") // Array of { content, editedAt } entries
   isDeleted      Boolean     @default(false) @map("is_deleted")
   scheduledAt    DateTime?   @map("scheduled_at")
   metadata       String?     // JSON for extra data like story reply info
   expiresAt      DateTime?   @map("expires_at") // disappearing messages: auto-set from conversation.disappearingSeconds
+  isEncrypted    Boolean     @default(false) @map("is_encrypted") // E2EE: content is encrypted ciphertext
   isViewOnce     Boolean     @default(false) @map("is_view_once") // view-once media: disappears after first view
   viewedAt       DateTime?   @map("viewed_at") // when view-once was opened by recipient
   createdAt      DateTime    @default(now()) @map("created_at")
@@ -939,6 +955,24 @@ model PushSubscription {
   @@map("push_subscriptions")
 }
 
+// End-to-End Encryption: stores user public keys for key exchange
+model UserE2EEKey {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  publicKey    String   @map("public_key")    // Base64-encoded ECDH public key (JWK)
+  deviceId     String   @map("device_id")     // Unique device identifier
+  fingerprint  String                         // Short hash for visual verification
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([userId])
+  @@map("user_e2ee_keys")
+}
+
 // ============================================
 // AI AGENT MARKETPLACE
 // ============================================
@@ -990,4 +1024,34 @@ model OrgAgent {
   @@unique([organizationId, agentId])
   @@index([organizationId])
   @@map("org_agents")
+}
+
+// ============================================
+// AUDIT LOGS
+// ============================================
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  actorId        String?  @map("actor_id")       // userId who performed the action (null for system)
+  actorEmail     String?  @map("actor_email")     // denormalized for quick display
+  actorName      String?  @map("actor_name")      // denormalized display name
+  action         String                           // e.g. "user.login", "message.delete", "member.add"
+  category       String   @default("general")     // "auth", "messaging", "admin", "member", "settings", "agent"
+  targetType     String?  @map("target_type")     // e.g. "user", "message", "conversation", "agent"
+  targetId       String?  @map("target_id")       // ID of the affected resource
+  details        Json?                            // Additional metadata (e.g. old/new values)
+  ipAddress      String?  @map("ip_address")
+  userAgent      String?  @map("user_agent")
+  severity       String   @default("info")        // "info", "warning", "critical"
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, action])
+  @@index([organizationId, actorId])
+  @@index([organizationId, category])
+  @@index([organizationId, severity])
+  @@map("audit_logs")
 }

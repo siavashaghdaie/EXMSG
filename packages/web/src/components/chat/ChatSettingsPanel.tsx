@@ -76,6 +76,7 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
   const [showReportModal, setShowReportModal] = useState(false);
   const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
   const [showNotificationSound, setShowNotificationSound] = useState(false);
+  const [showMuteOptions, setShowMuteOptions] = useState(false);
   const [showSaveMedia, setShowSaveMedia] = useState(false);
   const [showTranslateSettings, setShowTranslateSettings] = useState(false);
   const [isTransGuyHired, setIsTransGuyHired] = useState(false);
@@ -876,13 +877,60 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
           <SettingRow
             icon={settings.isMuted ? <BellOff size={18} className="text-slate-500" /> : <Bell size={18} className="text-slate-500" />}
             label="Mute Notifications"
+            subtitle={settings.isMuted
+              ? (settings.muteUntil
+                ? `Until ${new Date(settings.muteUntil).toLocaleDateString()} ${new Date(settings.muteUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                : 'Always')
+              : undefined}
+            onClick={() => setShowMuteOptions(!showMuteOptions)}
             trailing={
               <ToggleSwitch
                 value={settings.isMuted}
-                onChange={(v) => updateSetting('isMuted', v)}
+                onChange={(v) => {
+                  if (!v) {
+                    updateSetting('isMuted', false);
+                    updateSetting('muteUntil', null);
+                    setShowMuteOptions(false);
+                  } else {
+                    setShowMuteOptions(true);
+                  }
+                }}
               />
             }
           />
+          {showMuteOptions && (
+            <div className="ml-10 mb-2 space-y-1">
+              {[
+                { label: '1 hour', hours: 1 },
+                { label: '8 hours', hours: 8 },
+                { label: '1 day', hours: 24 },
+                { label: '1 week', hours: 168 },
+                { label: 'Always', hours: 0 },
+              ].map((opt) => (
+                <button
+                  key={opt.label}
+                  onClick={() => {
+                    const muteUntil = opt.hours > 0
+                      ? new Date(Date.now() + opt.hours * 60 * 60 * 1000).toISOString()
+                      : null;
+                    updateSetting('isMuted', true);
+                    updateSetting('muteUntil', muteUntil);
+                    setShowMuteOptions(false);
+                  }}
+                  className={`w-full text-left px-3 py-2 text-sm rounded-lg transition ${
+                    settings.isMuted && (
+                      (opt.hours === 0 && !settings.muteUntil) ||
+                      (opt.hours > 0 && settings.muteUntil)
+                    )
+                      ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-surface-700'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Custom Notification Sound */}
           <SettingRow
@@ -955,12 +1003,32 @@ export default function ChatSettingsPanel({ conversationId, onClose, onNavigateT
             }
           />
 
-          {/* Encryption */}
+          {/* End-to-End Encryption */}
           <SettingRow
-            icon={<Shield size={18} className="text-green-500" />}
-            label="Encryption"
-            subtitle="Messages are encrypted in transit"
-            onClick={() => {}}
+            icon={<Shield size={18} className={conversation?.isE2EE ? 'text-green-500' : 'text-slate-500'} />}
+            label="End-to-End Encryption"
+            subtitle={conversation?.isE2EE ? 'Messages are end-to-end encrypted' : 'Messages are encrypted in transit'}
+            trailing={
+              <ToggleSwitch
+                value={!!conversation?.isE2EE}
+                onChange={async (val) => {
+                  try {
+                    if (val) {
+                      await api.enableE2EE(conversationId);
+                    } else {
+                      await api.disableE2EE(conversationId);
+                    }
+                    setChatInfo((prev: any) => ({
+                      ...prev,
+                      conversation: { ...prev.conversation, isE2EE: val },
+                    }));
+                  } catch (err: any) {
+                    const msg = err?.response?.data?.error || 'Failed to toggle E2EE';
+                    alert(msg);
+                  }
+                }}
+              />
+            }
           />
         </div>
 
