@@ -23,6 +23,10 @@ import OrgOnboardingModal from './OrgOnboardingModal';
 const PRIMARY = '#6C47FF';
 const DANGER = '#E53935';
 const APP_VERSION = '1.0.0';
+const TEXT_PRIMARY = '#1a1a1a';
+const TEXT_SECONDARY = '#666';
+const SECTION_BG = '#f5f5f5';
+const BORDER = '#e0e0e0';
 
 type ThemeMode = 'light' | 'dark' | 'system';
 

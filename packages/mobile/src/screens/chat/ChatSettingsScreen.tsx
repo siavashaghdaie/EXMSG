@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert,
-  Switch, Image, FlatList, Modal, TextInput, Share,
+  Switch, Image, FlatList, Modal, TextInput, Share, useColorScheme,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -9,16 +9,28 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import * as SecureStore from 'expo-secure-store';
 import { api } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
-import { useTheme } from '@/theme/ThemeContext';
-import { getFullUrl } from '@/utils/imageUrl';
+import { getFullUrl } from '@/utils/url';
 import ChatLockModal from '@/components/ChatLockModal';
+
+const THEME_COLORS = {
+  light: {
+    background: '#FFFFFF', card: '#f5f5f5', text: '#1a1a1a', textSecondary: '#666',
+    border: '#e0e0e0', primary: '#6C47FF', inputBg: '#fff',
+  },
+  dark: {
+    background: '#0F172A', card: '#1E293B', text: '#F1F5F9', textSecondary: '#94A3B8',
+    border: '#334155', primary: '#8B5CF6', inputBg: '#1E293B',
+  },
+};
 
 export default function ChatSettingsScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const { conversationId, name: chatName } = route.params;
   const { user } = useAuthStore();
-  const { colors, isDark } = useTheme();
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
+  const colors = THEME_COLORS[isDark ? 'dark' : 'light'];
 
   const [loading, setLoading] = useState(true);
   const [chatInfo, setChatInfo] = useState<any>(null);

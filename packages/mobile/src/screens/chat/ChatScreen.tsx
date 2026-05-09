@@ -899,7 +899,7 @@ export default function ChatScreen() {
           activeOpacity={isLinda ? 1 : 0.6}
           onPress={() => {
             if (!isLinda) {
-              navigation.navigate('ChatSettings' as any, { conversationId, name });
+              (navigation as any).navigate('ChatSettings', { conversationId, name });
             }
           }}
         >

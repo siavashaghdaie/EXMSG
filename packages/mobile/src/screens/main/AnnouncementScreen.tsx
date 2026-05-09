@@ -182,7 +182,7 @@ export default function AnnouncementScreen() {
         api.getAnnouncements(),
         api.canAnnounce(),
       ]);
-      setAnnouncements(data as AnnouncementItem[]);
+      setAnnouncements((data as any)?.announcements ?? (data as any) as AnnouncementItem[]);
       setCanCreate(!!allowed);
     } catch (e: any) {
       setError(e?.message ?? 'Failed to load announcements');
@@ -294,7 +294,7 @@ export default function AnnouncementScreen() {
     setCommentsLoading((prev) => new Set(prev).add(announcementId));
     try {
       const data = await api.getAnnouncementComments(announcementId);
-      setCommentsMap((prev) => ({ ...prev, [announcementId]: data as CommentItem[] }));
+      setCommentsMap((prev) => ({ ...prev, [announcementId]: ((data as any)?.comments ?? data) as CommentItem[] }));
     } catch {
       Alert.alert('Error', 'Could not load comments.');
     } finally {

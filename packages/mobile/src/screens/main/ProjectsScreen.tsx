@@ -181,7 +181,7 @@ export default function ProjectsScreen({ embedded }: { embedded?: boolean } = {}
       await api.reactToTask(taskId, type);
       if (selectedProject) {
         const res = await api.getProject(selectedProject.id);
-        setSelectedProject(res);
+        setSelectedProject((res as any)?.project ?? res);
       }
     } catch (err) { console.error('React error:', err); }
   };
@@ -193,7 +193,7 @@ export default function ProjectsScreen({ embedded }: { embedded?: boolean } = {}
       setNewComment('');
       const data = await api.getTaskComments(taskId);
       setTaskComments(data.comments || []);
-      if (selectedProject) { const res = await api.getProject(selectedProject.id); setSelectedProject(res); }
+      if (selectedProject) { const res = await api.getProject(selectedProject.id); setSelectedProject((res as any)?.project ?? res); }
     } catch (err) { console.error('Add comment error:', err); }
   };
 
@@ -212,7 +212,7 @@ export default function ProjectsScreen({ embedded }: { embedded?: boolean } = {}
       await api.deleteTaskComment(taskId, commentId);
       const data = await api.getTaskComments(taskId);
       setTaskComments(data.comments || []);
-      if (selectedProject) { const res = await api.getProject(selectedProject.id); setSelectedProject(res); }
+      if (selectedProject) { const res = await api.getProject(selectedProject.id); setSelectedProject((res as any)?.project ?? res); }
     } catch (err) { console.error('Delete comment error:', err); }
   };
 

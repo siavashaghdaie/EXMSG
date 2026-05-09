@@ -30,7 +30,7 @@ interface LindaMessageData {
 interface LindaConversationSummary {
   id: string;
   title?: string;
-  lastMessage?: string;
+  lastMessage?: string | { content: string; role: string; createdAt: string };
   updatedAt: string;
 }
 
