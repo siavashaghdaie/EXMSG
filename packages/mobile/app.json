@@ -33,14 +33,6 @@
         "projectId": "800b44c8-54a8-486f-8b1c-03b15dfb4b33"
       }
     },
-    "plugins": [
-      [
-        "react-native-webrtc",
-        {
-          "cameraPermission": "OmniLink needs camera access for video calls",
-          "microphonePermission": "OmniLink needs microphone access for voice and video calls"
-        }
-      ]
-    ]
+    "plugins": []
   }
 }
